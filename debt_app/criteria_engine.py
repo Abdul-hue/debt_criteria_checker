@@ -933,7 +933,19 @@ def _watch_22_2(c: dict) -> RuleResult:
     threshold = 72.0
     di = c["disposable_income"]
     if di <= 0:
-        return _pass("WATCH-22.2", "Disposable income is zero — months-to-repay not computable.")
+        return RuleResult(
+            rule_id="WATCH-22.2",
+            severity="hard_block",
+            triggered=True,
+            message=(
+                "Disposable income is zero or negative "
+                "— debt can never be repaid within 72 "
+                "months. WATCH requires IVA to run at "
+                "least 6 years."
+            ),
+            threshold=72.0,
+            actual_value=None,
+        )
     actual = c["total_debt"] / di
     if actual <= threshold:
         return RuleResult(
