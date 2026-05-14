@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  debt-criteria:
+    build: .
+    container_name: debt-criteria
+    ports:
+      - "5010:8000"
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data/db.sqlite3:/app/db.sqlite3

@@ -5,3 +5,4 @@ pytest-django
 python-dotenv
 djangorestframework
 djangorestframework-simplejwt
+gunicorn
