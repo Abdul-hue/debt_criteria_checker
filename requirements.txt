@@ -1,0 +1,7 @@
+Django>=6.0.4
+mysqlclient
+pytest
+pytest-django
+python-dotenv
+djangorestframework
+djangorestframework-simplejwt

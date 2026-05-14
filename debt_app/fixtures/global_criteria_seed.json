@@ -1,0 +1,74 @@
+[
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 1,
+    "fields": {
+      "criteria_set": "TIG",
+      "rule_key": "majority_threshold",
+      "rule_name": "Majority Creditor Threshold",
+      "severity": "hard_block",
+      "is_active": true,
+      "threshold_value": "75.00"
+    }
+  },
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 2,
+    "fields": {
+      "criteria_set": "WATCH",
+      "rule_key": "min_debt",
+      "rule_name": "Minimum Debt Threshold",
+      "severity": "flag",
+      "is_active": true,
+      "threshold_value": "5000.00"
+    }
+  },
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 3,
+    "fields": {
+      "criteria_set": "WATCH",
+      "rule_key": "watch_single_creditor",
+      "rule_name": "Watch List Single Creditor Rule",
+      "severity": "flag",
+      "is_active": true,
+      "threshold_value": null
+    }
+  },
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 4,
+    "fields": {
+      "criteria_set": "TIX",
+      "rule_key": "tix_eligibility",
+      "rule_name": "TIX Scheme Eligibility",
+      "severity": "info",
+      "is_active": true,
+      "threshold_value": null
+    }
+  },
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 5,
+    "fields": {
+      "criteria_set": "EVOLVE",
+      "rule_key": "evolve_criteria",
+      "rule_name": "Evolve Scheme Criteria",
+      "severity": "info",
+      "is_active": true,
+      "threshold_value": null
+    }
+  },
+  {
+    "model": "debt_app.globalcriteria",
+    "pk": 6,
+    "fields": {
+      "criteria_set": "TIG",
+      "rule_key": "parent_group_conflict",
+      "rule_name": "Parent Group Banking Conflict",
+      "severity": "hard_block",
+      "is_active": true,
+      "threshold_value": null
+    }
+  }
+]

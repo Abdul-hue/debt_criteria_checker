@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"C:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\\\\\" 2>/dev/null || dir \"C:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\\\\\")",
+      "Read(//c/Users/Canton Computers/Desktop/Debt Criteria check\" 2>/dev/**)",
+      "Bash(debt_app\\\\.venv\\\\Scripts\\\\python.exe manage.py check)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\\\\\" -Force | Select-Object Name, PSIsContainer)",
+      "Bash(ls \"c:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\\\\\")",
+      "Read(//c/Users/Canton Computers/Desktop/**)",
+      "Bash(python manage.py migrate)",
+      "Bash(pip show *)",
+      "Bash(.venv/Scripts/python manage.py migrate)",
+      "Bash(.venv/Scripts/python manage.py seed_creditor_criteria)",
+      "PowerShell(Stop-Process -Id 8748 -Force -Confirm:$false -ErrorAction SilentlyContinue)"
+    ]
+  }
+}

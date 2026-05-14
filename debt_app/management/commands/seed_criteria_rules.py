@@ -1,0 +1,601 @@
+"""
+Management command to seed GlobalCriteria rules.
+Usage: python manage.py seed_criteria_rules
+Re-running this command is safe — update_or_create ensures wrong data is corrected.
+"""
+from django.core.management.base import BaseCommand
+from decimal import Decimal
+from debt_app.models import GlobalCriteria
+
+
+class Command(BaseCommand):
+    help = 'Seeds all GlobalCriteria rules (TIG, WATCH, TIX, EVOLVE)'
+
+    def handle(self, *args, **options):
+        # T1 — Delete all old/wrong/slug-style rules before seeding.
+        # Covers both the 5 originally planned deletions and the 34 old-generation
+        # slug-style keys found in the database after the first run.
+        rules_to_delete = [
+            # Old slug-style keys (first-generation implementation)
+            'bank_statement_check', 'benefit_proof_check', 'cis_proof',
+            'creation_rules', 'dla_pip_offset', 'equity_flag',
+            'gambling_flag', 'gambling_hard_block', 'hmrc_rules',
+            'link_financial_rules', 'min_di', 'parent_group_conflict',
+            'previous_iva_check', 'proof_of_debt', 'recent_spending',
+            'self_employed_proof', 'shop_direct_rules', 'third_party_letter',
+            'uc_journal_check', 'unexplained_transactions', 'wage_slip_check',
+            'watch_antecedent_transactions', 'watch_bankruptcy_higher',
+            'watch_children_over_13', 'watch_client_age_80',
+            'watch_debt_repayable_under_6_years', 'watch_equity_exceeds_debt',
+            'watch_gambling_no_clean_statements', 'watch_hp_over_400',
+            'watch_previous_proposal', 'watch_recent_car_finance',
+            'watch_recent_spending', 'watch_vehicle_over_9000',
+            'watch_vulnerability_no_evidence',
+            # Phantom and vague rules from second-generation attempt
+            'majority_threshold', 'min_debt', 'watch_single_creditor',
+            'tix_eligibility', 'evolve_criteria',
+        ]
+        deleted, _ = GlobalCriteria.objects.filter(rule_key__in=rules_to_delete).delete()
+        if deleted:
+            self.stdout.write(self.style.WARNING(f'Deleted {deleted} old/wrong rules'))
+
+        # T2 + T3 — Full rules list: 49 active + 9 stubs
+        rules = [
+            # ------------------------------------------------------------------ TIG
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-01',
+                'rule_name': 'Minimum debt',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('6000.00'),
+                'description': 'Total unsecured debt must be at least £6,000. Below this threshold the case cannot proceed.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-02',
+                'rule_name': 'Minimum disposable income',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('100.00'),
+                'description': 'Client must have a minimum disposable income of £100 per month after SFS expenditure.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-03',
+                'rule_name': 'SFS guidelines',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Expenditure must align with Standard Financial Statement guidelines. Flag if any category exceeds guideline figures.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-04',
+                'rule_name': 'DLA/PIP offset',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires disability_income and disability_expenses fields in case payload. DLA/PIP receipts must be offset against disability-related expenditure before calculating disposable income. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-05',
+                'rule_name': 'Wage slip required',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Employed clients must provide recent wage slips as proof of income. Case cannot proceed without this evidence.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-06',
+                'rule_name': 'Benefit income proof',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Clients relying on benefit income must provide official benefit award letters. Case cannot proceed without this evidence.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-07',
+                'rule_name': 'UC journal required',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Universal Credit claimants must provide a UC journal screenshot or letter confirming current entitlement.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-08',
+                'rule_name': 'Self-employed income proof',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Self-employed clients must provide latest accounts or SA302 as proof of income.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-09',
+                'rule_name': 'CIS income proof',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'CIS (Construction Industry Scheme) workers must provide CIS payment statements as proof of income.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-10',
+                'rule_name': 'Proof of debt',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Creditor statements or credit report evidence must be provided for all debts listed in the IVA proposal.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-11',
+                'rule_name': 'Bank statement verification',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Recent bank statements (minimum 3 months) must be provided to verify declared income and expenditure.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-12',
+                'rule_name': 'Third-party contribution evidence',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires third_party_contribution object in case payload. Where a third-party contributes to the IVA, written evidence of the arrangement and ability to pay must be provided. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-13',
+                'rule_name': 'Previous IVA termination report',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'If the client has a previously terminated IVA, the termination report must be obtained and reviewed before proceeding.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.1',
+                'rule_name': 'HMRC income deductions',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Where HMRC is a creditor, any income tax deductions at source must be correctly reflected in the income figure before SFS.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.2',
+                'rule_name': 'HMRC previous IVA or bankruptcy',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'HMRC requires disclosure of any previous IVA or bankruptcy before it will vote in favour of a new arrangement.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.3',
+                'rule_name': 'HMRC late tax submissions',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'All outstanding self-assessment tax returns must be submitted before HMRC will accept an IVA proposal.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.4',
+                'rule_name': 'HMRC equity exceeds debt',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires property_value field in case payload. If property equity exceeds total HMRC debt, HMRC may reject an IVA in favour of a charge over property. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.5',
+                'rule_name': 'HMRC bankruptcy return higher',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires bankruptcy_return field in case payload. If the estimated bankruptcy dividend exceeds the IVA return, HMRC will not vote in favour of the IVA. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.6',
+                'rule_name': 'HMRC full and final from savings',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires full_and_final_from_savings flag in case payload. HMRC will not accept a full-and-final IVA funded from savings without additional scrutiny. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.7',
+                'rule_name': 'SEISS fraud debt',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires seiss_debt_flag in case payload. SEISS overpayment or fraud debt cannot be included in an IVA and must be excluded from the proposal. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.8',
+                'rule_name': 'HMRC joint debt',
+                'severity': 'info',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Where HMRC debt is joint (e.g. partnership), note that only the individual share can be included in a sole IVA.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.9',
+                'rule_name': 'HMRC debt under 4000',
+                'severity': 'info',
+                'is_active': True,
+                'threshold_value': Decimal('4000.00'),
+                'description': 'HMRC debt below £4,000 is typically handled outside the IVA protocol. Flag for adviser review.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15.10',
+                'rule_name': 'Benefits-only income with HMRC',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Where the client has benefits-only income and HMRC is a creditor, HMRC is unlikely to accept the IVA. Case must be escalated for senior review.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-16',
+                'rule_name': 'Equity exceeds liabilities',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'If total property equity exceeds total unsecured liabilities, an IVA may not be appropriate. Flag for adviser review of alternative options.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-17',
+                'rule_name': 'Council majority active deduction',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Where a council creditor holds the majority vote and has an active attachment of earnings or deduction from benefit, flag for adviser review before proceeding.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-18',
+                'rule_name': 'Recent spending review',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Significant spending in the 3 months prior to the IVA application must be reviewed and noted in the proposal to avoid antecedent transaction challenges.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-19',
+                'rule_name': 'Shop Direct recent spending',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Shop Direct (Very/Littlewoods) flags applications where the client has made significant purchases in the period before the IVA. Flag for adviser review.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-19.1',
+                'rule_name': 'Shop Direct account age',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('6.00'),
+                'description': 'Shop Direct will not vote in favour of an IVA if the account is less than 6 months old. Threshold is account age in months.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-20',
+                'rule_name': 'Creation recent spending',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Creation Finance flags applications where the client has made significant purchases or cash withdrawals in the period before the IVA. Flag for adviser review.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-20.1',
+                'rule_name': 'Creation Sygma Laser hard block',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Creation Finance will hard block any IVA that includes a Sygma or Laser account opened within the restricted period.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-21.1',
+                'rule_name': 'Link Financial Mid SFS',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Link Financial requires the SFS to fall within the mid-range of guideline figures. Flag if any category is at the upper guideline limit.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-21.2',
+                'rule_name': 'Link Financial minimum debt',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('12000.00'),
+                'description': 'Link Financial will not vote in favour of an IVA where total debt is below £12,000.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-21.3',
+                'rule_name': 'Link Financial equity',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Link Financial will hard block an IVA where the client holds property equity that exceeds their share of the proposal fund.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-21.4',
+                'rule_name': 'Link Financial benefits threshold',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('10.00'),
+                'description': 'Link Financial will not vote in favour of an IVA where benefits comprise more than 10% of total income. Threshold is percentage of income.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-21.5',
+                'rule_name': 'Link Financial previous IVA arrears',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Link Financial will hard block an IVA where the client has arrears from a previously failed IVA arrangement.',
+            },
+
+            # ------------------------------------------------------------------ WATCH
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.1',
+                'rule_name': 'WATCH vulnerability evidence',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH creditors require evidence of any client vulnerability to be noted in the proposal. Flag for vulnerability assessment.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.2',
+                'rule_name': 'WATCH debt repayable in 6 years',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('72.00'),
+                'description': 'WATCH will not accept an IVA where the repayment period exceeds 72 months (6 years). Threshold is maximum term in months.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.3',
+                'rule_name': 'WATCH bankruptcy dividend higher',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires bankruptcy_return field in case payload. WATCH will reject the IVA if the estimated bankruptcy dividend exceeds the proposed IVA return. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.4',
+                'rule_name': 'WATCH equity greater than debt',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH will hard block an IVA where property equity exceeds total unsecured debt, as the client has sufficient assets to repay in full.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.5',
+                'rule_name': 'WATCH single creditor',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('500.00'),
+                'description': 'WATCH will hard block an IVA where there is only a single creditor or where the second-largest creditor balance is below £500. An IVA requires meaningful multi-creditor participation.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.6',
+                'rule_name': 'WATCH recent spending 3 months',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH will hard block an IVA where there is evidence of irresponsible or unexplained spending in the 3 months prior to application.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.7',
+                'rule_name': 'WATCH children over 13',
+                'severity': 'flag',
+                'is_active': False,
+                'threshold_value': Decimal('13.00'),
+                'description': 'STUB: requires children array in case payload. WATCH flags cases where a dependent child is over 13, as their anticipated reduced dependency may affect future disposable income. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.8',
+                'rule_name': 'WATCH client age 80 plus',
+                'severity': 'info',
+                'is_active': True,
+                'threshold_value': Decimal('80.00'),
+                'description': 'For information: client is aged 80 or over. Note in proposal and consider IVA term in relation to life expectancy.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.9',
+                'rule_name': 'WATCH vehicle value',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': Decimal('9000.00'),
+                'description': 'WATCH flags cases where the client owns a vehicle with a market value exceeding £9,000. Adviser must review and address in proposal.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.10',
+                'rule_name': 'WATCH vehicle HP payment',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': Decimal('400.00'),
+                'description': 'WATCH flags cases where monthly hire purchase payments on a vehicle exceed £400. Adviser must justify the expenditure in the proposal.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.11',
+                'rule_name': 'WATCH gambling main cause',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH flags cases where gambling is identified as the primary cause of debt. Additional creditor scrutiny and vulnerability review required.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.12',
+                'rule_name': 'WATCH previously proposed IVA',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH flags cases where the client has previously proposed an IVA that was not approved. The reasons for rejection must be addressed in the new proposal.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.13',
+                'rule_name': 'WATCH antecedent transactions',
+                'severity': 'hard_block',
+                'is_active': False,
+                'threshold_value': None,
+                'description': 'STUB: requires antecedent_transactions boolean in case payload. WATCH will hard block an IVA where antecedent transactions are identified that could be challenged by creditors or a trustee in bankruptcy. Set is_active=True once payload is updated.',
+            },
+            {
+                'criteria_set': 'WATCH',
+                'rule_key': 'WATCH-22.14',
+                'rule_name': 'WATCH car finance in last 3 months',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'WATCH will hard block an IVA where the client has taken out new car finance within the 3 months prior to application.',
+            },
+
+            # ------------------------------------------------------------------ TIX
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-01',
+                'rule_name': 'TIX Shop Direct recent spend',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'TIX scheme hard blocks cases where Shop Direct (Very/Littlewoods) has identified significant recent spending activity on the account.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-02',
+                'rule_name': 'TIX Shop Direct account age',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('6.00'),
+                'description': 'TIX scheme hard blocks cases where the Shop Direct account is less than 6 months old. Threshold is account age in months.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-03',
+                'rule_name': 'TIX Creation Sygma Laser',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'TIX scheme hard blocks any case that includes a Creation Finance Sygma or Laser account.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-04',
+                'rule_name': 'TIX vehicle HP payment',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': Decimal('250.00'),
+                'description': 'TIX scheme flags cases where monthly hire purchase payments on a vehicle exceed £250. Note: TIX applies a stricter threshold than WATCH (£400). Threshold is monthly £ amount.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-05',
+                'rule_name': 'TIX deregistered creditors',
+                'severity': 'info',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'For information: one or more creditors in the case may be deregistered or dissolved. Confirm correct legal entity before including in TIX proposal.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-06',
+                'rule_name': 'TIX vulnerability evidence',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'TIX scheme requires vulnerability evidence to be documented and included in the proposal where the client is identified as vulnerable.',
+            },
+
+            # ------------------------------------------------------------------ EVOLVE
+            {
+                'criteria_set': 'EVOLVE',
+                'rule_key': 'EVOLVE-01',
+                'rule_name': 'EVOLVE equity greater than debt',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'EVOLVE hard blocks cases where property equity (calculated at 85% LTV) exceeds total unsecured debt. The client has sufficient secured asset value to repay.',
+            },
+            {
+                'criteria_set': 'EVOLVE',
+                'rule_key': 'EVOLVE-02',
+                'rule_name': 'EVOLVE single creditor',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('500.00'),
+                'description': 'EVOLVE hard blocks cases where there is only a single creditor or where the second-largest creditor balance is below £500.',
+            },
+            {
+                'criteria_set': 'EVOLVE',
+                'rule_key': 'EVOLVE-03',
+                'rule_name': 'EVOLVE vulnerability evidence',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'EVOLVE requires vulnerability evidence to be documented where the client is identified as vulnerable.',
+            },
+        ]
+
+        # T4 — update_or_create so re-runs always correct wrong data
+        created_count = 0
+        updated_count = 0
+        for rule_data in rules:
+            rule_key = rule_data['rule_key']
+            defaults = {k: v for k, v in rule_data.items() if k not in ('rule_key', 'description')}
+            obj, created = GlobalCriteria.objects.update_or_create(
+                rule_key=rule_key,
+                defaults=defaults,
+            )
+            if created:
+                created_count += 1
+                self.stdout.write(self.style.SUCCESS(f'  ✓ Created: {obj.rule_key}'))
+            else:
+                updated_count += 1
+                self.stdout.write(self.style.WARNING(f'  ~ Updated: {obj.rule_key}'))
+
+        # T5 — Summary counts
+        total = GlobalCriteria.objects.count()
+        active = GlobalCriteria.objects.filter(is_active=True).count()
+        stubs = GlobalCriteria.objects.filter(is_active=False).count()
+        self.stdout.write(self.style.SUCCESS(
+            f'\n✓ Seeding complete.\n'
+            f'  Total rules in database: {total}\n'
+            f'  Active rules: {active}\n'
+            f'  Stub rules (awaiting payload fields): {stubs}\n'
+        ))
