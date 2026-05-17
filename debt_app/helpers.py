@@ -1,10 +1,117 @@
 """
-Helper functions for criteria management
+Helper functions and constants for criteria management.
 """
 from decimal import Decimal
 from django.utils import timezone
 from .models import GlobalCriteria, CriteriaDecision, CreditorCriteria
 
+# ---------------------------------------------------------------------------
+# Debt type constants
+# ---------------------------------------------------------------------------
+
+DEBT_TYPE_COUNCIL_TAX = "council_tax"
+DEBT_TYPE_HP = "hire_purchase"
+DEBT_TYPE_PERSONAL_LOAN = "personal_loan"
+DEBT_TYPE_UTILITY = "utility"
+DEBT_TYPE_STORE_CARD = "store_card"
+DEBT_TYPE_CREDIT_CARD = "credit_card"
+DEBT_TYPE_PCN = "pcn"
+DEBT_TYPE_HOUSING_BENEFIT = "housing_benefit"
+DEBT_TYPE_OVERDRAFT = "overdraft"
+DEBT_TYPE_CATALOGUE = "catalogue"
+DEBT_TYPE_MORTGAGE = "mortgage"
+DEBT_TYPE_RENT = "rent"
+DEBT_TYPE_MOBILE = "mobile"
+DEBT_TYPE_UNKNOWN = "unknown"
+
+_SECURED_TYPES = frozenset({DEBT_TYPE_HP, DEBT_TYPE_MORTGAGE})
+
+
+def normalise_debt_type(raw: str) -> str:
+    """Map a raw creditor_type string to a canonical DEBT_TYPE_* constant."""
+    if not raw:
+        return DEBT_TYPE_UNKNOWN
+    s = raw.lower()
+    if "council tax" in s or "council_tax" in s or "ctax" in s:
+        return DEBT_TYPE_COUNCIL_TAX
+    if "hire purchase" in s or "vehicle finance" in s:
+        return DEBT_TYPE_HP
+    if "housing benefit" in s:
+        return DEBT_TYPE_HOUSING_BENEFIT
+    if "store card" in s:
+        return DEBT_TYPE_STORE_CARD
+    if "credit card" in s:
+        return DEBT_TYPE_CREDIT_CARD
+    if "catalogue" in s:
+        return DEBT_TYPE_CATALOGUE
+    if "overdraft" in s:
+        return DEBT_TYPE_OVERDRAFT
+    if "mortgage" in s:
+        return DEBT_TYPE_MORTGAGE
+    if "rent" in s:
+        return DEBT_TYPE_RENT
+    if "mobile" in s:
+        return DEBT_TYPE_MOBILE
+    if "pcn" in s or "parking" in s:
+        return DEBT_TYPE_PCN
+    if any(kw in s for kw in ("utility", "gas", "electric", "water", "energy")):
+        return DEBT_TYPE_UTILITY
+    if "loan" in s:
+        return DEBT_TYPE_PERSONAL_LOAN
+    return DEBT_TYPE_UNKNOWN
+
+
+def get_unsecured_debt_total(creditors: list) -> float:
+    """Sum balances for non-secured debt types (excludes HP and mortgage)."""
+    total = 0.0
+    for c in creditors:
+        dt = normalise_debt_type(c.get("creditor_type") or c.get("debt_type") or "")
+        if dt not in _SECURED_TYPES:
+            total += float(c.get("balance", 0) or 0)
+    return total
+
+
+def get_secured_debt_total(creditors: list) -> float:
+    """Sum balances for secured debt types (HP and mortgage)."""
+    total = 0.0
+    for c in creditors:
+        dt = normalise_debt_type(c.get("creditor_type") or c.get("debt_type") or "")
+        if dt in _SECURED_TYPES:
+            total += float(c.get("balance", 0) or 0)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Creditor name matchers
+# ---------------------------------------------------------------------------
+
+def is_asset_link_capital(name: str) -> bool:
+    """True when the creditor name refers to Asset Link Capital (not generic Link Financial)."""
+    if not name:
+        return False
+    return "asset link" in name.lower()
+
+
+def is_link_financial(name: str) -> bool:
+    """True when the creditor name matches Link Financial (excluding Asset Link Capital)."""
+    if not name:
+        return False
+    if is_asset_link_capital(name):
+        return False
+    return "link" in name.lower()
+
+
+def is_vw_finance(name: str) -> bool:
+    """True when the creditor name refers to Volkswagen Financial Services."""
+    if not name:
+        return False
+    s = name.lower()
+    return "volkswagen financial" in s or "vwfs" in s
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
 
 def get_rule_threshold(rule_key: str) -> Decimal:
     """Retrieve a rule's threshold value by key."""
@@ -20,10 +127,10 @@ def get_majority_threshold() -> Decimal:
     return get_rule_threshold('majority_threshold')
 
 
-def log_criteria_decision(application_id: str, client_name: str, 
-                         input_data: dict, output_data: dict,
-                         recommendation: str, passes_hard_blocks: bool,
-                         triggered_by=None, source: str = 'STANDALONE') -> CriteriaDecision:
+def log_criteria_decision(application_id: str, client_name: str,
+                          input_data: dict, output_data: dict,
+                          recommendation: str, passes_hard_blocks: bool,
+                          triggered_by=None, source: str = 'STANDALONE') -> CriteriaDecision:
     """Log a criteria assessment decision."""
     return CriteriaDecision.objects.create(
         application_id=application_id,
@@ -37,21 +144,97 @@ def log_criteria_decision(application_id: str, client_name: str,
     )
 
 
-def get_creditor_by_trading_name(name: str) -> CreditorCriteria:
-    """Find a creditor by name or trading name."""
-    # First try exact match on name
+def get_creditor_by_trading_name(
+    name: str,
+    all_names: list[str] | None = None,
+) -> CreditorCriteria:
+    """
+    Find a creditor using a 3-layer lookup:
+    Layer 1 — Exact match on creditor_name (DB index, fast)
+    Layer 2 — Exact match on any entry in trading_names (case-insensitive)
+    Layer 3 — Fuzzy match via rapidfuzz token_sort_ratio at threshold 85
+
+    Raises CreditorCriteria.DoesNotExist if all three layers miss.
+
+    Parameters
+    ----------
+    name      : incoming creditor name from case payload
+    all_names : pre-loaded list of active creditor_name values.
+                Pass this from the calling loop to avoid N+1 DB queries.
+                If None, loads from DB automatically.
+    """
+    # Layer 1 — exact creditor_name match
     try:
-        return CreditorCriteria.objects.get(name=name, is_active=True)
+        return CreditorCriteria.objects.get(creditor_name=name, is_active=True)
     except CreditorCriteria.DoesNotExist:
         pass
-    
-    # Then try partial match on trading_names
-    creditors = CreditorCriteria.objects.filter(is_active=True)
-    for creditor in creditors:
-        if creditor.trading_names and name in creditor.trading_names:
-            return creditor
-    
-    raise CreditorCriteria.DoesNotExist(f"No active creditor found for '{name}'")
+
+    # Layer 2 — trading_names exact match (case-insensitive)
+    name_lower = name.lower()
+    for creditor in CreditorCriteria.objects.filter(is_active=True):
+        if creditor.trading_names:
+            if any(t.lower() == name_lower for t in creditor.trading_names):
+                return creditor
+
+    # Layer 3 — fuzzy match
+    matched = fuzzy_lookup_creditor(name, all_names=all_names)
+    if matched is not None:
+        return matched
+
+    raise CreditorCriteria.DoesNotExist(
+        f"No criteria row found for creditor: {name!r}"
+    )
+
+
+def fuzzy_lookup_creditor(
+    name: str,
+    all_names: list[str] | None = None,
+    threshold: int = 85,
+) -> CreditorCriteria | None:
+    """
+    Fuzzy-match a creditor name against all active CreditorCriteria rows
+    using rapidfuzz token_sort_ratio.
+
+    Parameters
+    ----------
+    name      : incoming creditor name to match
+    all_names : pre-loaded list of creditor_name values to avoid N+1 queries.
+                If None, loads from DB.
+    threshold : minimum score to accept a match (default 85).
+                85 is safe for this dataset — lower risks false matches
+                e.g. "Bamboo" → "Barclays".
+
+    Returns the matching CreditorCriteria object, or None if no match
+    meets the threshold.
+    """
+    from rapidfuzz import process, fuzz
+
+    if all_names is None:
+        all_names = list(
+            CreditorCriteria.objects.filter(is_active=True)
+            .values_list("creditor_name", flat=True)
+        )
+
+    if not all_names:
+        return None
+
+    result = process.extractOne(
+        name,
+        all_names,
+        scorer=fuzz.token_sort_ratio,
+        score_cutoff=threshold,
+    )
+
+    if result is None:
+        return None
+
+    matched_name, score, _ = result
+    try:
+        return CreditorCriteria.objects.get(
+            creditor_name=matched_name, is_active=True
+        )
+    except CreditorCriteria.DoesNotExist:
+        return None
 
 
 def check_parent_group_conflict(client_bank_account: str, debtor_creditors: list) -> bool:
@@ -60,21 +243,18 @@ def check_parent_group_conflict(client_bank_account: str, debtor_creditors: list
     Returns True if conflict found.
     """
     account_bank = CreditorCriteria.objects.filter(
-        name=client_bank_account,
+        creditor_name=client_bank_account,
         is_active=True
     ).first()
-    
+
     if not account_bank or not account_bank.parent_group:
         return False
-    
-    # Check if any debtor creditor is in same parent group
-    conflicting = CreditorCriteria.objects.filter(
-        name__in=debtor_creditors,
+
+    return CreditorCriteria.objects.filter(
+        creditor_name__in=debtor_creditors,
         parent_group=account_bank.parent_group,
         is_active=True
     ).exists()
-    
-    return conflicting
 
 
 def get_criteria_decisions_for_application(application_id: str):

@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest debt_app/tests/test_phase2.py -x --tb=short)",
+      "Bash(python -m pytest debt_app/tests/test_phase2.py -v --tb=short)",
+      "Bash(python -c \"import django, os; os.environ['DJANGO_SETTINGS_MODULE']='debt_project.settings'; django.setup\\(\\); from django.db import connection; cursor=connection.cursor\\(\\); cursor.execute\\(\\\\\"PRAGMA table_info\\(debt_app_creditorcriteria\\)\\\\\"\\); [print\\(r\\) for r in cursor.fetchall\\(\\)]\")",
+      "Bash(python -m pytest debt_app/tests/test_phase2.py debt_app/tests/test_phase3.py -q --tb=short)",
+      "Bash(python -m pytest debt_app/tests/test_phase2.py tests/test_banking_groups_seed.py -q --tb=short)",
+      "Bash(python -m pytest debt_app/tests/ tests/ --collect-only -q)",
+      "Bash(python -m pytest debt_app/tests/test_phase1.py debt_app/tests/test_phase3.py debt_app/tests/test_phase4.py --collect-only)",
+      "Bash(python -m pytest debt_app/tests/test_phase2_module2.py -v --tb=short)",
+      "Bash(python -m pytest debt_app/tests/test_phase2_module2.py debt_app/tests/test_phase2.py -v --tb=short)",
+      "Bash(python manage.py test debt_app.tests.test_phase3 --verbosity=2)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 --verbosity=2)",
+      "Bash(python manage.py test debt_app.tests.test_phase7 --verbosity=2)",
+      "Bash(python manage.py test debt_app.tests --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase3 debt_app.tests.test_phase7 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2 --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase3 debt_app.tests.test_phase7 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash('C:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\\\\.venv\\\\Scripts\\\\python.exe' -c ' *)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2 debt_app.tests.test_phase3 debt_app.tests.test_phase4 debt_app.tests.test_phase7 --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase5 debt_app.tests.test_phase5b debt_app.tests.test_phase6 --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase5 --verbosity=2)",
+      "Bash(python -c ' *)",
+      "Bash(dir *.xlsx /s)",
+      "Bash(xargs grep -l \"CouncilRule\\\\|council\")",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2 debt_app.tests.test_phase3 debt_app.tests.test_phase4 debt_app.tests.test_phase5 debt_app.tests.test_phase5b debt_app.tests.test_phase7 --verbosity=2)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2 debt_app.tests.test_phase3 debt_app.tests.test_phase4 debt_app.tests.test_phase5 debt_app.tests.test_phase5b debt_app.tests.test_phase7 --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase6 --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests.test_phase6 --verbosity=2)",
+      "Bash(python manage.py test debt_app.tests tests --verbosity=1)",
+      "Bash(python manage.py test debt_app.tests)",
+      "Bash(grep -E \"Ran [0-9]+ test|OK$|FAILED\")",
+      "Bash(python manage.py test debt_app.tests --exclude-tag=old)",
+      "Bash(python -m pytest debt_app/tests/ --ignore=debt_app/tests/test_criteria_engine.py -q)",
+      "Bash(python manage.py test debt_app.tests.test_phase1 debt_app.tests.test_phase2 debt_app.tests.test_phase2_module2 debt_app.tests.test_phase3 debt_app.tests.test_phase4 debt_app.tests.test_phase5 debt_app.tests.test_phase5b debt_app.tests.test_phase6 debt_app.tests.test_phase7)",
+      "Bash(grep -E \"OK$|FAILED\")",
+      "Bash(grep -E \"Ran [0-9]|^OK$|FAILED\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\" -Recurse -File -Filter \"*.py\")",
+      "Bash(Select-Object -ExpandProperty FullName)"
+    ]
+  }
+}

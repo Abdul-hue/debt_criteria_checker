@@ -1,0 +1,121 @@
+{
+  "aryza_reference": "324991",
+  "clientid": 324991,
+  "client_name": "Theresa Topp",
+  "employment_status": "employed",
+  "total_unsecured_debt": 13800300,
+  "disposable_income": 336600,
+  "creditors": [
+    {
+      "name": "Natwest Group Plc",
+      "balance": 803900,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "credit_card",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "Lloyds Banking Group",
+      "balance": 849900,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "credit_card",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "MBNA",
+      "balance": 810900,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "credit_card",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "Lloyds Bank Plc HP",
+      "balance": 10609800,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "mortgage",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "Link Financial Outsourcing Limited",
+      "balance": 161000,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "catalogue",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "JD WIlliams (N Brown Group)",
+      "balance": 306500,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "catalogue",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    },
+    {
+      "name": "Lloyds Bank Plc HP",
+      "balance": 258300,
+      "account_reference": "",
+      "account_open_date": null,
+      "last_transaction_date": null,
+      "creditor_type": "unsecured_loan",
+      "is_hmrc": false,
+      "is_council": false,
+      "from_credit_report": true
+    }
+  ],
+  "income": {
+    "employment": 336600,
+    "universal_credit": 0,
+    "dla": 0,
+    "pip": 0,
+    "other_benefits": 0,
+    "third_party_contribution": 0,
+    "total": 336600
+  },
+  "expenditure": {
+    "disability_expenses": 0,
+    "total": 0
+  },
+  "property": {
+    "owns_property": false,
+    "property_value": null,
+    "mortgage_balance": null,
+    "equity": null
+  },
+  "vehicle": {
+    "has_vehicle": false,
+    "vehicle_value": null,
+    "hp_monthly_payment": null,
+    "car_finance_start_date": null
+  },
+  "flags": {
+    "previous_iva": true,
+    "previous_iva_failed_reason": null,
+    "gambling_present": false,
+    "antecedent_transactions": false,
+    "vulnerability_claimed": false,
+    "has_third_party": false
+  },
+  "dependants": []
+}

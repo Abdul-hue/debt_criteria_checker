@@ -1,0 +1,267 @@
+{
+  "recommended_solution": "UNCLEAR",
+  "tig_eligible": true,
+  "watch_creditor_present": true,
+  "passes_all_hard_blocks": false,
+  "majority_creditor": {
+    "name": "Lloyds Bank Plc HP",
+    "balance": 10609800,
+    "percentage": 76.88
+  },
+  "estimated_dividend_pence": 100,
+  "total_unsecured_debt": 13800300,
+  "disposable_income": 336600,
+  "passed_checks": [
+    {
+      "rule_key": "min_debt",
+      "rule_name": "Min Debt",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "min_di",
+      "rule_name": "Min Di",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "dla_pip_offset",
+      "rule_name": "Dla Pip Offset",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "bank_statement_check",
+      "rule_name": "Bank Statement Check",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "gambling_hard_block",
+      "rule_name": "Gambling Hard Block",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "link_financial_rules",
+      "rule_name": "Link Financial Rules",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "shop_direct_rules",
+      "rule_name": "Shop Direct Rules",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "creation_rules",
+      "rule_name": "Creation Rules",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "equity_flag",
+      "rule_name": "Equity Flag",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "unexplained_transactions",
+      "rule_name": "Unexplained Transactions",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "recent_spending",
+      "rule_name": "Recent Spending",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "benefit_proof_check",
+      "rule_name": "Benefit Proof Check",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "uc_journal_check",
+      "rule_name": "Uc Journal Check",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "self_employed_proof",
+      "rule_name": "Self Employed Proof",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "cis_proof",
+      "rule_name": "Cis Proof",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "gambling_flag",
+      "rule_name": "Gambling Flag",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "third_party_letter",
+      "rule_name": "Third Party Letter",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "hmrc_rules",
+      "rule_name": "Hmrc Rules",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_bankruptcy_higher",
+      "rule_name": "Watch Bankruptcy Higher",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_equity_exceeds_debt",
+      "rule_name": "Watch Equity Exceeds Debt",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_single_creditor",
+      "rule_name": "Watch Single Creditor",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_antecedent_transactions",
+      "rule_name": "Watch Antecedent Transactions",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_client_age_80",
+      "rule_name": "Watch Client Age 80",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_vehicle_over_9000",
+      "rule_name": "Watch Vehicle Over 9000",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_recent_car_finance",
+      "rule_name": "Watch Recent Car Finance",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_vulnerability_no_evidence",
+      "rule_name": "Watch Vulnerability No Evidence",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_children_over_13",
+      "rule_name": "Watch Children Over 13",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_hp_over_400",
+      "rule_name": "Watch Hp Over 400",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_gambling_no_clean_statements",
+      "rule_name": "Watch Gambling No Clean Statements",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_previous_proposal",
+      "rule_name": "Watch Previous Proposal",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_recent_spending",
+      "rule_name": "Watch Recent Spending",
+      "message": "Passed criteria evaluation.",
+      "creditor_specific": null
+    }
+  ],
+  "hard_blocks": [
+    {
+      "rule_key": "wage_slip_check",
+      "rule_name": "Wage Slip Check",
+      "message": "Wage slip missing or older than 90.00 days.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for Natwest Group Plc (balance \u00a38,039.00).",
+      "creditor_specific": "Natwest Group Plc"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for Lloyds Banking Group (balance \u00a38,499.00).",
+      "creditor_specific": "Lloyds Banking Group"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for MBNA (balance \u00a38,109.00).",
+      "creditor_specific": "MBNA"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for Lloyds Bank Plc HP (balance \u00a3106,098.00).",
+      "creditor_specific": "Lloyds Bank Plc HP"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for Link Financial Outsourcing Limited (balance \u00a31,610.00).",
+      "creditor_specific": "Link Financial Outsourcing Limited"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for JD WIlliams (N Brown Group) (balance \u00a33,065.00).",
+      "creditor_specific": "JD WIlliams (N Brown Group)"
+    },
+    {
+      "rule_key": "proof_of_debt",
+      "rule_name": "Proof Of Debt",
+      "message": "No proof of debt for Lloyds Bank Plc HP (balance \u00a32,583.00).",
+      "creditor_specific": "Lloyds Bank Plc HP"
+    },
+    {
+      "rule_key": "previous_iva_check",
+      "rule_name": "Previous Iva Check",
+      "message": "Previous IVA noted but no termination report uploaded.",
+      "creditor_specific": null
+    },
+    {
+      "rule_key": "watch_debt_repayable_under_6_years",
+      "rule_name": "Watch Debt Repayable Under 6 Years",
+      "message": "Debt repayable in 41.0 months (under 72). WATCH requires IVA to run at least 6 years.",
+      "creditor_specific": null
+    }
+  ],
+  "flags": [],
+  "info": [],
+  "decision_summary": "Case 324991 (Theresa Topp): UNCLEAR recommended. Total debt \u00a3138,003 with disposable income \u00a33,366/month. 10 hard block(s) found: Wage Slip Check, Proof Of Debt, Proof Of Debt, Proof Of Debt, Proof Of Debt, Proof Of Debt, Proof Of Debt, Proof Of Debt, Previous Iva Check, Watch Debt Repayable Under 6 Years. 0 flag(s) require assessor review. WATCH creditor present. Estimated dividend: 1p/\u00a3."
+}

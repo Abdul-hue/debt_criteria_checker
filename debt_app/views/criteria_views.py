@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -19,6 +20,59 @@ from debt_app.criteria_engine import assess_case
 from debt_app.models import GlobalCriteria, CreditorCriteria, CriteriaDecision
 
 logger = logging.getLogger(__name__)
+
+
+def _rule_to_dict(r) -> dict:
+    return {
+        "rule_id": r.rule_id,
+        "severity": r.severity,
+        "triggered": r.triggered,
+        "message": r.message,
+        "threshold": r.threshold,
+        "actual_value": r.actual_value,
+    }
+
+
+def _serialise_value(v):
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, set):
+        return list(v)
+    return v
+
+
+def build_phase7_response_fields(result: dict) -> dict:
+    """Serialize assess_case result into a JSON-safe dict suitable for API responses."""
+    def _rules(lst):
+        return [_rule_to_dict(r) for r in lst]
+
+    def _serialise_dict(d):
+        if d is None:
+            return None
+        return {k: _serialise_value(v) for k, v in d.items()}
+
+    return {
+        "overall": result.get("overall"),
+        "overall_status": result.get("overall_status"),
+        "passes_all_hard_blocks": result.get("passes_all_hard_blocks"),
+        "recommended_solution": result.get("recommended_solution"),
+        "tig_eligible": result.get("tig_eligible"),
+        "hard_blocks": _rules(result.get("hard_blocks", [])),
+        "flags": _rules(result.get("flags", [])),
+        "info": _rules(result.get("info", [])),
+        "passed": _rules(result.get("passed", [])),
+        "creditor_positions": [
+            {
+                **pos,
+                "balance": float(pos["balance"]) if isinstance(pos["balance"], Decimal) else pos["balance"],
+            }
+            for pos in result.get("creditor_positions", [])
+        ],
+        "council_positions": result.get("council_positions", []),
+        "majority_analysis": _serialise_dict(result.get("majority_analysis")),
+        "dividend_analysis": result.get("dividend_analysis"),
+        "representatives_detected": list(result.get("representatives_detected") or []),
+    }
 
 
 def error_response(message: str, code: str, status_code: int):
@@ -144,6 +198,7 @@ class AssessCaseView(APIView):
 
         # Step 3 — Run assessment engine
         result = assess_case(case_data)
+        serialized = build_phase7_response_fields(result)
 
         # Step 4 — Save to CriteriaDecision
         try:
@@ -151,9 +206,9 @@ class AssessCaseView(APIView):
                 application_id=aryza_reference,
                 client_name=case_data.get("client_name", "Unknown"),
                 input_snapshot=case_data,
-                decision_output=result,
-                recommended_solution=result.get("recommended_solution", "UNCLEAR"),
-                passes_all_hard_blocks=result.get("passes_all_hard_blocks", False),
+                decision_output=serialized,
+                recommended_solution=serialized.get("recommended_solution", "UNCLEAR"),
+                passes_all_hard_blocks=serialized.get("passes_all_hard_blocks", False),
                 triggered_by=request.user,
                 source="STANDALONE"
             )
@@ -162,11 +217,11 @@ class AssessCaseView(APIView):
             logger.error("Failed to save CriteriaDecision: %s", e)
             decision_id = None
 
-        logger.info("Assessment completed for %s: %s", aryza_reference, result.get("recommended_solution"))
+        logger.info("Assessment completed for %s: %s", aryza_reference, serialized.get("recommended_solution"))
         return Response({
             "success": True,
             "decision_id": decision_id,
-            "data": result,
+            "data": serialized,
         }, status=status.HTTP_200_OK)
 
 

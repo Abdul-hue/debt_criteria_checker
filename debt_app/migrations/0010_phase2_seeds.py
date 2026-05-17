@@ -226,6 +226,22 @@ COUNTY_DISTRICTS = {
         'East Riding of Yorkshire Council',
         'Kingston upon Hull CC',
     ],
+    # EXCEL_CRITERIA_REFERENCE.md — County Councils sheet
+    'Cambridgeshire': [
+        'Cambridge CC',
+        'East Cambridgeshire DC',
+        'Fenland DC',
+        'Huntingdonshire DC',
+        'South Cambridgeshire DC',
+    ],
+    # EXCEL_CRITERIA_REFERENCE.md — County Councils sheet
+    'East Sussex': [
+        'Eastbourne BC',
+        'Hastings BC',
+        'Lewes DC',
+        'Rother DC',
+        'Wealden DC',
+    ],
 }
 
 
@@ -505,16 +521,17 @@ def seed_phase2_data(apps, schema_editor):
 
     # --- SECTION 2: Council seeds ---
 
+    # EXCEL_CRITERIA_REFERENCE.md — Councils sheet
     slough, _ = CouncilRule.objects.get_or_create(
         council_name='Slough Borough Council',
         defaults={
-            'status': 'DO_NOT_VOTE',
+            'status': 'REJECT',
             'do_not_chase': True,
             'last_reviewed': reviewed,
         },
     )
     if not _:
-        slough.status = 'DO_NOT_VOTE'
+        slough.status = 'REJECT'
         slough.do_not_chase = True
         slough.last_reviewed = reviewed
         slough.save()
@@ -639,14 +656,14 @@ def seed_phase2_data(apps, schema_editor):
         council_name='Colchester Borough Council',
         defaults={
             'status': 'WILL_CONSIDER',
-            'min_dividend_pence': 65,
+            'min_dividend_pence': 45,
             'source_priority': 1,
             'last_reviewed': reviewed,
         },
     )
     if not _:
         colchester.status = 'WILL_CONSIDER'
-        colchester.min_dividend_pence = 65
+        colchester.min_dividend_pence = 45
         colchester.source_priority = 1
         colchester.last_reviewed = reviewed
         colchester.save()

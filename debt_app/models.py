@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -11,7 +12,16 @@ class CreditorCriteria(models.Model):
         ('WATCH', 'Watch'),
         ('TIX', 'TIX'),
         ('EVOLVE', 'Evolve'),
+        ('EVERYDAY_LOANS', 'Everyday Loans'),
         ('NONE', 'None'),
+    ]
+
+    STATUS_CHOICES = [
+        ('ACCEPT', 'Accept'),
+        ('REJECT', 'Reject'),
+        ('WILL_CONSIDER', 'Will Consider'),
+        ('DO_NOT_VOTE', 'Do Not Vote'),
+        ('CONDITIONAL_VOTER', 'Conditional Voter'),
     ]
 
     id = models.BigAutoField(primary_key=True)
@@ -24,14 +34,24 @@ class CreditorCriteria(models.Model):
         help_text="Alternative names creditor may appear under"
     )
     representative = models.CharField(
-        max_length=10,
+        max_length=15,
         choices=REPRESENTATIVE_CHOICES,
         default='NONE'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='ACCEPT',
     )
     min_dividend_pence = models.IntegerField(
         blank=True,
         null=True,
         help_text="Minimum pence per pound they will accept (e.g., 30 = 30p/£1)"
+    )
+    dividend_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Free-text notes for caseworkers about this creditor's dividend requirements",
     )
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=20, blank=True, null=True)
@@ -47,6 +67,42 @@ class CreditorCriteria(models.Model):
         null=True,
         help_text="Banking group e.g. 'Lloyds Banking Group'"
     )
+
+    # --- Rejection / conditional voting rules ---
+    reject_if_in_dmp = models.BooleanField(default=False)
+    reject_if_never_made_payment = models.BooleanField(default=False)
+    reject_if_ie_doesnt_match_application = models.BooleanField(default=False)
+    reject_if_debt_repayable_within_months = models.IntegerField(blank=True, null=True)
+    reject_if_client_still_has_asset = models.BooleanField(default=False)
+    reject_if_majority_share_exceeds_pct = models.DecimalField(
+        blank=True, decimal_places=2, max_digits=5, null=True
+    )
+    reject_if_second_iva = models.BooleanField(default=False)
+    reject_if_police_employed = models.BooleanField(default=False)
+    reject_if_equity_exceeds_debt = models.BooleanField(default=False)
+
+    # --- Requirements ---
+    requires_pg_called_up = models.BooleanField(default=False)
+    requires_arrangement_call_before_proposing = models.BooleanField(default=False)
+    requires_grant_overpayment_only = models.BooleanField(default=False)
+
+    # --- Financial thresholds ---
+    vehicle_arrears_repossession_months = models.IntegerField(blank=True, null=True)
+    fees_cap_percentage = models.DecimalField(
+        blank=True, decimal_places=2, max_digits=5, null=True
+    )
+    min_di_for_fees_pence = models.IntegerField(blank=True, null=True)
+
+    # --- Flags ---
+    termination_risk_if_vehicle_on_finance = models.BooleanField(default=False)
+    conditional_voter = models.BooleanField(default=False)
+    conditional_voter_min_dividend_pence = models.IntegerField(blank=True, null=True)
+    open_banking_access = models.BooleanField(default=False)
+    fraud_claim_risk = models.BooleanField(default=False)
+    blocked_until_cleared = models.BooleanField(default=False)
+    blocked_reason = models.TextField(blank=True, default='')
+
+    last_reviewed = models.DateField(blank=True, null=True)
     updated_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -128,11 +184,181 @@ class GlobalCriteria(models.Model):
         return f"{self.rule_key}: {self.rule_name}"
 
 
+class CouncilRule(models.Model):
+    """Voting behaviour for individual councils."""
+
+    STATUS_CHOICES = [
+        ('ACCEPT', 'Accept'),
+        ('REJECT', 'Reject'),
+        ('WILL_CONSIDER', 'Will Consider'),
+        ('DO_NOT_VOTE', 'Do Not Vote'),
+        ('CONDITIONAL_VOTER', 'Conditional Voter'),
+    ]
+
+    council_name = models.CharField(max_length=255, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='WILL_CONSIDER',
+    )
+    min_dividend_pence = models.IntegerField(blank=True, null=True)
+
+    # Rejection conditions
+    reject_if_employed = models.BooleanField(default=False)
+    reject_if_unemployed_and_homeowner = models.BooleanField(default=False)
+    reject_if_benefits_only = models.BooleanField(default=False)
+    reject_if_any_benefits = models.BooleanField(default=False)
+    reject_if_previous_iva = models.BooleanField(default=False)
+    reject_if_dro_criteria_met = models.BooleanField(default=False)
+    reject_if_aoe_in_place = models.BooleanField(default=False)
+    reject_if_joint_one_party_only = models.BooleanField(default=False)
+    reject_if_joint_both_parties = models.BooleanField(default=False)
+    reject_if_sole = models.BooleanField(default=False)
+    reject_if_joint_one_employed = models.BooleanField(default=False)
+
+    do_not_chase = models.BooleanField(
+        default=False,
+        help_text='If True, chasing this council converts status to REJECT',
+    )
+    include_current_year_ct = models.BooleanField(default=False)
+    blocked_reason = models.TextField(blank=True, default='')
+    source_priority = models.IntegerField(
+        default=2,
+        help_text='1=council sheet (authoritative), 2=dividends sheet',
+    )
+    last_reviewed = models.DateField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = 'Council Rule'
+        verbose_name_plural = 'Council Rules'
+
+    def __str__(self):
+        return self.council_name
+
+
+class CountyCouncilRouting(models.Model):
+    """Routes a county+district combination to a CouncilRule."""
+
+    county_name = models.CharField(max_length=255)
+    district_name = models.CharField(max_length=255)
+    council_rule = models.ForeignKey(
+        CouncilRule,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='county_routings',
+    )
+
+    class Meta:
+        verbose_name = 'County Council Routing'
+        verbose_name_plural = 'County Council Routings'
+        unique_together = [('county_name', 'district_name')]
+
+    def __str__(self):
+        return f"{self.county_name} / {self.district_name}"
+
+
+class DebtTypeCouncilVote(models.Model):
+    """Per-debt-type override for a CouncilRule's voting behaviour."""
+
+    DEBT_TYPE_CHOICES = [
+        ('COUNCIL_TAX', 'Council Tax'),
+        ('PCN', 'Parking Charge Notice'),
+        ('HOUSING_BENEFIT', 'Housing Benefit'),
+    ]
+
+    STATUS_CHOICES = [
+        ('ACCEPT', 'Accept'),
+        ('REJECT', 'Reject'),
+        ('WILL_CONSIDER', 'Will Consider'),
+        ('DO_NOT_VOTE', 'Do Not Vote'),
+        ('CONDITIONAL_VOTER', 'Conditional Voter'),
+    ]
+
+    council = models.ForeignKey(
+        CouncilRule,
+        on_delete=models.CASCADE,
+        related_name='debt_type_votes',
+    )
+    debt_type = models.CharField(max_length=50, choices=DEBT_TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+
+    class Meta:
+        verbose_name = 'Debt Type Council Vote'
+        verbose_name_plural = 'Debt Type Council Votes'
+        unique_together = [('council', 'debt_type')]
+
+    def __str__(self):
+        return f"{self.council.council_name} — {self.debt_type}: {self.status}"
+
+
+class ConditionalVoterRule(models.Model):
+    """Supplementary conditional-voter configuration for a CreditorCriteria."""
+
+    creditor = models.OneToOneField(
+        CreditorCriteria,
+        on_delete=models.CASCADE,
+        related_name='conditional_voter_rule',
+    )
+    min_dividend_pence = models.IntegerField(blank=True, null=True)
+    contact_required = models.BooleanField(default=False)
+    contact_name = models.CharField(blank=True, default='', max_length=255)
+    contact_email = models.EmailField(blank=True, default='', max_length=254)
+
+    class Meta:
+        verbose_name = 'Conditional Voter Rule'
+        verbose_name_plural = 'Conditional Voter Rules'
+
+    def __str__(self):
+        return f"ConditionalVoterRule({self.creditor})"
+
+
+class CreditorOpenBankingRule(models.Model):
+    """Open-banking review requirements for a CreditorCriteria."""
+
+    creditor = models.OneToOneField(
+        CreditorCriteria,
+        on_delete=models.CASCADE,
+        related_name='open_banking_rule',
+    )
+    review_period_months = models.IntegerField(default=3)
+    ie_must_match_exactly = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Creditor Open Banking Rule'
+        verbose_name_plural = 'Creditor Open Banking Rules'
+
+    def __str__(self):
+        return f"OpenBankingRule({self.creditor})"
+
+
 class Voter(models.Model):
-    """Represents a voter in the system."""
+    """Represents a creditor vote on a specific case."""
 
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=255)
+
+    # Phase 3 fields
+    is_joint = models.BooleanField(default=False)
+    last_payment_date = models.DateField(blank=True, null=True)
+    first_payment_made = models.BooleanField(default=False)
+    vehicle_arrears_months = models.IntegerField(blank=True, null=True)
+    ie_matches_loan_application = models.BooleanField(blank=True, null=True)
+    arrangement_confirmed_before_proposing = models.BooleanField(default=False)
+    client_still_has_asset_in_possession = models.BooleanField(default=False)
+    is_grant_overpayment = models.BooleanField(default=False)
+    guarantee_called_up = models.BooleanField(blank=True, null=True)
+
+    @property
+    def months_since_last_payment(self):
+        """Months between last_payment_date and today. None if date not set or in the future."""
+        if not self.last_payment_date:
+            return None
+        today = date.today()
+        if self.last_payment_date > today:
+            return None
+        delta = today - self.last_payment_date
+        return max(0, delta.days // 30)
 
     def __str__(self):
         return self.name
@@ -148,6 +374,23 @@ class Application(models.Model):
 
     def __str__(self):
         return f"{self.client_name} ({self.aryza_reference})"
+
+
+class ClientFlags(models.Model):
+    """Per-application flags about the client's situation."""
+
+    application = models.OneToOneField(
+        Application,
+        on_delete=models.CASCADE,
+        related_name='client_flags',
+    )
+    is_currently_in_dmp = models.BooleanField(default=False)
+    is_royal_mail_employee = models.BooleanField(default=False)
+    is_police_officer = models.BooleanField(default=False)
+    previous_iva_failed = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"ClientFlags({self.application})"
 
 
 class EvidenceLedger(models.Model):
@@ -171,6 +414,8 @@ class CriteriaDecision(models.Model):
 
     RECOMMENDED_SOLUTION_CHOICES = [
         ('IVA', 'IVA - Individual Voluntary Arrangement'),
+        ('IVA NOT SUITABLE', 'IVA Not Suitable'),
+        ('IVA POSSIBLE', 'IVA Possible - Review Flagged Items'),
         ('DMP', 'DMP - Debt Management Plan'),
         ('FREE_SECTOR', 'Free Sector Solution'),
         ('UNCLEAR', 'Unclear'),
