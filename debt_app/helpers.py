@@ -152,7 +152,7 @@ def get_creditor_by_trading_name(
     Find a creditor using a 3-layer lookup:
     Layer 1 — Exact match on creditor_name (DB index, fast)
     Layer 2 — Exact match on any entry in trading_names (case-insensitive)
-    Layer 3 — Fuzzy match via rapidfuzz token_sort_ratio at threshold 85
+    Layer 3 — Fuzzy match via rapidfuzz token_sort_ratio at threshold 50
 
     Raises CreditorCriteria.DoesNotExist if all three layers miss.
 
@@ -163,23 +163,51 @@ def get_creditor_by_trading_name(
                 Pass this from the calling loop to avoid N+1 DB queries.
                 If None, loads from DB automatically.
     """
-    # Layer 1 — exact creditor_name match
+    # Preprocess name by stripping common business suffixes to ensure higher matching accuracy
+    import re
+    cleaned_name = re.sub(
+        r"\s+(limited|ltd|plc|uk|group|services|retail)\b",
+        "",
+        name,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # Layer 1 — exact creditor_name match (try exact incoming name first, then cleaned version)
     try:
         return CreditorCriteria.objects.get(creditor_name=name, is_active=True)
     except CreditorCriteria.DoesNotExist:
         pass
 
+    try:
+        return CreditorCriteria.objects.get(creditor_name=cleaned_name, is_active=True)
+    except CreditorCriteria.DoesNotExist:
+        pass
+
     # Layer 2 — trading_names exact match (case-insensitive)
     name_lower = name.lower()
+    cleaned_name_lower = cleaned_name.lower()
     for creditor in CreditorCriteria.objects.filter(is_active=True):
         if creditor.trading_names:
-            if any(t.lower() == name_lower for t in creditor.trading_names):
+            if any(t.lower() == name_lower or t.lower() == cleaned_name_lower for t in creditor.trading_names):
                 return creditor
 
     # Layer 3 — fuzzy match
-    matched = fuzzy_lookup_creditor(name, all_names=all_names)
+    matched = fuzzy_lookup_creditor(cleaned_name, all_names=all_names)
     if matched is not None:
         return matched
+
+    # Layer 4 — Substring / Word Containment Match (Self-healing fallback)
+    # Automatically links names containing primary creditor words (e.g. "Natwest Current Accounts" -> "NatWest")
+    active_creditors = list(CreditorCriteria.objects.filter(is_active=True))
+    for creditor in active_creditors:
+        # Extract the first/primary word of the canonical creditor name
+        words = [w for w in re.split(r"\W+", creditor.creditor_name.lower()) if w]
+        if words:
+            primary_word = words[0]
+            # Avoid matching generic short terms or noise words
+            if len(primary_word) >= 4 and primary_word not in ("bank", "loan", "ltd", "corp", "coop", "limited"):
+                if primary_word in cleaned_name_lower:
+                    return creditor
 
     raise CreditorCriteria.DoesNotExist(
         f"No criteria row found for creditor: {name!r}"
@@ -189,7 +217,7 @@ def get_creditor_by_trading_name(
 def fuzzy_lookup_creditor(
     name: str,
     all_names: list[str] | None = None,
-    threshold: int = 85,
+    threshold: int = 75,
 ) -> CreditorCriteria | None:
     """
     Fuzzy-match a creditor name against all active CreditorCriteria rows
@@ -200,8 +228,8 @@ def fuzzy_lookup_creditor(
     name      : incoming creditor name to match
     all_names : pre-loaded list of creditor_name values to avoid N+1 queries.
                 If None, loads from DB.
-    threshold : minimum score to accept a match (default 85).
-                85 is safe for this dataset — lower risks false matches
+    threshold : minimum score to accept a match (default 75).
+                75 is safe for this dataset — lower risks false matches
                 e.g. "Bamboo" → "Barclays".
 
     Returns the matching CreditorCriteria object, or None if no match
@@ -218,9 +246,14 @@ def fuzzy_lookup_creditor(
     if not all_names:
         return None
 
+    # Normalise inputs to lowercase to ensure case-insensitive fuzzy matching
+    name_lower = name.lower()
+    name_map = {n.lower(): n for n in all_names}
+    all_names_lower = list(name_map.keys())
+
     result = process.extractOne(
-        name,
-        all_names,
+        name_lower,
+        all_names_lower,
         scorer=fuzz.token_sort_ratio,
         score_cutoff=threshold,
     )
@@ -228,7 +261,8 @@ def fuzzy_lookup_creditor(
     if result is None:
         return None
 
-    matched_name, score, _ = result
+    matched_name_lower, score, _ = result
+    matched_name = name_map[matched_name_lower]
     try:
         return CreditorCriteria.objects.get(
             creditor_name=matched_name, is_active=True

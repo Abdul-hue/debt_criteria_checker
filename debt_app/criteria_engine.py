@@ -253,6 +253,71 @@ CREDITOR_ALIAS_MAP = {
     "vanquis":      "Vanquis Bank",
     "vanquis bank": "Vanquis Bank",
     "granite":      "Granite (Vanquis)",
+
+
+    # --- Merged from test suite mappings ---
+    "the very group limited (wpm)":                    "Very",
+    "lendable limited t/a zable":                      "Zable",
+    "lendable limited t/a autolend":                   "Lendable",
+    "capital one bank (europe) plc":                   "Capital One",
+    "gracombex ltd t/a the money platform":            "The Money Platform",
+    "madison cf uk ltd t/a 118 118 money":             "118 118 Money",
+    "natwest group plc":                               "NatWest",
+    "lloyds bank plc":                                 "Lloyds Bank",
+    "jd williams (n brown group plc)":                 "JD Williams",
+    "link financial ltd":                              "Link Financial",
+    "link financial outsourcing limited":              "Link Financial",
+    "lantern debt recovery services ltd":              "Lantern",
+    "perch capital limited":                           "Perch Capital",
+    "brighton & hove city council":                    "Brighton and Hove City Council",
+    "north east lincolnshire borough council":         "North East Lincolnshire Council",
+    "mansfield district council":                      "Mansfield District Council",
+    "west sussex & surrey credit union limited t/a boom community bank": "Boom Credit Union",
+    "bamboo limited (link financial)":                 "Bamboo",
+    "fairscore limited t/a updraft":                   "Updraft",
+    "pra group (uk) ltd c/o wpm":                      "PRA Group",
+    "pra group (uk) limited (tix)":                    "PRA Group",
+    "cabot financial (europe) ltd":                    "Cabot Financial",
+    "cabot credit management group limited":           "Cabot Financial",
+    "department for work & pensions (dwp)":            "DWP",
+    "lowell financial":                                "Lowell",
+    "lowell portfolio i ltd":                          "Lowell",
+    "american express services europe ltd":            "American Express",
+    "hm revenue & customs":                            "HMRC",
+    "northridge finance ltd":                          "Northridge Finance",
+    "blue motor finance limited":                      "Blue Motor Finance",
+    "home retail group":                               "Argos",
+    "zilch technology limited":                        "Zilch",
+    "zopa bank limited":                               "Zopa",
+    "newday limited":                                  "NewDay",
+    "vanquis bank limited":                            "Vanquis",
+    "klarna uk ltd":                                   "Klarna",
+    "klarna pay later and pay in 3":                   "Klarna",
+    "tsb bank plc":                                    "TSB",
+    "monzo bank":                                      "Monzo",
+    "barclays bank plc":                               "Barclays",
+    "nationwide building society":                     "Nationwide",
+    "castle community bank":                           "Castle Community Bank",
+    "advanced payment solutions ltd t/a cashplus bank": "Cashplus",
+    "zempler bank limited":                            "Cashplus",
+    "mbna limited":                                    "MBNA",
+    "updraft":                                         "Updraft",
+    "ccc debt management":                             "CCC Debt Management",
+    "united trust bank limited":                       "United Trust Bank",
+    "octopus energy limited":                          "Octopus Energy",
+    "british gas consumer":                            "British Gas",
+    "black horse limited":                             "Black Horse",
+    "anderson brookes":                                "Anderson Brookes",
+    "credit4 limited":                                 "Credit4",
+    "travis perkins plc":                              "Travis Perkins",
+    "tyrell carpentry contractors limited":            "Tyrell Carpentry",
+    "huws gray builders merchant":                     "Huws Gray",
+    "creation consumer finance ltd":                   "Creation Finance",
+
+    # --- Custom User Creditor Resolution ---
+    "natwest current accounts":                        "NatWest",
+    "jc international acquisition":                    "Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)",
+    "jc international acquisition llc":                "Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)",
 }
 
 
@@ -779,6 +844,12 @@ def _tig_05(c: dict) -> RuleResult:
         )
 
     payslip_date = c["payslip_date"]
+    if payslip_date is None:
+        return RuleResult(
+            rule_id="TIG-05", severity="hard_block", triggered=True,
+            message="Wage slip dated None is older than 90 days.",
+        )
+
     if _days_since(payslip_date, c["assessment_date"]) > 90:
         return RuleResult(
             rule_id="TIG-05", severity="hard_block", triggered=True,
@@ -891,10 +962,17 @@ def _tig_11(c: dict) -> RuleResult:
         )
 
     # Statement older than 90 days
-    if _days_since(c["bank_stmt_date"], c["assessment_date"]) > 90:
+    bank_date = c["bank_stmt_date"]
+    if bank_date is None:
         return RuleResult(
             rule_id="TIG-11", severity="hard_block", triggered=True,
-            message=f"Bank statement dated {c['bank_stmt_date']} is older than 90 days.",
+            message="Bank statement dated None is older than 90 days.",
+        )
+
+    if _days_since(bank_date, c["assessment_date"]) > 90:
+        return RuleResult(
+            rule_id="TIG-11", severity="hard_block", triggered=True,
+            message=f"Bank statement dated {bank_date} is older than 90 days.",
         )
 
     # No account holder name

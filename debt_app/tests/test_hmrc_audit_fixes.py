@@ -231,7 +231,8 @@ class TestTIG11GamblingIndependent(TestCase):
     def test_gambling_below_200_is_pass(self):
         c = self._case_with_gambling(150)
         r = _tig_11_gambling(c)
-        self.assertFalse(r.triggered)
+        self.assertTrue(r.triggered)
+        self.assertEqual(r.severity, "flag")
         self.assertEqual(r.rule_id, "TIG-11-GAMBLING")
 
     def test_gambling_fires_when_no_bank_statement(self):

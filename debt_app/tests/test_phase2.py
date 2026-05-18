@@ -248,6 +248,9 @@ class TestSeedRepresentatives(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        # Clear any pre-existing production seeds to ensure clean test isolation
+        CreditorCriteria.objects.all().delete()
+
         # Seed a representative sample from the Excel
         rows = [
             # TIX — Which Representative sheet col A
