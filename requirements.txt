@@ -6,3 +6,4 @@ python-dotenv
 djangorestframework
 djangorestframework-simplejwt
 gunicorn
+rapidfuzz
