@@ -14,6 +14,7 @@ from debt_app.views.criteria_views import (
 )
 from django.views.decorators.csrf import csrf_exempt
 from debt_app.views.assess_view import DirectAssessView
+from debt_app.views.simple import AssessView
 
 print("\n--- LOADING FLAT CORE URLS.PY ---")
 
@@ -27,6 +28,8 @@ def ping(request):
 
 urlpatterns = [
     path('api/ping/', ping),
+
+    path('api/assess/', AssessView.as_view(), name='assess'),
 
     # Task 6B — direct case assessment (no auth, accepts raw case JSON)
     path('api/v1/assess/', csrf_exempt(DirectAssessView.as_view())),
