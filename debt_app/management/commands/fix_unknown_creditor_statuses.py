@@ -72,6 +72,12 @@ class Command(BaseCommand):
             {"status": "ACCEPT", "representative": "WATCH"},
             "Lloyds Bank (excl. Personal Loan) -> ACCEPT / WATCH",
         ),
+        (
+            {"creditor_name__in": ["Lloyds", "Lloyds Bank"]},
+            {},
+            {"status": "ACCEPT", "representative": "WATCH"},
+            "Lloyds / Lloyds Bank exact names -> ACCEPT / WATCH",
+        ),
         # Monzo Bank - WATCH from 30/04/2024
         (
             {"creditor_name__icontains": "monzo"},
