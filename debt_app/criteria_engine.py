@@ -547,14 +547,14 @@ def _parse_case(case_json: dict) -> dict:
     bank_stmt_holder = None
     if bank_stmt:
         extracted = bank_stmt.get("extracted_data") or {}
-        bank_stmt_date = extracted.get("statement_date")
+        bank_stmt_date = bank_stmt.get("document_date") or extracted.get("statement_date")
         bank_stmt_holder = extracted.get("account_holder")
 
     # --- Payslip date ---
     payslip_date = None
     if payslip_docs:
         extracted = payslip_docs[0].get("extracted_data") or {}
-        payslip_date = extracted.get("statement_date")
+        payslip_date = payslip_docs[0].get("document_date") or extracted.get("statement_date")
 
     # --- Client age ---
     client_age = _compute_age(client_info.get("dateOfBirth"), reference=assessment_date_parsed)
