@@ -548,7 +548,14 @@ def _parse_case(case_json: dict) -> dict:
     if bank_stmt:
         extracted = bank_stmt.get("extracted_data") or {}
         bank_stmt_date = bank_stmt.get("document_date") or extracted.get("statement_date")
+        
+        # BUG 1 — TIG-11 fallback keys: account_holder -> first_name + last_name
         bank_stmt_holder = extracted.get("account_holder")
+        if not bank_stmt_holder:
+            fn = extracted.get("first_name")
+            ln = extracted.get("last_name")
+            if fn and ln:
+                bank_stmt_holder = f"{fn} {ln}"
 
     # --- Payslip date ---
     payslip_date = None
@@ -721,7 +728,7 @@ def _parse_case(case_json: dict) -> dict:
         ),
         "vulnerability_claimed": bool(case_json.get("vulnerability_claimed", False)),
         "vulnerability_evidence_uploaded": bool(case_json.get("vulnerability_evidence_uploaded", False)),
-        "sfs_expenditure_breakdown": case_json.get("sfs_expenditure_breakdown"),
+        "sfs_expenditure_breakdown": case_json.get("sfs_expenditure_breakdown") or [],
         "disability_income": case_json.get("disability_income"),
         "disability_expenses": case_json.get("disability_expenses"),
         "third_party_contribution": case_json.get("third_party_contribution"),  # TODO
@@ -796,9 +803,41 @@ def _tig_02(c: dict) -> RuleResult:
 def _tig_03(c: dict) -> RuleResult:
     """TIG-03: SFS guidelines — expenditure must comply with Standard Financial Statement limits."""
     sfs = c["sfs_expenditure_breakdown"]
-    if sfs is None:
+    if not sfs:
         return _pass("TIG-03", "SFS expenditure breakdown not provided — rule not evaluated.")
-    breaches = [category for category, exceeds in sfs.items() if exceeds]
+
+    breaches = []
+    
+    # Handle both list (payload contract) and dict (legacy/mismatch)
+    if isinstance(sfs, list):
+        for item in sfs:
+            category = item.get("category", "Unknown")
+            declared = _parse_amount(item.get("monthly_amount", 0))
+            bank = _parse_amount(item.get("bank_proven_amount", 0))
+            guideline = _parse_amount(item.get("sfs_guideline_max", 0))
+            
+            # Correct behaviour:
+            # - Flag if declared > 0 AND declared > guideline
+            # - OR if bank-proven amount > guideline
+            # - Do NOT flag if declared = 0 and bank = 0
+            is_breach = (declared > 0 and declared > guideline) or (bank > guideline)
+            
+            if is_breach:
+                breaches.append(category)
+    elif isinstance(sfs, dict):
+        # Legacy support for dict of booleans/amounts
+        for category, exceeds in sfs.items():
+            if exceeds is True:
+                breaches.append(category)
+            elif isinstance(exceeds, (int, float)) and exceeds > 0:
+                # If it's a dict of amounts, we can't check guidelines here without a lookup table.
+                # For now, we flag if we have a non-zero amount but no guideline to compare against.
+                # However, the user said "Do NOT flag categories where declared = 0 and bank = 0".
+                # If we only have one amount in the dict, we treat it as 'declared'.
+                # But without a guideline, we can't truly determine a breach.
+                # To avoid over-flagging, we only flag if the value is explicitly True.
+                pass
+
     if breaches:
         return RuleResult(
             rule_id="TIG-03", severity="flag", triggered=True,
@@ -1614,10 +1653,10 @@ def _watch_22_2(c: dict) -> RuleResult:
     if actual > threshold:
         return RuleResult(
             rule_id="WATCH-22.2", severity="hard_block", triggered=True,
-            message=f"Debt repayable in {actual:.1f} months — exceeds the 72-month (6-year) threshold. WATCH rejects IVAs where debt cannot be repaid within 6 years.",
+            message=f"Debt repayable in {actual / 12:.1f} years — exceeds the 6-year threshold. WATCH rejects IVAs where debt cannot be repaid within 6 years.",
             threshold=threshold, actual_value=actual,
         )
-    return _pass("WATCH-22.2", f"Debt repayable in {actual:.1f} months — within 6 years, WATCH-22.2 not triggered.")
+    return _pass("WATCH-22.2", f"Debt repayable in {actual / 12:.1f} years — within 6 years, WATCH-22.2 not triggered.")
 
 
 def _watch_22_3(c: dict) -> RuleResult:
