@@ -124,7 +124,7 @@ class TestCase12_01_CleanEmployed(DjangoTestCase):
             "documents": [_bank_doc("M.J."), _payslip_doc()],
             "gold_transactions": [],
             "financial_summary": {
-                "net_balance": 131.00,
+                "net_balance": 115.00,
                 "total_income": 1993.00,
                 "income_source": "employed",
             },
@@ -904,7 +904,7 @@ class TestCase12_15_BenefitsOnlyNoCouncilTax(DjangoTestCase):
                 _creditor("Very",          1500.00, "catalogue"),
                 _creditor("Halifax",       1200.00, "personal_loan"),
                 _creditor("Capital One",   1000.00, "credit_card"),
-                _creditor("Barclays",       499.00, "personal_loan"),
+                _creditor("Barclays",       599.00, "personal_loan"),
                 _creditor("Monzo",          100.00, "catalogue"),
             ],
             "documents": [_bank_doc("B.S.")],

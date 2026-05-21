@@ -58,6 +58,18 @@ class RuleResult:
 
 WATCH_HP_MONTHLY_CAP = 400  # WATCH criteria: HP > £400/month is a flag (TIX uses £250)
 
+# Status normalisation — DB values -> canonical engine output values
+_STATUS_NORMALISE = {
+    "ACCEPTANCE":    "ACCEPT",
+    "REJECTED":      "REJECT",
+    "GENERAL":       "UNKNOWN",
+    "WILL_CONSIDER": "WILL_CONSIDER",
+    "DO_NOT_VOTE":   "DO_NOT_VOTE",
+    "ACCEPT":        "ACCEPT",
+    "REJECT":        "REJECT",
+    "UNKNOWN":       "UNKNOWN",
+}
+
 # Rules that cannot be suppressed by a caseworker override code
 NON_OVERRIDABLE_RULE_IDS = frozenset({
     "TIG-05",       # Core income evidence must be present
@@ -1650,13 +1662,17 @@ def _watch_22_2(c: dict) -> RuleResult:
             actual_value=None,
         )
     actual = c["total_debt"] / di
-    if actual > threshold:
+    if actual <= threshold:
         return RuleResult(
             rule_id="WATCH-22.2", severity="hard_block", triggered=True,
-            message=f"Debt repayable in {actual / 12:.1f} years — exceeds the 6-year threshold. WATCH rejects IVAs where debt cannot be repaid within 6 years.",
+            message=(
+                f"Debt repayable in {actual / 12:.1f} years — within the 6-year "
+                "threshold. WATCH rejects cases where debt can be repaid "
+                "without an IVA within 6 years."
+            ),
             threshold=threshold, actual_value=actual,
         )
-    return _pass("WATCH-22.2", f"Debt repayable in {actual / 12:.1f} years — within 6 years, WATCH-22.2 not triggered.")
+    return _pass("WATCH-22.2", f"Debt repayable in {actual / 12:.1f} years — exceeds 6 years, WATCH-22.2 not triggered.")
 
 
 def _watch_22_3(c: dict) -> RuleResult:
@@ -2274,14 +2290,14 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                 "reason": f"{name}: fraud claim risk noted — caseworker review required before proposing",
             })
 
-        effective_status = "REJECT" if reject_level else criteria.status
+        effective_status = "REJECT" if reject_level else _STATUS_NORMALISE.get(criteria.status, criteria.status)
 
         positions.append({
             "creditor_name": name,
             "resolved_canonical_name": criteria.creditor_name,
             "effective_status": effective_status,
             "findings": findings,
-            "reason": findings[0]["reason"] if findings else "",
+            "reason": findings[0]["reason"] if findings else (criteria.dividend_notes or ""),
             "rule_ids": [f["code"] for f in findings],
             "balance": balance,
         })

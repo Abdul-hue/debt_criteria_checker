@@ -1,0 +1,271 @@
+# Creditors by Representative
+
+## EVOLVE
+- Barclaycard
+- Coutts
+- Mint
+- NatWest
+- NatWest Bank
+- Octopus Energy
+- Royal Bank of Scotland
+- Shell Energy
+- TSB Bank
+- The Royal Bank of Scotland Plc
+- Think Banking
+- Ulster Bank
+- Updraft
+
+## WATCH
+- AA (Bank of Ireland) - IVA
+- AA (Bank of Ireland) - TD
+- AA Bank of Ireland
+- Akinika
+- Akinika / Kent Reliance (previously One Savings Bank) - IVA
+- Akinika / Kent Reliance (previously One Savings Bank) - TD
+- Apex Credit Management (now Cabot) - IVA
+- Apex Credit Management (now Cabot) - TD
+- Aqua
+- Arrow Global
+- Arrow Global Massey Ltd- IVA or BKY
+- Arrow Global Massey Ltd- TD or DAS or SEQ
+- Barclaycard (including cards below) - IVA
+- Barclaycard (including cards below) - TD
+- Barclays
+- Barclays Direct
+- CYBG
+- CYBG (Clydesdale Bank) - previously National Australia Group - IVA
+- CYBG (Clydesdale Bank) - previously National Australia Group - TD
+- CYBG (Yorkshire Bank) - previously National Australia Group - IVA
+- CYBG (Yorkshire Bank) - previously National Australia Group - TD
+- Cabot Financial
+- Cabot Financial (including DLC) - IVA
+- Cabot Financial (including DLC) - TD
+- CapQuest Investments Ltd
+- Fluid
+- Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - IVA
+- Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - TD
+- Hoist Financial
+- IDEM / Paragon / Moorgate- IVA
+- IDEM / Paragon / Moorgate- TD
+- Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO
+- Intrum UK Ltd (previously 1st Credit) - IVA or BKY
+- Intrum UK Ltd (previously 1st Credit) - TD or DAS or SEQ
+- Jaja Finance Ltd
+- Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)
+- Kent Reliance / Akinika (previously One Savings Bank) - IVA
+- Kent Reliance / Akinika (previously One Savings Bank) - TD
+- LC Asset - IVA & BKY
+- LC Asset - TD
+- La Redoute - IVA or TD or BKY or DAS or SEQ or DRO
+- Lantern
+- Lantern Debt Recovery Limited - IVA or BKY
+- Lantern Debt Recovery Limited - TD or DAS or SEQ
+- Link Financial - IVA
+- Link Financial - TD
+- Lloyds
+- Lloyds Bank
+- Lloyds Banking Group (Including the Companies/Brands above) - BKY/SEQ
+- Lloyds Banking Group (Including the Companies/Brands below) - IVA
+- Lloyds Banking Group (Including the Companies/Brands below) - TD
+- MBNA
+- Marbles
+- Marlin Financial - IVA
+- Marlin Financial - TD
+- Marlin ME IV (prev NRAM 6319) - IVA
+- Marlin ME IV (prev NRAM 6319) - TD
+- Monzo Bank
+- Moorgate Loan Servicing (now IDEM) - IVA
+- Moorgate Loan Servicing (now IDEM) - TD
+- Nationwide Building Society
+- Nationwide Building Society - IVA
+- Nationwide Building Society - TD
+- New Day / PRA - IVA or BKY
+- New Day / PRA - TD or SEQ
+- One Savings Bank (now known as Akinika / Kent Reliance) - IVA
+- One Savings Bank (now known as Akinika / Kent Reliance) - TD
+- PCO Holdco Sarl - IVA
+- PCO Holdco Sarl - TD
+- PRA (Portfolio Recovery Associates) - IVA
+- PRA (Portfolio Recovery Associates) - TD
+- Paragon / IDEM / Moorgate- IVA
+- Paragon / IDEM / Moorgate- TD
+- Post Office incl Post Office Fin Svs (Bank of Ireland) - IVA
+- Post Office incl Post Office Fin Svs (Bank of Ireland) - TD
+- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - IVA
+- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - TD
+- Target / Elderbridge (previously First Plus UKSL and Swancastle) - IVA
+- Target / Elderbridge (previously First Plus UKSL and Swancastle) - TD
+- Tesco Bank
+- Thames Water
+- The Co-operative Bank
+- The Co-operative Bank - IVA
+- The Co-operative Bank - TD
+- The Very Group - IVA or TD
+- Virgin Money
+- Woolwich
+- Zopa - IVA or BKY
+- Zopa - TD or SEQ
+
+## NONE
+- AA
+- Abbey National
+- Alliance and Leicester
+- American Express
+- Amigo Loans
+- Anderson Brookes
+- Asset Link
+- Bamboo
+- Bank of Ireland
+- Bank of Scotland
+- Barnsley BS
+- Barnsley Building Society
+- Believe Housing
+- Beyond Housing
+- Birmingham Midshires
+- Black Horse
+- Blackhorse
+- Boom Credit Union
+- Britannia Building Society
+- Buckinghamshire Council
+- Buddy Loans
+- CAMBRIAN Credit Union
+- CCC Debt Management
+- Cahoot
+- Cardiff Credit Union
+- Cashplus
+- Castle Community Bank
+- Chelsea BS
+- Chelsea Building Society
+- Cheltenham and Gloucester
+- Chesham BS
+- Chesham Building Society
+- Cheshire BS
+- Cheshire Building Society
+- Chorley Council
+- Clockwise Credit Union
+- Clydesdale Bank
+- Clydesdale Bank plc
+- Co-operative Bank
+- Colchester Council
+- Commsave Credit Union
+- Coventry BS
+- Coventry Building Society
+- Credit4
+- DWP
+- Derbyshire BS
+- Derbyshire Building Society
+- Dunfermline BS
+- Dunfermline Building Society
+- East Suffolk Council
+- FCE Bank
+- Funding Circle
+- Funding Corporation
+- Glenside Finance
+- Guarantor My Loan
+- HMRC
+- Halifax
+- Hull and East Yorkshire CU
+- Huws Gray
+- Intelligent Finance
+- Medway Council
+- Midland Bank
+- Mutual (Home Credit)
+- National Australia
+- Nationwide
+- No1 Copperpot Credit Union
+- Norwich & Peterborough Building Society
+- Norwich and Peterborough BS
+- O2 UK Ltd
+- Penny Post Credit Union
+- Perch Capital
+- Plata Loans
+- Post Office
+- Ratesetter
+- Reading Council
+- Saga
+- Salary Finance
+- Scarborough BS
+- Scarborough Building Society
+- Skipton BS
+- Skipton Building Society
+- Smile
+- South East Water
+- Specialist Motor Finance
+- Standard Life
+- Stroud & Swindon Building Society
+- Stroud and Swindon BS
+- Student Loans Company
+- TBI Financial Services
+- The Money Platform
+- Transave Credit Union
+- Travis Perkins
+- Tyrell Carpentry
+- Volkswagen Financial Services
+- Wandsworth Council
+- Worcester Council
+- Wyre Forest Council
+- Yorkshire BS
+- Yorkshire Bank
+- Yorkshire Building Society
+
+## TIX
+- 118 Money
+- Alliance & Leicester
+- Aquis
+- Argos Card Services
+- Argos Mastercard
+- Barclays Bank
+- Blemain
+- Blue Motor Finance
+- British Gas
+- Capital One
+- Carval
+- Creation
+- Creation Consumer Finance
+- Creation Financial Services
+- Debitas
+- First Direct
+- Freemans Catalogue
+- Fresh Start
+- Granite (Vanquis)
+- Grattan
+- HFC Bank
+- HSBC
+- Hitachi
+- Home Retail Group
+- JD Williams
+- John Lewis Partnership
+- Kaleidoscope
+- Laser
+- Laser UK
+- Lendable
+- Littlewoods
+- Littlewoods.com
+- Lombard
+- Look Again
+- Lowell
+- Lowell Financial
+- Marks & Spencer
+- Moneybarn
+- NewDay
+- Opus
+- Paypal Europe Ltd
+- SAV Credit
+- SSE
+- Sainsburys Bank
+- Santander
+- Santander Cards
+- Santander Consumer Finance
+- Shop Direct
+- Shop Direct Group
+- Southern Electric
+- Style Financial Services
+- Sygma
+- Sygma Bank Limited
+- TTI Finance
+- UKAR
+- Vanquis Bank
+- Very
+- Welcome Financial Services Ltd
+- Wonga
+
