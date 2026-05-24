@@ -8,3 +8,4 @@ djangorestframework-simplejwt
 gunicorn
 rapidfuzz
 django-cors-headers
+whitenoise

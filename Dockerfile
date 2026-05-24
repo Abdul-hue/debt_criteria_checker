@@ -26,6 +26,14 @@ COPY . .
 # Copy the frontend build to a location Django can serve
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
+# Set environment variables for collectstatic
+ENV DEBUG=False
+ENV SECRET_KEY=build-key
+ENV ALLOWED_HOSTS=localhost
+
+# Run collectstatic
+RUN python manage.py collectstatic --noinput
+
 EXPOSE 8000
 
 CMD ["gunicorn", "debt_project.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
