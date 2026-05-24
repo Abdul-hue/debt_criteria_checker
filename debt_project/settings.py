@@ -110,5 +110,11 @@ REST_FRAMEWORK = {
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Security Headers for Non-HTTPS environments
+SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+# Ensure cookies and sessions work on non-HTTPS if needed (though not used for JWT)
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+
 # DEBUG MIDDLEWARE
 MIDDLEWARE.insert(0, 'debt_project.debug_middleware.RequestDebugMiddleware')

@@ -25,7 +25,10 @@ def email_token_obtain_pair(request):
     email = request.data.get('email')
     password = request.data.get('password')
 
-    print(f"[AUTH DEBUG] Attempting login for email: {email}")
+    print(f"[AUTH DEBUG] Attempting login for email: '{email}'")
+    print(f"[AUTH DEBUG] Password provided length: {len(password) if password else 0}")
+    if password:
+        print(f"[AUTH DEBUG] Password provided (FIRST 3): {password[:3]}...")
 
     if not email or not password:
         print("[AUTH DEBUG] Missing email or password")
