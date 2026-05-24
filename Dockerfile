@@ -26,13 +26,12 @@ COPY . .
 # Copy the frontend build to a location Django can serve
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# Set environment variables for collectstatic
+# Set non-sensitive environment variables for collectstatic
 ENV DEBUG=False
-ENV SECRET_KEY=build-key
 ENV ALLOWED_HOSTS=localhost
 
-# Run collectstatic
-RUN python manage.py collectstatic --noinput
+# Run collectstatic with a temporary dummy secret key to avoid security warnings
+RUN SECRET_KEY=build-placeholder-key python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
