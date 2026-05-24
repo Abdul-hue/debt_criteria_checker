@@ -18,8 +18,11 @@ print("\n--- LOADING FLAT CORE URLS.PY ---")
 from django.http import HttpResponse
 
 
+from django.contrib.auth.models import User
+
 def ping(request):
-    return HttpResponse("OK")
+    count = User.objects.count()
+    return HttpResponse(f"OK (Users: {count})")
 
 
 urlpatterns = [
