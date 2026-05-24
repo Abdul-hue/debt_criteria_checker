@@ -1,28 +1,19 @@
 """
-Seed CouncilRule from the Councils sheet of TIP CRITERIA & VOTING HISTORY.xlsx.
+Seed CouncilRule from the Councils.md file in Excel Criteria folder.
+This replaces the Excel-based seeder to avoid binary dependencies in deployment.
 
-Reads directly from the Excel file. Creates or updates one CouncilRule per council.
-Non-council rows (credit unions, finance companies, etc.) are skipped automatically.
-
-Run with:
+Usage:
     python manage.py seed_all_councils
     python manage.py seed_all_councils --dry-run
-    python manage.py seed_all_councils --overwrite   # overwrite existing records too
+    python manage.py seed_all_councils --overwrite
 """
 
 import re
+import os
 from datetime import datetime
-
 from django.core.management.base import BaseCommand
-
+from django.conf import settings
 from debt_app.models import CouncilRule
-
-try:
-    import openpyxl
-except ImportError:
-    openpyxl = None
-
-EXCEL_PATH = "C:/Users/Canton Computers/Desktop/TIP CRITERIA & VOTING HISTORY.xlsx"
 
 # Rows whose council name matches these patterns are not real councils
 NON_COUNCIL_PATTERNS = [
@@ -45,7 +36,7 @@ NON_COUNCIL_PATTERNS = [
     r"hilingdon council \(parking",
 ]
 
-# Map raw Excel status strings -> CouncilRule.status choices
+# Map raw status strings -> CouncilRule.status choices
 STATUS_MAP = {
     "accept":                          "ACCEPT",
     "reject":                          "REJECT",
@@ -62,7 +53,7 @@ STATUS_MAP = {
     "see likely loans":                None,   # skip
 }
 
-# Councils whose notes reveal conditional reject flags (manually coded)
+# Councils whose notes reveal conditional reject flags
 CONDITIONAL_FLAGS = {
     "doncaster borough council":               {"reject_if_employed": True},
     "gateshead borough council":               {"reject_if_employed": True, "reject_if_previous_iva": True},
@@ -114,19 +105,15 @@ INCLUDE_CURRENT_YEAR_CT = {
     "huntingdonshire district council",
 }
 
-
 def _normalise_status(raw):
     if not raw:
         return "DO_NOT_VOTE"
     key = raw.strip().lower()
-    # exact match first
     if key in STATUS_MAP:
         return STATUS_MAP[key]
-    # prefix match for longer variants like "reject sole accounts..."
     for pattern, mapped in STATUS_MAP.items():
         if key.startswith(pattern):
             return mapped
-    # fallback
     if "reject" in key:
         return "REJECT"
     if "accept" in key:
@@ -135,7 +122,6 @@ def _normalise_status(raw):
         return "WILL_CONSIDER"
     return "DO_NOT_VOTE"
 
-
 def _is_non_council(name):
     lower = name.lower()
     for pat in NON_COUNCIL_PATTERNS:
@@ -143,79 +129,86 @@ def _is_non_council(name):
             return True
     return False
 
-
 def _parse_date(val):
     if not val:
         return None
-    if isinstance(val, datetime):
-        return val.date()
     s = str(val).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y",
-                "%d.%m.%Y", "%d.%m.%y", "%d-%m-%Y"):
+    # Handle the common 2021-01-12 00:00:00 format found in the MD
+    if "00:00:00" in s:
+        s = s.split(" ")[0]
+    
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d.%m.%Y", "%d.%m.%y", "%d-%m-%Y"):
         try:
-            return datetime.strptime(s[:10], fmt[:len(fmt)]).date()
+            return datetime.strptime(s, fmt).date()
         except ValueError:
-            pass
+            continue
     return None
 
-
 class Command(BaseCommand):
-    help = "Seed CouncilRule table from Excel Councils sheet"
+    help = "Seed CouncilRule table from Councils.md"
 
     def add_arguments(self, parser):
-        parser.add_argument("--dry-run", action="store_true", help="Preview only, no DB writes")
-        parser.add_argument("--overwrite", action="store_true", help="Overwrite existing records")
+        parser.add_argument("--dry-run", action="store_true", help="Preview only")
+        parser.add_argument("--overwrite", action="store_true", help="Overwrite existing")
 
     def handle(self, *args, **options):
-        if openpyxl is None:
-            self.stderr.write("openpyxl not installed. Run: pip install openpyxl")
-            return
-
         dry_run = options["dry_run"]
         overwrite = options["overwrite"]
 
-        wb = openpyxl.load_workbook(EXCEL_PATH, read_only=True, data_only=True)
-        ws = wb["Councils"]
-        rows = list(ws.iter_rows(values_only=True))
+        md_path = os.path.join(settings.BASE_DIR, "Excel Criteria", "Councils.md")
+        if not os.path.exists(md_path):
+            self.stderr.write(f"Source file not found: {md_path}")
+            return
+
+        with open(md_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
 
         created = updated = skipped = non_council = 0
-
-        for row in rows[1:]:
-            # skip blank rows
-            if not any(c is not None and str(c).strip() for c in row[:7]):
+        
+        # Table starts after header and separator
+        in_table = False
+        for line in lines:
+            line = line.strip()
+            if line.startswith("| # | Council |"):
+                in_table = True
+                continue
+            if in_table and line.startswith("|---|"):
+                continue
+            if not in_table or not line.startswith("|"):
                 continue
 
-            raw_name = str(row[0]).strip() if row[0] else ""
-            if not raw_name:
-                skipped += 1
+            # Parse MD table row
+            parts = [p.strip() for p in line.split("|")]
+            # Format: | # | Council | Status | Notes | Updated Criteria | Criteria Changed From Rej Date | Contact Name | Contact Number |
+            if len(parts) < 9:
+                continue
+
+            raw_name    = parts[2]
+            raw_status  = parts[3]
+            raw_notes   = parts[4]
+            raw_date    = parts[5]
+            raw_changed = parts[6]
+            raw_cname   = parts[7]
+            raw_cnumber = parts[8]
+
+            if not raw_name or raw_name == "Council":
                 continue
 
             if _is_non_council(raw_name):
                 non_council += 1
-                self.stdout.write(f"  SKIP (non-council): {raw_name}")
                 continue
 
-            raw_status = str(row[1]).strip() if row[1] else ""
             status = _normalise_status(raw_status)
-
             if status is None:
                 non_council += 1
-                self.stdout.write(f"  SKIP (See Likely Loans): {raw_name}")
                 continue
 
-            raw_notes  = str(row[2]).strip() if row[2] else ""
-            raw_date   = row[3]
-            last_rev   = _parse_date(raw_date)
-
+            last_rev = _parse_date(raw_date)
             name_key = raw_name.lower()
             flags = CONDITIONAL_FLAGS.get(name_key, {})
             min_div = MIN_DIVIDEND.get(name_key)
             do_not_chase = name_key in DO_NOT_CHASE
             inc_ct = name_key in INCLUDE_CURRENT_YEAR_CT
-
-            raw_changed = str(row[4]).strip() if row[4] else ""
-            raw_cname   = str(row[5]).strip() if row[5] else ""
-            raw_cnumber = str(row[6]).strip() if row[6] else ""
 
             defaults = {
                 "status": status,
@@ -255,10 +248,7 @@ class Command(BaseCommand):
             else:
                 skipped += 1
 
-        self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(
-            f"Done. Created: {created}  Updated: {updated}  "
-            f"Skipped (existing): {skipped}  Non-council: {non_council}"
+            f"\nDone. Created: {created}  Updated: {updated}  "
+            f"Skipped: {skipped}  Non-council: {non_council}"
         ))
-        if dry_run:
-            self.stdout.write(self.style.WARNING("(dry-run — no changes written)"))
