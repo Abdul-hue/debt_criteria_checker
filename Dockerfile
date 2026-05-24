@@ -1,3 +1,12 @@
+# Stage 1: Build the frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Build the Python app
 FROM python:3.12-slim
 
 # Install system dependencies for building mysqlclient
@@ -13,6 +22,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# Copy the frontend build to a location Django can serve
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 EXPOSE 8000
 

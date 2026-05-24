@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
@@ -10,6 +10,7 @@ from debt_app.views.auth_views import email_token_obtain_pair
 from django.views.decorators.csrf import csrf_exempt
 from debt_app.views.assess_view import DirectAssessView
 from debt_app.views.simple import AssessView
+from django.views.generic import TemplateView
 
 print("\n--- LOADING FLAT CORE URLS.PY ---")
 
@@ -37,6 +38,9 @@ urlpatterns = [
 
     # All criteria endpoints (assess, creditors, rules, councils, applications, evidence, voters, users)
     path('api/v1/criteria/', include('debt_app.urls_criteria')),
+
+    # Frontend SPA catch-all
+    re_path(r'^.*$', TemplateView.as_view(template_name='index.html'), name='frontend'),
 ]
 
 if settings.DEBUG:
