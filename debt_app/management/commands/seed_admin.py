@@ -8,18 +8,15 @@ class Command(BaseCommand):
         email = 'admin@test.com'
         password = 'admin123'
         
-        user = User.objects.filter(email=email).first()
-        if not user:
-            User.objects.create_superuser(
-                username='admin',
-                email=email,
-                password=password
-            )
-            self.stdout.write(self.style.SUCCESS(f'Successfully created admin user: {email}'))
-        else:
-            user.set_password(password)
-            user.is_active = True
-            user.is_staff = True
-            user.is_superuser = True
-            user.save()
-            self.stdout.write(self.style.SUCCESS(f'Successfully updated admin user password and status: {email}'))
+        # Completely delete and recreate to ensure no hashing/state issues
+        User.objects.filter(email=email).delete()
+        User.objects.filter(username='admin').delete()
+        
+        User.objects.create_superuser(
+            username='admin',
+            email=email,
+            password=password,
+            is_active=True,
+            is_staff=True
+        )
+        self.stdout.write(self.style.SUCCESS(f'DELETED and RECREATED admin user: {email} with password: {password}'))
