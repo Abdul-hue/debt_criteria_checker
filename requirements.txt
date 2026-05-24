@@ -9,3 +9,4 @@ gunicorn
 rapidfuzz
 django-cors-headers
 whitenoise
+openpyxl
