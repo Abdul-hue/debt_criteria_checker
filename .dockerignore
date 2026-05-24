@@ -8,5 +8,6 @@ db.sqlite3
 .vscode/
 scratch/
 docs/
-frontend/
 tests/
+frontend/node_modules/
+frontend/dist/
