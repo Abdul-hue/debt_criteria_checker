@@ -57,7 +57,11 @@ export const ToastProvider = ({ children }) => {
 
   const addToast = useCallback(
     (type, title, message, duration = 4000) => {
-      const id = crypto.randomUUID()
+      // Fallback for crypto.randomUUID on non-secure origins (HTTP)
+      const id = typeof crypto?.randomUUID === 'function' 
+        ? crypto.randomUUID() 
+        : Math.random().toString(36).substring(2, 11)
+        
       setToasts((current) => {
         const updated = [...current, { id, type, title, message, duration }]
         return updated.slice(-5)
