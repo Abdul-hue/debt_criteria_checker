@@ -143,6 +143,15 @@ class Command(BaseCommand):
             },
             {
                 'criteria_set': 'TIG',
+                'rule_key': 'TIG-11-GAMBLING',
+                'rule_name': 'Gambling spend check',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': Decimal('1000.00'),
+                'description': 'Gambling spending must be under £1,000; GAMSTOP required if over £200.',
+            },
+            {
+                'criteria_set': 'TIG',
                 'rule_key': 'TIG-12',
                 'rule_name': 'Third-party contribution evidence',
                 'severity': 'hard_block',
@@ -158,6 +167,24 @@ class Command(BaseCommand):
                 'is_active': True,
                 'threshold_value': None,
                 'description': 'If the client has a previously terminated IVA, the termination report must be obtained and reviewed before proceeding.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-14',
+                'rule_name': 'Verbal debt proof',
+                'severity': 'info',
+                'is_active': True,
+                'threshold_value': Decimal('1000.00'),
+                'description': 'Debts under £1,000 can be verbal if written proof unavailable.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-15',
+                'rule_name': 'Creditor letters date',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+                'description': 'Creditor letters required within last 6 weeks with reference numbers.',
             },
             {
                 'criteria_set': 'TIG',
@@ -356,6 +383,70 @@ class Command(BaseCommand):
                 'is_active': True,
                 'threshold_value': None,
                 'description': 'Link Financial will hard block an IVA where the client has arrears from a previously failed IVA arrangement.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-VOTE-NOT-GUARANTEED',
+                'rule_name': 'HMRC vote not guaranteed',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-VAT-TRADING',
+                'rule_name': 'HMRC VAT arrears trading',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-PAYE-OBLIGATIONS',
+                'rule_name': 'HMRC PAYE obligations',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-TAX-CREDITS',
+                'rule_name': 'HMRC Tax Credit priority',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-NI-CLASS',
+                'rule_name': 'HMRC National Insurance',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-ONGOING-TRADING',
+                'rule_name': 'HMRC ongoing trading',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-HMRC-ANTECEDENT',
+                'rule_name': 'HMRC antecedent payment',
+                'severity': 'hard_block',
+                'is_active': True,
+                'threshold_value': None,
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'TIG-SHOP-DIRECT-4MO-REVIEW',
+                'rule_name': 'Shop Direct 4 month review',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': None,
             },
 
             # ------------------------------------------------------------------ WATCH
@@ -570,6 +661,35 @@ class Command(BaseCommand):
                 'threshold_value': None,
                 'description': 'EVOLVE requires vulnerability evidence to be documented where the client is identified as vulnerable.',
             },
+
+            # ------------------------------------------------------------------ PHASE 4 / SYSTEM
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'PHASE4-VW-TERMINATION',
+                'rule_name': 'VW Group HP Termination Risk',
+                'severity': 'hard_block',
+                'is_active': True,
+                'description': 'Volkswagen Financial Services (VWFS) group creditors (Audi, Skoda, SEAT, Porsche) will typically terminate HP agreements if an IVA is proposed. Case must be reviewed for vehicle retention risk.',
+                'action': 'Verify if vehicle is essential; contact VWFS or consider alternative solution.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'PHASE4-DMP-REJECT',
+                'rule_name': 'DMP Recommended Solution',
+                'severity': 'hard_block',
+                'is_active': True,
+                'description': 'Based on the client\'s financial profile (low debt or high disposable income), a Debt Management Plan is the recommended solution over an IVA.',
+                'action': 'Discuss DMP benefits and risks with the client.',
+            },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'PHASE4-COUNTY-COUNCIL',
+                'rule_name': 'County Council Majority Flag',
+                'severity': 'flag',
+                'is_active': True,
+                'description': 'A County Council holds a significant portion of the debt. County Councils often have specific voting requirements or may require additional justification for an IVA.',
+                'action': 'Review County Council specific rules and ensure the proposal addresses their requirements.',
+            },
         ]
 
         # T4 — update_or_create so re-runs always correct wrong data
@@ -577,24 +697,24 @@ class Command(BaseCommand):
         updated_count = 0
         for rule_data in rules:
             rule_key = rule_data['rule_key']
-            defaults = {k: v for k, v in rule_data.items() if k not in ('rule_key', 'description')}
+            defaults = {k: v for k, v in rule_data.items() if k != 'rule_key'}
             obj, created = GlobalCriteria.objects.update_or_create(
                 rule_key=rule_key,
                 defaults=defaults,
             )
             if created:
                 created_count += 1
-                self.stdout.write(self.style.SUCCESS(f'  ✓ Created: {obj.rule_key}'))
+                self.stdout.write(self.style.SUCCESS(f'  [CREATED] {obj.rule_key}'))
             else:
                 updated_count += 1
-                self.stdout.write(self.style.WARNING(f'  ~ Updated: {obj.rule_key}'))
+                self.stdout.write(self.style.WARNING(f'  [UPDATED] {obj.rule_key}'))
 
         # T5 — Summary counts
         total = GlobalCriteria.objects.count()
         active = GlobalCriteria.objects.filter(is_active=True).count()
         stubs = GlobalCriteria.objects.filter(is_active=False).count()
         self.stdout.write(self.style.SUCCESS(
-            f'\n✓ Seeding complete.\n'
+            f'\nSeeding complete.\n'
             f'  Total rules in database: {total}\n'
             f'  Active rules: {active}\n'
             f'  Stub rules (awaiting payload fields): {stubs}\n'

@@ -36,6 +36,8 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
+from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -99,7 +101,10 @@ _CREATION_NAMES = frozenset({
 })
 
 _LINK_NAMES = frozenset({
-    "link financial", "link financial outsourcing",
+    "link financial",
+    "link financial outsourcing",
+    "link financial outsourcing limited",
+    "link financial ltd",
 })
 
 _HMRC_NAMES = frozenset({
@@ -156,184 +161,6 @@ _VW_GROUP_NAMES = frozenset({
 
 
 # ---------------------------------------------------------------------------
-# Creditor alias map — maps incoming payload names (lowercase) to exact DB
-# creditor_name values, applied before the 3-layer lookup in helpers.py.
-# Keys MUST be lowercase; values MUST match CreditorCriteria.creditor_name exactly.
-# ---------------------------------------------------------------------------
-
-CREDITOR_ALIAS_MAP = {
-    # Debt purchasers
-    "lowell":                    "Lowell Financial",
-    "lowell portfolio":          "Lowell Financial",
-    "lowell group":              "Lowell Financial",
-    "lantern":                   "Lantern Debt Recovery Limited - IVA or BKY",
-    "lantern debt recovery":     "Lantern Debt Recovery Limited - IVA or BKY",
-    "pra group":                 "PRA (Portfolio Recovery Associates) - IVA",
-    "pra":                       "PRA (Portfolio Recovery Associates) - IVA",
-    "portfolio recovery":        "PRA (Portfolio Recovery Associates) - IVA",
-    "perch capital":             "PCO Holdco Sarl - IVA",
-    "link financial":            "Link Financial - IVA",
-    "asset link":                "Asset Link",
-    "cabot":                     "Cabot Financial",
-    "cabot financial":           "Cabot Financial",
-    "intrum":                    "Intrum UK Ltd (previously 1st Credit) - IVA or BKY",
-    "1st credit":                "Intrum UK Ltd (previously 1st Credit) - IVA or BKY",
-    "arrow global":              "Arrow Global",
-    "marlin":                    "Marlin Financial - IVA",
-    "hoist":                     "Hoist Financial",
-    "hoist financial":           "Hoist Financial",
-
-    # Fintech / BNPL
-    "klarna":         "Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO",
-    "zilch":          "NewDay",
-    "zable":          "NewDay",
-    "newday":         "NewDay",
-    "aquis":          "Aquis",
-    "fluid":          "Fluid",
-    "opus":           "Opus",
-    "jaja":           "Jaja Finance Ltd",
-    "lendable":       "Lendable",
-    "plata":          "Plata Loans",
-    "salary finance": "Salary Finance",
-
-    # P2P / marketplace lenders
-    "zopa":           "Zopa - IVA or BKY",
-    "ratesetter":     "Ratesetter",
-    "funding circle": "Funding Circle",
-
-    # High street banks — variant names
-    "tsb":                    "TSB Bank",
-    "tsb bank":               "TSB Bank",
-    "natwest":                "NatWest",
-    "rbs":                    "Royal Bank of Scotland",
-    "royal bank of scotland": "Royal Bank of Scotland",
-    "hsbc":                   "HSBC",
-    "barclays":               "Barclays",
-    "barclaycard":            "Barclaycard",
-    "halifax":                "Halifax",
-    "lloyds":                 "Lloyds Bank",
-    "lloyds bank":            "Lloyds Bank",
-    "nationwide":             "Nationwide Building Society",
-    "santander":              "Santander",
-    "mbna":                   "MBNA",
-    "capital one":            "Capital One",
-    "first direct":           "First Direct",
-    "monzo":                  "Monzo Bank",
-    "starling":               "Monzo Bank",  # no Starling row — closest is Monzo (WATCH)
-
-    # Catalogues / retail
-    "argos":        "Argos Card Services",
-    "very":         "Very",
-    "jd williams":  "JD Williams",
-    "littlewoods":  "Littlewoods",
-    "shop direct":  "Shop Direct",
-    "freemans":     "Freemans Catalogue",
-    "kaleidoscope": "Kaleidoscope",
-    "look again":   "Look Again",
-    "grattan":      "Grattan",
-
-    # Creation Finance variants
-    "creation finance":          "Creation Financial Services",
-    "creation consumer finance": "Creation Consumer Finance",
-    "creation":                  "Creation",
-    "sygma":                     "Sygma Bank Limited",
-    "laser":                     "Laser UK",
-
-    # Other lenders
-    "118 118 money":             "118 Money",
-    "118118 money":              "118 Money",
-    "118 money":                 "118 Money",
-    "amigo":                     "Amigo Loans",
-    "amigo loans":               "Amigo Loans",
-    "bamboo":                    "Bamboo",
-    "bamboo loans":              "Bamboo",
-    "everyday loans":            "Everyday Loans",
-    "guarantor my loan":         "Guarantor My Loan",
-    "buddy loans":               "Buddy Loans",
-    "moneybarn":                 "Moneybarn",
-    "black horse":               "Black Horse",
-    "blue motor finance":        "Blue Motor Finance",
-    "specialist motor finance":  "Specialist Motor Finance",
-    "volkswagen financial services": "Volkswagen Financial Services",
-    "vw financial services":     "Volkswagen Financial Services",
-    "fce bank":                  "FCE Bank",
-    "ford credit":               "FCE Bank",
-    "hitachi":                   "Hitachi",
-    "ikano":                     "Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO",
-
-    # Vanquis variants
-    "vanquis":      "Vanquis Bank",
-    "vanquis bank": "Vanquis Bank",
-    "granite":      "Granite (Vanquis)",
-
-
-    # --- Merged from test suite mappings ---
-    "the very group limited (wpm)":                    "Very",
-    "lendable limited t/a zable":                      "Zable",
-    "lendable limited t/a autolend":                   "Lendable",
-    "capital one bank (europe) plc":                   "Capital One",
-    "gracombex ltd t/a the money platform":            "The Money Platform",
-    "madison cf uk ltd t/a 118 118 money":             "118 118 Money",
-    "natwest group plc":                               "NatWest",
-    "lloyds bank plc":                                 "Lloyds Bank",
-    "jd williams (n brown group plc)":                 "JD Williams",
-    "link financial ltd":                              "Link Financial",
-    "link financial outsourcing limited":              "Link Financial",
-    "lantern debt recovery services ltd":              "Lantern",
-    "perch capital limited":                           "Perch Capital",
-    "brighton & hove city council":                    "Brighton and Hove City Council",
-    "north east lincolnshire borough council":         "North East Lincolnshire Council",
-    "mansfield district council":                      "Mansfield District Council",
-    "west sussex & surrey credit union limited t/a boom community bank": "Boom Credit Union",
-    "bamboo limited (link financial)":                 "Bamboo",
-    "fairscore limited t/a updraft":                   "Updraft",
-    "pra group (uk) ltd c/o wpm":                      "PRA Group",
-    "pra group (uk) limited (tix)":                    "PRA Group",
-    "cabot financial (europe) ltd":                    "Cabot Financial",
-    "cabot credit management group limited":           "Cabot Financial",
-    "department for work & pensions (dwp)":            "DWP",
-    "lowell financial":                                "Lowell",
-    "lowell portfolio i ltd":                          "Lowell",
-    "american express services europe ltd":            "American Express",
-    "hm revenue & customs":                            "HMRC",
-    "northridge finance ltd":                          "Northridge Finance",
-    "blue motor finance limited":                      "Blue Motor Finance",
-    "home retail group":                               "Argos",
-    "zilch technology limited":                        "Zilch",
-    "zopa bank limited":                               "Zopa",
-    "newday limited":                                  "NewDay",
-    "vanquis bank limited":                            "Vanquis",
-    "klarna uk ltd":                                   "Klarna",
-    "klarna pay later and pay in 3":                   "Klarna",
-    "tsb bank plc":                                    "TSB",
-    "monzo bank":                                      "Monzo",
-    "barclays bank plc":                               "Barclays",
-    "nationwide building society":                     "Nationwide",
-    "castle community bank":                           "Castle Community Bank",
-    "advanced payment solutions ltd t/a cashplus bank": "Cashplus",
-    "zempler bank limited":                            "Cashplus",
-    "mbna limited":                                    "MBNA",
-    "updraft":                                         "Updraft",
-    "ccc debt management":                             "CCC Debt Management",
-    "united trust bank limited":                       "United Trust Bank",
-    "octopus energy limited":                          "Octopus Energy",
-    "british gas consumer":                            "British Gas",
-    "black horse limited":                             "Black Horse",
-    "anderson brookes":                                "Anderson Brookes",
-    "credit4 limited":                                 "Credit4",
-    "travis perkins plc":                              "Travis Perkins",
-    "tyrell carpentry contractors limited":            "Tyrell Carpentry",
-    "huws gray builders merchant":                     "Huws Gray",
-    "creation consumer finance ltd":                   "Creation Finance",
-
-    # --- Custom User Creditor Resolution ---
-    "natwest current accounts":                        "NatWest",
-    "jc international acquisition":                    "Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)",
-    "jc international acquisition llc":                "Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)",
-}
-
-
-# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -343,8 +170,21 @@ def _norm(s: str) -> str:
 
 
 def _in_set(name: str, name_set: frozenset) -> bool:
-    """Case-insensitive membership check against a frozenset of names."""
-    return name.strip().lower() in name_set
+    """Case-insensitive membership check against a frozenset of names.
+    Strips common legal suffixes before checking membership."""
+    if not name:
+        return False
+    # 1. strip() and lower()
+    s = name.strip().lower()
+    # 2. Remove trailing: " limited", " ltd", " plc", " llp", " uk ltd", " uk limited"
+    # Ordered longest first to prevent partial stripping
+    suffixes = [" uk limited", " uk ltd", " limited", " ltd", " plc", " llp"]
+    for suffix in suffixes:
+        if s.endswith(suffix):
+            s = s[:-len(suffix)].strip()
+            break
+    # 3. Then check membership in the set
+    return s in name_set
 
 
 def _days_since(date_str: Optional[str], reference: Optional[date] = None) -> int:
@@ -372,13 +212,15 @@ def _parse_amount(value) -> float:
         return 0.0
 
 
-def _gambling_monthly(gold_transactions: list) -> float:
-    """Sum absolute amounts of gambling transactions."""
+def _gambling_monthly(gold_transactions: list, reference: Optional[date] = None) -> float:
+    """Sum absolute amounts of gambling transactions within the last 30 days."""
     total = 0.0
     for t in gold_transactions:
         desc = (t.get("description") or "").lower()
         if any(kw in desc for kw in _GAMBLING_KEYWORDS):
-            total += abs(_parse_amount(t.get("amount", 0)))
+            tx_date = t.get("transaction_date") or t.get("date")
+            if _is_within_days(tx_date, 30, reference):
+                total += abs(_parse_amount(t.get("amount", 0)))
     return total
 
 
@@ -400,13 +242,15 @@ def _recent_transactions_matching(
     return results
 
 
-def _hp_monthly_from_transactions(gold_transactions: list) -> float:
-    """Estimate HP monthly payment by scanning gold_transactions."""
+def _hp_monthly_from_transactions(gold_transactions: list, reference: Optional[date] = None) -> float:
+    """Estimate HP monthly payment by scanning gold_transactions within the last 30 days."""
     total = 0.0
     for t in gold_transactions:
         desc = (t.get("description") or "").lower()
         if any(kw in desc for kw in _CAR_FINANCE_KEYWORDS):
-            total += abs(_parse_amount(t.get("amount", 0)))
+            tx_date = t.get("transaction_date") or t.get("date")
+            if _is_within_days(tx_date, 30, reference):
+                total += abs(_parse_amount(t.get("amount", 0)))
     return total
 
 
@@ -437,6 +281,17 @@ def _todo_flag(rule_id: str, field_name: str) -> RuleResult:
 
 def _pass(rule_id: str, message: str = "Passed.") -> RuleResult:
     return RuleResult(rule_id=rule_id, severity="pass", triggered=False, message=message)
+
+
+def _func_to_rule_id(name: str) -> str:
+    """Convert Python function name (e.g. _tig_15_10) to rule ID (TIG-15.10)."""
+    # Remove leading underscore
+    s = name.lstrip("_")
+    # Replace first underscore with hyphen (e.g. tig_01 -> tig-01)
+    s = s.replace("_", "-", 1)
+    # Replace remaining underscores with dots (e.g. tig-15_10 -> tig-15.10)
+    s = s.replace("_", ".")
+    return s.upper()
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +363,7 @@ def _parse_case(case_json: dict) -> dict:
             "is_grant_overpayment": bool(c.get("is_grant_overpayment", False)),
             "guarantee_called_up": c.get("guarantee_called_up"),
             "months_since_last_payment": months_since_lp,
+            "linked_creditor": c.get("linked_creditor"),
         })
 
     # --- Total debt: always computed from creditors (unsecured only) ---
@@ -576,30 +432,53 @@ def _parse_case(case_json: dict) -> dict:
         payslip_date = payslip_docs[0].get("document_date") or extracted.get("statement_date")
 
     # --- Client age ---
-    client_age = _compute_age(client_info.get("dateOfBirth"), reference=assessment_date_parsed)
+    # Calculate age in years from today's date
+    client_age = _compute_age(client_info.get("dateOfBirth"), reference=date.today())
 
     # --- Gambling ---
-    gambling_monthly = _gambling_monthly(gold_tx)
+    gambling_monthly = _gambling_monthly(gold_tx, reference=assessment_date_parsed)
 
-    # --- Mortgage / equity (property_value is a TODO field) ---
-    has_property = case_json.get("has_property", False)
-    property_value = case_json.get("property_value")  # TODO: not yet in payload
+    # --- Mortgage / equity ---
+    prop_data = case_json.get("property") or {}
+    
+    # Read nested "property" first, fall back to top-level keys
+    has_property = prop_data.get("owns_property")
+    if has_property is None:
+        has_property = case_json.get("has_property", False)
+        
+    property_value = prop_data.get("property_value")
+    if property_value is None:
+        property_value = case_json.get("property_value")
+
     if mortgage_details:
         mortgage_balance = sum(_parse_amount(m.get("balance", 0)) for m in mortgage_details)
     else:
-        mortgage_balance = _parse_amount(case_json.get("mortgage_balance", 0))
+        mortgage_balance_raw = prop_data.get("mortgage_balance")
+        if mortgage_balance_raw is None:
+            mortgage_balance_raw = case_json.get("mortgage_balance", 0)
+        mortgage_balance = _parse_amount(mortgage_balance_raw)
 
-    available_equity = None
+    available_equity = 0.0
     if has_property and property_value is not None:
         available_equity = _parse_amount(property_value) - mortgage_balance
+    elif not has_property:
+        available_equity = 0.0
+    else:
+        # has_property is True but property_value is None
+        available_equity = None
 
     # --- Previous IVA ---
     previous_iva = case_json.get("previous_iva", False)
     if not previous_iva:
-        # Also check evidence_ledger
+        # Also check evidence_ledger or flags
         previous_iva = any(
             e.get("category") == "previous_iva" for e in evidence_ledger
-        )
+        ) or case_json.get("flags", {}).get("previous_iva", False)
+
+    previous_iva_failed_reason = (
+        case_json.get("previous_iva_failed_reason")
+        or case_json.get("flags", {}).get("previous_iva_failed_reason")
+    )
 
     # --- Phase 3 case-level flags ---
     client_block = case_json.get("client") or {}
@@ -674,7 +553,7 @@ def _parse_case(case_json: dict) -> dict:
             total_spend_2mo += abs(_parse_amount(t.get("amount", 0)))
 
     # --- Vehicle HP from transactions ---
-    vehicle_hp_monthly = _hp_monthly_from_transactions(gold_tx)
+    vehicle_hp_monthly = _hp_monthly_from_transactions(gold_tx, reference=assessment_date_parsed)
 
     # --- Car finance recent transactions ---
     car_finance_tx_3mo = _recent_transactions_matching(
@@ -682,6 +561,9 @@ def _parse_case(case_json: dict) -> dict:
     )
 
     return {
+        # Metadata
+        "aryza_reference": case_json.get("aryza_reference", ""),
+        "client_name": case_json.get("client_name") or client_info.get("client_name", ""),
         # Core financials
         "total_debt": total_debt,
         "disposable_income": disposable_income,
@@ -696,6 +578,7 @@ def _parse_case(case_json: dict) -> dict:
         "link_balance": link_balance,
         "link_is_creditor": link_is_creditor,
         "council_is_majority": council_is_majority,
+        "evidence_ledger": case_json.get("evidence_ledger") or [],
         # Documents
         "payslip_docs": payslip_docs,
         "payslip_date": payslip_date,
@@ -743,11 +626,12 @@ def _parse_case(case_json: dict) -> dict:
         "sfs_expenditure_breakdown": case_json.get("sfs_expenditure_breakdown") or [],
         "disability_income": case_json.get("disability_income"),
         "disability_expenses": case_json.get("disability_expenses"),
-        "third_party_contribution": case_json.get("third_party_contribution"),  # TODO
+        "third_party_contribution": case_json.get("third_party_contribution"),
         "sustainability_paragraph_present": case_json.get("sustainability_paragraph_present"),
         "bankruptcy_return": case_json.get("bankruptcy_return"),
         # Flags derived from other sources
         "previous_iva": previous_iva,
+        "previous_iva_failed_reason": previous_iva_failed_reason,
         "has_vehicle": case_json.get("has_vehicle", False),
         # Assessment date (for date-gated rules)
         "assessment_date": assessment_date_parsed,
@@ -802,8 +686,17 @@ def _tig_02(c: dict) -> RuleResult:
     """TIG-02: Disposable income must be >= £100/month."""
     threshold = 100.0
     actual = c["disposable_income"]
-    # EXCEL_CRITERIA_REFERENCE.md — TIG: minimum DI is £100 (£100 itself is acceptable)
+    
     if actual < threshold:
+        # Check if income data is missing entirely
+        total_income = c.get("total_income", 0)
+        if total_income <= 0:
+            return RuleResult(
+                rule_id="TIG-02", severity="hard_block", triggered=True,
+                message="Disposable income is below £100.00 because no income data has been entered into the Fact Find. Please complete the financial section.",
+                threshold=threshold, actual_value=actual,
+            )
+        
         return RuleResult(
             rule_id="TIG-02", severity="hard_block", triggered=True,
             message=f"Disposable income £{actual:,.2f}/month is below the £{threshold:,.2f} minimum.",
@@ -829,10 +722,10 @@ def _tig_03(c: dict) -> RuleResult:
             guideline = _parse_amount(item.get("sfs_guideline_max", 0))
             
             # Correct behaviour:
-            # - Flag if declared > 0 AND declared > guideline
-            # - OR if bank-proven amount > guideline
-            # - Do NOT flag if declared = 0 and bank = 0
-            is_breach = (declared > 0 and declared > guideline) or (bank > guideline)
+            # - Flag if declared > 0 AND guideline > 0 AND declared > guideline
+            # - OR if bank-proven amount > 0 AND guideline > 0 AND bank > guideline
+            # - Do NOT flag if guideline is 0 (missing guideline data)
+            is_breach = (guideline > 0) and ((declared > guideline) or (bank > guideline))
             
             if is_breach:
                 breaches.append(category)
@@ -841,14 +734,6 @@ def _tig_03(c: dict) -> RuleResult:
         for category, exceeds in sfs.items():
             if exceeds is True:
                 breaches.append(category)
-            elif isinstance(exceeds, (int, float)) and exceeds > 0:
-                # If it's a dict of amounts, we can't check guidelines here without a lookup table.
-                # For now, we flag if we have a non-zero amount but no guideline to compare against.
-                # However, the user said "Do NOT flag categories where declared = 0 and bank = 0".
-                # If we only have one amount in the dict, we treat it as 'declared'.
-                # But without a guideline, we can't truly determine a breach.
-                # To avoid over-flagging, we only flag if the value is explicitly True.
-                pass
 
     if breaches:
         return RuleResult(
@@ -857,6 +742,8 @@ def _tig_03(c: dict) -> RuleResult:
                 f"SFS guideline breaches detected in: {', '.join(breaches)}. "
                 "Expenditure must comply with SFS limits or be justified in the proposal."
             ),
+            threshold=0.0,
+            actual_value=float(len(breaches)),
         )
     return _pass("TIG-03", "All expenditure categories within SFS guidelines.")
 
@@ -882,9 +769,12 @@ def _tig_05(c: dict) -> RuleResult:
     """TIG-05: Wage slip required — one per employment income source, dated within 90 days."""
     income_source = c["income_source"]
     has_job = c["has_job"]
+    is_employed = c.get("is_employed", False)
 
     # CIS income is validated by TIG-09 (CIS invoice) — wage slip not required for CIS
-    if income_source not in ("payslip", "employed", "salary") and not has_job:
+    if (income_source not in ("payslip", "employed", "salary")
+            and not has_job
+            and not is_employed):
         return _pass("TIG-05", "Not employed — wage slip not required.")
 
     payslip_docs = c["payslip_docs"]
@@ -991,16 +881,58 @@ def _tig_09(c: dict) -> RuleResult:
 
 def _tig_10(c: dict) -> RuleResult:
     """TIG-10: Each debt must have supporting proof (hard block >= £1,000; flag < £1,000)."""
-    # Proof is evidenced via evidence_ledger — check each creditor
-    # If all creditors have verified evidence, pass
-    # We can only check what the payload gives us; missing = flag
-    creditors = c["creditors"]
-    if not creditors:
-        return _pass("TIG-10", "No creditors listed.")
+    creditors = c.get("creditors", [])
+    evidence_ledger = c.get("evidence_ledger", [])
 
-    # Without per-creditor evidence lookup, default to pass with note
-    # TODO: wire evidence_ledger per-creditor matching when available
-    return _pass("TIG-10", "Proof of debt check passed (per-creditor evidence matching TODO).")
+    # Map evidence ledger by ref for fast lookup
+    evidence_map = {e.get("ref"): e for e in evidence_ledger if e.get("ref")}
+
+    hard_blocks = []
+    flags = []
+    verified_count = 0
+
+    for creditor in creditors:
+        balance = creditor.get("balance", 0)
+        # Edge case: Creditor with balance = 0: skip (no evidence needed)
+        if balance <= 0:
+            continue
+
+        # Edge case: Creditor with no linked_creditor field: treat as missing evidence
+        ref = creditor.get("linked_creditor")
+        evidence = evidence_map.get(ref) if ref else None
+
+        # Evidence entry exists but is_verified = False: Treat same as missing evidence
+        is_verified = False
+        if evidence and evidence.get("is_verified") is True:
+            is_verified = True
+
+        if not is_verified:
+            name = creditor.get("name", "Unknown Creditor")
+            if balance >= 1000:
+                hard_blocks.append(f"{name} (£{balance:,.2f})")
+            else:
+                flags.append(name)
+        else:
+            verified_count += 1
+
+    if hard_blocks:
+        return RuleResult(
+            rule_id="TIG-10",
+            severity="hard_block",
+            triggered=True,
+            message=f"Hard block: No linked verified evidence for debts >= £1,000: {', '.join(hard_blocks)}."
+        )
+
+    if flags:
+        return RuleResult(
+            rule_id="TIG-10",
+            severity="flag",
+            triggered=True,
+            message=f"Flag: No linked verified evidence for: {', '.join(flags)}."
+        )
+
+    # If all creditors have verified evidence: return pass with count
+    return _pass("TIG-10", f"Verified evidence present for all {verified_count} creditors.")
 
 
 def _tig_11(c: dict) -> RuleResult:
@@ -1431,27 +1363,38 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
 
 
 def _tig_16(c: dict) -> RuleResult:
-    """TIG-16: Equity at 85% LTV > total debt — hard block (client can repay via remortgage)."""
-    if not c["has_property"]:
-        return _pass("TIG-16", "No property — equity check not applicable.")
-    if c["property_value"] is None:
+    """TIG-16: Property equity > £5,000 — hard block."""
+    has_property = c.get("has_property", False)
+    pv = _parse_amount(c.get("property_value", 0))
+
+    # Case 3: owns_property is True AND property_value is 0.0 or None
+    if has_property and pv <= 0:
         return RuleResult(
-            rule_id="TIG-16", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule TIG-16 cannot be evaluated — property_value not present in payload",
+            rule_id="TIG-16", severity="flag", triggered=True,
+            message=(
+                "Client owns property but no valuation found in system. "
+                "Manual check required before proceeding."
+            )
         )
-    pv = _parse_amount(c["property_value"])
-    equity_at_85 = (pv * 0.85) - c["mortgage_balance"]
-    if equity_at_85 > c["total_debt"]:
+
+    # Case 1: owns_property is False AND property_value is 0.0
+    if not has_property:
+        return _pass("TIG-16", "Client does not own property.")
+
+    # Case 2: owns_property is True AND property_value > 0.0
+    equity = pv - c["mortgage_balance"]
+    threshold = 5000.0
+    if equity > threshold:
         return RuleResult(
             rule_id="TIG-16", severity="hard_block", triggered=True,
             message=(
-                f"Equity at 85% LTV £{equity_at_85:,.2f} exceeds total unsecured debt "
-                f"£{c['total_debt']:,.2f}. Client has sufficient equity to repay debts — "
+                f"Equity £{equity:,.2f} exceeds threshold "
+                f"£{threshold:,.2f}. Client has sufficient equity to repay debts — "
                 "IVA is not appropriate. Remortgage or asset realisation should be explored."
             ),
-            threshold=c["total_debt"], actual_value=equity_at_85,
+            threshold=threshold, actual_value=equity,
         )
-    return _pass("TIG-16", f"Equity at 85% LTV £{equity_at_85:,.2f} does not exceed total debt.")
+    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed £{threshold:,.2f}.")
 
 
 def _tig_17(c: dict) -> RuleResult:
@@ -1548,6 +1491,8 @@ def _tig_21_1(c: dict) -> RuleResult:
     return RuleResult(
         rule_id="TIG-21.1", severity="flag", triggered=True,
         message="Link Financial is a creditor. Confirm Mid SFS guidelines have been applied.",
+        threshold=0.0,
+        actual_value=float(c["link_balance"]),
     )
 
 
@@ -1568,10 +1513,25 @@ def _tig_21_2(c: dict) -> RuleResult:
 
 def _tig_21_3(c: dict) -> RuleResult:
     """TIG-21.3: Property equity > Link Financial balance — hard block."""
-    # EXCEL_CRITERIA_REFERENCE.md — stub replaced;
-    # triggered=True without evaluation is misleading
     if not c["link_is_creditor"]:
         return _pass("TIG-21.3", "Link Financial is not a creditor.")
+
+    has_property = c.get("has_property", False)
+    pv = _parse_amount(c.get("property_value", 0))
+
+    # Edge case: owns_property is True but property_value is unknown
+    if has_property and pv <= 0:
+        return RuleResult(
+            rule_id="TIG-21.3", severity="flag", triggered=True,
+            message=(
+                "Client owns property but no valuation found in system. "
+                "Manual check required before proceeding."
+            )
+        )
+
+    if not has_property:
+        return _pass("TIG-21.3", "Client does not own property.")
+
     if c["available_equity"] is None:
         return RuleResult(
             rule_id="TIG-21.3", severity="info", triggered=False,
@@ -1593,14 +1553,18 @@ def _tig_21_4(c: dict) -> RuleResult:
     total_income = c["total_income"]
     if total_income <= 0:
         return _pass("TIG-21.4", "No income data — TIG-21.4 skipped.")
-    # Benefit income: use benefit_income_amount if supplied, else fall back to income_source
+    
     benefit_amount = c.get("benefit_income_amount")
-    if benefit_amount is not None and total_income > 0:
-        benefit_pct = float(benefit_amount) / float(total_income) * 100.0
-    elif c["income_source"] in ("benefits", "uc", "universal_credit"):
-        benefit_pct = 100.0
+    if benefit_amount is None:
+        if c["income_source"] in ("benefits", "uc", "universal_credit"):
+            benefit_pct = 100.0
+        else:
+            # If not a benefits-only source and amount is None, assume 0
+            # This ensures the rule passes cleanly instead of showing a TODO flag.
+            benefit_pct = 0.0
     else:
-        benefit_pct = 0.0  # benefit_income_amount not supplied and income_source not benefits
+        benefit_pct = float(benefit_amount) / float(total_income) * 100.0
+
     threshold = 10.0
     if benefit_pct > threshold:
         return RuleResult(
@@ -1612,16 +1576,47 @@ def _tig_21_4(c: dict) -> RuleResult:
 
 
 def _tig_21_5(c: dict) -> RuleResult:
-    """TIG-21.5: Previous IVA failed due to arrears AND Link Financial is a creditor."""
+    """
+    TIG-21.5: Previous IVA failure evaluation for Link Financial.
+    - Pass if no previous IVA or completed successfully.
+    - Flag if failed due to breach/arrears (requires discretion).
+    - Hard block if terminated due to fraud/misrepresentation.
+    """
     if not c["link_is_creditor"]:
         return _pass("TIG-21.5", "Link Financial is not a creditor.")
-    # TODO: previous_iva_failed_reason not in payload — use previous_iva as proxy
-    if c["previous_iva"]:
+
+    if not c["previous_iva"]:
+        return _pass("TIG-21.5", "No previous IVA — TIG-21.5 not triggered.")
+
+    _raw_reason = c.get("previous_iva_failed_reason")
+    if _raw_reason is None and c.get("previous_iva_failed"):
+        _raw_reason = "unknown_reason"
+    reason = (_raw_reason or "").lower()
+
+    # 1. Pass if no failure reason or explicitly completed
+    if not reason or "completed" in reason:
+        return _pass("TIG-21.5", "Previous IVA on record but no failure reason detected.")
+
+    # 2. Hard block if terminated due to fraud or misrepresentation
+    if "fraud" in reason or "misrepresentation" in reason:
         return RuleResult(
             rule_id="TIG-21.5", severity="hard_block", triggered=True,
-            message="Previous IVA on record with Link Financial as creditor. If failure was due to arrears, this is a hard block. Assessor must verify.",
+            message=f"Previous IVA terminated due to fraud or misrepresentation: '{reason}'. Link Financial will reject.",
         )
-    return _pass("TIG-21.5", "No previous IVA — TIG-21.5 not triggered.")
+
+    # 3. Flag if failed due to client breach or missed payments (arrears)
+    breach_keywords = ["breach", "arrears", "missed", "payment", "contribution", "default"]
+    if any(kw in reason for kw in breach_keywords):
+        return RuleResult(
+            rule_id="TIG-21.5", severity="flag", triggered=True,
+            message=f"Previous IVA failed due to arrears/breach: '{reason}'. Link Financial requires creditor discretion.",
+        )
+
+    # 4. Default to flag for other failures
+    return RuleResult(
+        rule_id="TIG-21.5", severity="flag", triggered=True,
+        message=f"Previous IVA failed for reason: '{reason}'. Link Financial review required.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1766,11 +1761,8 @@ def _watch_22_6(c: dict) -> RuleResult:
         return _pass("WATCH-22.6", f"Luxury spend £{luxury_total:,.2f} within threshold.")
 
     return RuleResult(
-        rule_id="WATCH-22.6", severity="flag", triggered=True,
-        message=(
-            "Potential excessive spend in last 3 months — manual review required. "
-            "Caseworker must identify and confirm whether any transactions are luxury/non-essential."
-        ),
+        rule_id="WATCH-22.6", severity="info", triggered=False,
+        message="Transaction categories were not available so the rule could not be fully evaluated.",
     )
 
 
@@ -1853,6 +1845,8 @@ def _watch_22_12(c: dict) -> RuleResult:
     return RuleResult(
         rule_id="WATCH-22.12", severity="flag", triggered=True,
         message="Previous IVA on record. I&E, assets, and liabilities must be consistent with the previous proposal or a written explanation provided.",
+        threshold=0.0,
+        actual_value=1.0,
     )
 
 
@@ -2019,10 +2013,9 @@ def _evolve_03(c: dict) -> RuleResult:
 # MODULE 4 RULES — VW termination, DMP reject, county council routing
 # ---------------------------------------------------------------------------
 
-def _phase4_vw_termination(c: dict) -> RuleResult:
+def _phase4_vw_termination(c: dict, criteria_map: dict) -> RuleResult:
     """PHASE4-VW-TERMINATION: HP debt with VW Finance group creditor — hard block."""
-    from debt_app.helpers import DEBT_TYPE_HP, get_creditor_by_trading_name
-    from debt_app.models import CreditorCriteria
+    from debt_app.helpers import DEBT_TYPE_HP
 
     for creditor in c["creditors"]:
         if creditor["debt_type_normalised"] != DEBT_TYPE_HP:
@@ -2037,42 +2030,34 @@ def _phase4_vw_termination(c: dict) -> RuleResult:
                     "Termination risk — hard block."
                 ),
             )
-        try:
-            criteria = get_creditor_by_trading_name(name)
-            if criteria.termination_risk_if_vehicle_on_finance:
-                return RuleResult(
-                    rule_id="PHASE4-VW-TERMINATION", severity="hard_block", triggered=True,
-                    message=(
-                        f"{name} has termination risk flagged on vehicle finance. Hard block."
-                    ),
-                )
-        except CreditorCriteria.DoesNotExist:
-            pass
+        
+        criteria = criteria_map.get(name)
+        if criteria and criteria.termination_risk_if_vehicle_on_finance:
+            return RuleResult(
+                rule_id="PHASE4-VW-TERMINATION", severity="hard_block", triggered=True,
+                message=(
+                    f"{name} has termination risk flagged on vehicle finance. Hard block."
+                ),
+            )
 
     return _pass("PHASE4-VW-TERMINATION", "No VW Finance group HP creditors found.")
 
 
-def _phase4_dmp_reject(c: dict) -> RuleResult:
+def _phase4_dmp_reject(c: dict, criteria_map: dict) -> RuleResult:
     """PHASE4-DMP-REJECT: Client in DMP and a creditor rejects DMP cases — hard block."""
     if not c["is_currently_in_dmp"]:
         return _pass("PHASE4-DMP-REJECT", "Client is not currently in a DMP.")
 
-    from debt_app.helpers import get_creditor_by_trading_name
-    from debt_app.models import CreditorCriteria
-
     for creditor in c["creditors"]:
-        try:
-            criteria = get_creditor_by_trading_name(creditor["name"])
-            if criteria.reject_if_in_dmp:
-                return RuleResult(
-                    rule_id="PHASE4-DMP-REJECT", severity="hard_block", triggered=True,
-                    message=(
-                        f"{creditor['name']} rejects cases where the client is currently "
-                        "in a DMP. Hard block."
-                    ),
-                )
-        except CreditorCriteria.DoesNotExist:
-            continue
+        criteria = criteria_map.get(creditor["name"])
+        if criteria and criteria.reject_if_in_dmp:
+            return RuleResult(
+                rule_id="PHASE4-DMP-REJECT", severity="hard_block", triggered=True,
+                message=(
+                    f"{creditor['name']} rejects cases where the client is currently "
+                    "in a DMP. Hard block."
+                ),
+            )
 
     return _pass("PHASE4-DMP-REJECT", "No DMP-rejecting creditors found.")
 
@@ -2156,7 +2141,7 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT,
         get_creditor_by_trading_name, fuzzy_lookup_creditor,
     )
-    from debt_app.models import CreditorCriteria
+    from debt_app.models import CreditorCriteria, CreditorResolutionMiss
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
 
@@ -2175,15 +2160,29 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         balance = cr["crm_balance"]
 
         # Resolve via alias map first
-        resolved_name = CREDITOR_ALIAS_MAP.get(name.lower(), name)
+        normalised_input = normalise_creditor_name(name)
+        resolved_name = CREDITOR_ALIAS_MAP.get(normalised_input, name)
 
         try:
             criteria = get_creditor_by_trading_name(resolved_name,
                                                     all_names=_all_creditor_names)
         except CreditorCriteria.DoesNotExist:
+            # PART 2: Log the miss (fire-and-forget)
+            try:
+                CreditorResolutionMiss.objects.create(
+                    raw_name=name,
+                    normalised_name=normalise_creditor_name(name) or name,
+                    case_reference=case.get("aryza_reference", ""),
+                    client_name=case.get("client_name", ""),
+                    balance=cr.get("crm_balance"),
+                )
+            except Exception as e:
+                logger.error(f"Failed to log CreditorResolutionMiss for {name}: {e}")
+
             positions.append({
                 "creditor_name": name,
                 "resolved_canonical_name": resolved_name,
+                "representative": "NONE",
                 "effective_status": "UNKNOWN",
                 "findings": [{"code": "CREDITOR-UNKNOWN", "reason": "No criteria row for this creditor"}],
                 "reason": "No criteria row for this creditor",
@@ -2295,6 +2294,7 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         positions.append({
             "creditor_name": name,
             "resolved_canonical_name": criteria.creditor_name,
+            "representative": criteria.representative,
             "effective_status": effective_status,
             "findings": findings,
             "reason": findings[0]["reason"] if findings else (criteria.dividend_notes or ""),
@@ -2963,40 +2963,29 @@ def detect_representatives(creditors: list, assessment_date: Optional[date] = No
     only became WATCH from 30/04/2024; La Redoute from 16/07/2025).
     Defaults to today when not supplied.
 
-    Matching is case-insensitive against creditor_name and all trading_names.
+    Matching uses the engine's standard resolution logic (normalisation, aliases, substrings).
     Requires Django ORM — called once in assess_case() before pure functions run.
     """
-    from debt_app.models import CreditorCriteria  # local import — keeps module testable without Django
+    from debt_app.helpers import get_creditor_by_trading_name
+    from debt_app.models import CreditorCriteria
 
     if assessment_date is None:
         assessment_date = date.today()
 
-    case_names_lower = {
-        (c.get("creditor_name") or "").strip().lower()
-        for c in creditors if c.get("creditor_name")
-    }
-    case_names_lower.discard("")
-    if not case_names_lower:
-        return set()
-
-    all_criteria = (
-        CreditorCriteria.objects
-        .filter(is_active=True)
-        .exclude(representative__isnull=True)
-        .exclude(representative="")
-        .exclude(representative="NONE")
-    )
-
     rep_triggers: dict[str, set[str]] = {}
-    for criterion in all_criteria:
-        seeded_lower = (criterion.creditor_name or "").strip().lower()
-        trading_lower = {(t or "").strip().lower() for t in (criterion.trading_names or [])}
-        criterion_names = {seeded_lower} | trading_lower
-        criterion_names.discard("")
-        matched = case_names_lower & criterion_names
-        if matched:
-            rep = criterion.representative
-            rep_triggers.setdefault(rep, set()).update(matched)
+    
+    for cr in creditors:
+        name = cr.get("creditor_name") or cr.get("name")
+        if not name:
+            continue
+            
+        try:
+            criteria = get_creditor_by_trading_name(name)
+            rep = (criteria.representative or "NONE").upper().strip()
+            if rep != "NONE":
+                rep_triggers.setdefault(rep, set()).add(name.lower())
+        except CreditorCriteria.DoesNotExist:
+            continue
 
     reps: set[str] = set(rep_triggers.keys())
 
@@ -3057,6 +3046,9 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     """
     c = _parse_case(case_json)
 
+    logger.info("DEBUG: has_property=%s, property_value=%s, mortgage_balance=%s, disposable_income=%s", 
+        c["has_property"], c["property_value"], c["mortgage_balance"], c["disposable_income"])
+
     if detected_representatives is None:
         detected_representatives = detect_representatives(
             case_json.get("creditors") or [],
@@ -3068,14 +3060,14 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     info: list[RuleResult] = []
     passed: list[RuleResult] = []
 
-    def _run(rule_func):
+    def _run(rule_func, *args):
         try:
-            r = rule_func(c)
+            r = rule_func(c, *args)
         except Exception as exc:
             logger.error("Error in %s: %s", rule_func.__name__, exc, exc_info=True)
             r = RuleResult(
-                rule_id=rule_func.__name__,
-                severity="flag",
+                rule_id=_func_to_rule_id(rule_func.__name__),
+                severity="hard_block",
                 triggered=True,
                 message=f"Rule evaluation error: {exc}",
             )
@@ -3112,10 +3104,38 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         _run(fn)
 
     # --- Module 4 rules (always) ---
+    # Pre-fetch relevant CreditorCriteria for Module 4 rules to avoid ORM calls in rules
+    from debt_app.models import CreditorCriteria
+
+    case_creditor_names = {cr["name"] for cr in c["creditors"] if cr.get("name")}
+    lookup_names = set(case_creditor_names)
+    for name in case_creditor_names:
+        alias = CREDITOR_ALIAS_MAP.get(name.lower())
+        if alias:
+            lookup_names.add(alias)
+
+    # Single bulk query as requested
+    criteria_qs = CreditorCriteria.objects.filter(
+        is_active=True,
+        creditor_name__in=lookup_names
+    )
+    criteria_lookup = {crit.creditor_name.lower(): crit for crit in criteria_qs}
+
+    # Map back to the original names used in the case
+    module4_criteria_data = {}
+    for name in case_creditor_names:
+        name_lower = name.lower()
+        if name_lower in criteria_lookup:
+            module4_criteria_data[name] = criteria_lookup[name_lower]
+        else:
+            alias = CREDITOR_ALIAS_MAP.get(name_lower)
+            if alias and alias.lower() in criteria_lookup:
+                module4_criteria_data[name] = criteria_lookup[alias.lower()]
+
     # _phase4_county_council is called later (after _route is defined) so its district
     # positions can be merged into council_positions before majority analysis.
     for fn in [_phase4_vw_termination, _phase4_dmp_reject]:
-        _run(fn)
+        _run(fn, module4_criteria_data)
 
     # --- WATCH rules ---
     if "WATCH" in detected_representatives:
@@ -3229,13 +3249,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         ))
         overall = "blocked"
 
-    # Output list: only non-trivial entries (caseworkers don't need plain-ACCEPT noise).
-    creditor_positions = [
-        p for p in _all_creditor_positions
-        if p["effective_status"] not in ("ACCEPT", "UNKNOWN") or p["findings"]
-    ]
-
-    recommended_solution = _derive_recommended_solution(hard_blocks, flags, creditor_positions)
+    recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions)
     tig_eligible = len(hard_blocks) == 0
 
     return {
@@ -3245,10 +3259,12 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "passed": passed,
         "overall": overall,
         "overall_status": overall.upper(),
+        "disposable_income": float(c["disposable_income"]),
+        "total_unsecured_debt": float(c["total_debt"]),
         "passes_all_hard_blocks": tig_eligible,
         "recommended_solution": recommended_solution,
         "tig_eligible": tig_eligible,
-        "creditor_positions": creditor_positions,
+        "creditor_positions": _all_creditor_positions,
         "council_positions": council_positions,
         "majority_analysis": majority_analysis,
         "dividend_analysis": dividend_analysis,

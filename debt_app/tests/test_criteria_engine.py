@@ -46,8 +46,8 @@ def make_case_json(**overrides) -> dict:
             "income_source": "employed",
         },
         "creditors": [
-            {"creditor_name": "Bank A", "balance": 15000.0, "creditor_type": "credit_card"},
-            {"creditor_name": "Bank B", "balance": 10000.0, "creditor_type": "credit_card"},
+            {"creditor_name": "Bank A", "balance": 15000.0, "creditor_type": "credit_card", "linked_creditor": "REF-A"},
+            {"creditor_name": "Bank B", "balance": 10000.0, "creditor_type": "credit_card", "linked_creditor": "REF-B"},
         ],
         "documents": [
             {
@@ -72,6 +72,10 @@ def make_case_json(**overrides) -> dict:
         "has_vehicle": False,
         "clientInfo": {},
         "mortgage_details": [],
+        "evidence_ledger": [
+            {"ref": "REF-A", "doc_type": "bank_statement", "is_verified": True},
+            {"ref": "REF-B", "doc_type": "bank_statement", "is_verified": True},
+        ],
     }
     result = copy.deepcopy(base)
     for k, v in overrides.items():
@@ -492,37 +496,63 @@ class TestGamblingFlag:
 
 
 class TestProofOfDebt:
-    @pytest.mark.xfail(reason="TIG-10 is a stub — not yet implemented", strict=True)
     def test_proof_of_debt_fires_hard_block(self):
         cj = make_case_json(
-            creditors=[{"creditor_name": "Big Bank", "balance": 2000.0, "creditor_type": "credit_card"}],
+            creditors=[{
+                "creditor_name": "Big Bank",
+                "balance": 2000.0,
+                "creditor_type": "credit_card",
+                "linked_creditor": "REF-BIG"
+            }],
+            evidence_ledger=[
+                {"ref": "REF-BIG", "doc_type": "bank_statement", "is_verified": False},
+            ],
         )
         result = _assess(cj)
         assert _has_block(result, "TIG-10")
 
-    @pytest.mark.xfail(reason="TIG-10 is a stub — not yet implemented", strict=True)
     def test_proof_of_debt_fires_flag(self):
         cj = make_case_json(
-            creditors=[{"creditor_name": "Small Bank", "balance": 500.0, "creditor_type": "credit_card"}],
+            creditors=[{
+                "creditor_name": "Small Bank",
+                "balance": 500.0,
+                "creditor_type": "credit_card",
+                "linked_creditor": "REF-SMALL"
+            }],
+            evidence_ledger=[],
         )
         result = _assess(cj)
         assert _has_flag(result, "TIG-10")
 
     def test_proof_of_debt_does_not_fire(self):
-        # Updated for Phase-2 engine API — case_json replaces (case, rules, docs, creditors)
-        # TIG-10 always passes so this assertion should hold
+        # TIG-10 passes when all creditors have verified evidence
         cj = make_case_json(
-            creditors=[{"creditor_name": "Big Bank", "balance": 2000.0, "creditor_type": "credit_card"}],
+            creditors=[{
+                "creditor_name": "Big Bank",
+                "balance": 2000.0,
+                "creditor_type": "credit_card",
+                "linked_creditor": "REF-BIG"
+            }],
+            evidence_ledger=[
+                {"ref": "REF-BIG", "doc_type": "bank_statement", "is_verified": True},
+            ],
         )
         result = _assess(cj)
         assert not _has_block(result, "TIG-10")
         assert not _has_flag(result, "TIG-10")
 
     def test_proof_of_debt_skipped_when_inactive(self):
-        # Updated for Phase-2 engine API — case_json replaces (case, rules, docs, creditors)
-        # TIG-10 always passes so this assertion holds
+        # TIG-10 passes when all creditors have verified evidence
         cj = make_case_json(
-            creditors=[{"creditor_name": "Big Bank", "balance": 2000.0, "creditor_type": "credit_card"}],
+            creditors=[{
+                "creditor_name": "Big Bank",
+                "balance": 2000.0,
+                "creditor_type": "credit_card",
+                "linked_creditor": "REF-BIG"
+            }],
+            evidence_ledger=[
+                {"ref": "REF-BIG", "doc_type": "bank_statement", "is_verified": True},
+            ],
         )
         result = _assess(cj)
         assert not _has_block(result, "TIG-10")

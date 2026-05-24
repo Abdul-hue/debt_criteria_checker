@@ -72,6 +72,7 @@ class CaseData:
         self.aryza_reference: str = ""
         self.clientid: int = 0
         self.client_name: str = ""
+        self.dob: Optional[str] = None
         self.employment_status: str = "unemployed"
         self.total_unsecured_debt: int = 0
         self.disposable_income: int = 0
@@ -89,6 +90,8 @@ class CaseData:
             "disability_expenses": 0,
             "total": 0,
         }
+        self.sfs_expenditure_breakdown: List[Dict[str, Any]] = []
+        self.gold_transactions: List[Dict[str, Any]] = []
         self.property: Dict[str, Any] = {
             "owns_property": False,
             "property_value": None,
@@ -110,6 +113,7 @@ class CaseData:
             "has_third_party": False,
         }
         self.dependants: List[Dict[str, int]] = []
+        self.audit_log: List[Dict[str, Any]] = []
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -117,16 +121,20 @@ class CaseData:
             "aryza_reference": self.aryza_reference,
             "clientid": self.clientid,
             "client_name": self.client_name,
+            "dob": self.dob,
             "employment_status": self.employment_status,
             "total_unsecured_debt": self.total_unsecured_debt,
             "disposable_income": self.disposable_income,
             "creditors": self.creditors,
             "income": self.income,
             "expenditure": self.expenditure,
+            "sfs_expenditure_breakdown": self.sfs_expenditure_breakdown,
+            "gold_transactions": self.gold_transactions,
             "property": self.property,
             "vehicle": self.vehicle,
             "flags": self.flags,
             "dependants": self.dependants,
+            "audit_log": self.audit_log,
         }
 
 
@@ -140,6 +148,28 @@ class AryzaClient:
     def __init__(self):
         self.db_alias = "aryza"
     
+    def _audit(self, case: CaseData, table: str, status: str, details: str = "") -> None:
+        """Record an audit entry for a data fetch attempt."""
+        entry = {
+            "table": table,
+            "status": status,
+            "details": details,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        case.audit_log.append(entry)
+        
+        # Log to standard logger as well
+        log_msg = f"DATA AUDIT: Table '{table}' -> {status}"
+        if details:
+            log_msg += f" ({details})"
+        
+        if status == "FOUND":
+            logger.info(log_msg)
+        elif status == "EMPTY":
+            logger.warning(log_msg)
+        else:
+            logger.error(log_msg)
+
     def _get_connection(self):
         """Get database connection with error handling."""
         if self.db_alias not in settings.DATABASES:
@@ -188,6 +218,12 @@ class AryzaClient:
             
             # Fetch income data
             self._fetch_income_data(connection, case, clientid)
+            
+            # Fetch detailed expenditure (SFS breakdown)
+            self._fetch_expenditure_data(connection, case, clientid)
+            
+            # Fetch transactions (Open Banking)
+            self._fetch_transaction_data(connection, case, clientid)
             
             # Fetch creditor data
             self._fetch_creditor_data(connection, case, clientid)
@@ -260,7 +296,7 @@ class AryzaClient:
             # Get client name from client table
             try:
                 cursor.execute(
-                    "SELECT id, firstname, lastname FROM client WHERE id = %s LIMIT 1",
+                    "SELECT id, firstname, lastname, dob FROM client WHERE id = %s LIMIT 1",
                     [clientid]
                 )
                 client_row = cursor.fetchone()
@@ -268,12 +304,72 @@ class AryzaClient:
                     fname = client_row[1] or ""
                     lname = client_row[2] or ""
                     case.client_name = f"{fname} {lname}".strip() or f"Client {clientid}"
+                    
+                    # Convert dob (Unix timestamp) to ISO date string
+                    if client_row[3]:
+                        try:
+                            case.dob = datetime.fromtimestamp(int(client_row[3])).date().isoformat()
+                        except (ValueError, TypeError, OverflowError):
+                            case.dob = None
+                    self._audit(case, "client", "FOUND", f"Name: {case.client_name}")
                 else:
                     case.client_name = f"Client {clientid}"
+                    self._audit(case, "client", "EMPTY", "No row found in client table")
             except Exception as e:
                 logger.warning(f"Failed to fetch client name for clientid {clientid}: {e}")
                 case.client_name = f"Client {clientid}"
+                self._audit(case, "client", "ERROR", str(e))
             
+            # Fetch dependants / children ages
+            try:
+                # 1. Primary: factfind_dependants
+                cursor.execute(
+                    "SELECT ages_of_children FROM factfind_dependants WHERE clientid = %s LIMIT 1",
+                    [clientid]
+                )
+                dep_row = cursor.fetchone()
+                if dep_row and dep_row[0]:
+                    self._parse_children_ages(case, dep_row[0])
+                    self._audit(case, "factfind_dependants", "FOUND", f"Ages: {dep_row[0]}")
+                
+                # 2. Fallback: client_dependant (common table for individual dependants)
+                if not case.dependants:
+                    try:
+                        cursor.execute(
+                            "SELECT age FROM client_dependant WHERE clientid = %s",
+                            [clientid]
+                        )
+                        rows = cursor.fetchall()
+                        if rows:
+                            for row in rows:
+                                if row[0] is not None:
+                                    case.dependants.append({"age": int(row[0])})
+                            self._audit(case, "client_dependant", "FOUND", f"Fetched {len(rows)} dependants")
+                    except Exception:
+                        pass
+                
+                # 3. Fallback: dependants (another common table name)
+                if not case.dependants:
+                    try:
+                        cursor.execute(
+                            "SELECT age FROM dependants WHERE clientid = %s",
+                            [clientid]
+                        )
+                        rows = cursor.fetchall()
+                        if rows:
+                            for row in rows:
+                                if row[0] is not None:
+                                    case.dependants.append({"age": int(row[0])})
+                            self._audit(case, "dependants", "FOUND", f"Fetched {len(rows)} dependants")
+                    except Exception:
+                        pass
+
+                if not case.dependants:
+                    self._audit(case, "dependants_check", "EMPTY", "No dependants found in any table")
+            except Exception as e:
+                logger.debug(f"Dependants fetch error for clientid {clientid}: {e}")
+                self._audit(case, "dependants_check", "ERROR", str(e))
+
             # Try td_client for summary totals (may be empty in TIG)
             try:
                 cursor.execute(
@@ -288,12 +384,43 @@ class AryzaClient:
                         case.total_unsecured_debt = self._pence(td_row[0])
                     if td_row[1] is not None:
                         case.disposable_income = self._pence(td_row[1])
-                    case.income["third_party_contribution"] = self._pence(td_row[2])
+                    if td_row[2] is not None:
+                        case.income["third_party_contribution"] = self._pence(td_row[2])
                     case.vehicle["has_vehicle"] = bool(td_row[3] and td_row[3] > 0)
                     case.flags["previous_iva"] = bool(td_row[4])
                     case.flags["has_third_party"] = bool(td_row[5])
+                    self._audit(case, "td_client", "FOUND", "Core financial summary loaded")
+                else:
+                    self._audit(case, "td_client", "EMPTY", "No row in td_client")
             except Exception as e:
                 logger.debug(f"td_client not available for clientid {clientid}: {e}")
+                self._audit(case, "td_client", "ERROR", str(e))
+
+            # Try iva_client for TPC fallback and other potential fields
+            try:
+                cursor.execute(
+                    "SELECT iva_third_party_contribution, iva_bankruptcy_dividend, iva_bankruptcy_return "
+                    "FROM iva_client WHERE clientid = %s",
+                    [clientid]
+                )
+                iva_row = cursor.fetchone()
+                if iva_row:
+                    if case.income.get("third_party_contribution") == 0 and iva_row[0] is not None:
+                        case.income["third_party_contribution"] = self._pence(iva_row[0])
+                        self._audit(case, "iva_client", "FOUND", "TPC fallback found")
+                    
+                    # Try to get bankruptcy return
+                    if iva_row[1] is not None:
+                        case.flags["bankruptcy_return"] = self._pence(iva_row[1])
+                        self._audit(case, "iva_client", "FOUND", "Bankruptcy dividend found")
+                    elif iva_row[2] is not None:
+                        case.flags["bankruptcy_return"] = self._pence(iva_row[2])
+                        self._audit(case, "iva_client", "FOUND", "Bankruptcy return found")
+                else:
+                    self._audit(case, "iva_client", "EMPTY", "No row in iva_client")
+            except Exception as e:
+                logger.debug(f"iva_client fetch failed for {clientid}: {e}")
+                self._audit(case, "iva_client", "ERROR", str(e))
     
     def _fetch_income_data(self, connection, case: CaseData, clientid: int) -> None:
         """Fetch income data from client_income table (wide-column format)."""
@@ -356,8 +483,12 @@ class AryzaClient:
                         case.employment_status = "benefits_only"
                     
                     logger.debug(f"Income fetched for {clientid}: emp={case.income['employment']}, uc={case.income['universal_credit']}")
+                    self._audit(case, "client_income", "FOUND", f"Total: £{case.income['total']/100.0:.2f}")
+                else:
+                    self._audit(case, "client_income", "EMPTY", "No income record found")
             except Exception as e:
                 logger.debug(f"Failed to fetch client_income for clientid {clientid}: {e}")
+                self._audit(case, "client_income", "ERROR", str(e))
             
             # Fallback: try client_expenses for income type entries
             try:
@@ -365,24 +496,97 @@ class AryzaClient:
                     "SELECT field, value, frequency FROM client_expenses WHERE clientid = %s AND type = 'income'",
                     [clientid]
                 )
-                for row in cursor.fetchall():
-                    field, value, freq = row[0], self._pence(row[1]), row[2] or 'monthly'
-                    monthly_val = self._normalise_to_monthly(value, freq)
-                    if 'earnings' in field or 'employment' in field:
-                        case.income["employment"] += monthly_val
-                    elif 'universal_credit' in field:
-                        case.income["universal_credit"] += monthly_val
-                    elif 'dla' in field:
-                        case.income["dla"] += monthly_val
-                    elif 'pip' in field:
-                        case.income["pip"] += monthly_val
-                    else:
-                        case.income["other_benefits"] += monthly_val
+                rows = cursor.fetchall()
+                if rows:
+                    for row in rows:
+                        field, value, freq = row[0], self._pence(row[1]), row[2] or 'monthly'
+                        monthly_val = self._normalise_to_monthly(value, freq)
+                        if 'earnings' in field or 'employment' in field:
+                            case.income["employment"] += monthly_val
+                        elif 'universal_credit' in field:
+                            case.income["universal_credit"] += monthly_val
+                        elif 'dla' in field:
+                            case.income["dla"] += monthly_val
+                        elif 'pip' in field:
+                            case.income["pip"] += monthly_val
+                        else:
+                            case.income["other_benefits"] += monthly_val
+                    self._audit(case, "client_expenses (income)", "FOUND", f"Fetched {len(rows)} items")
+                else:
+                    self._audit(case, "client_expenses (income)", "EMPTY", "No income entries in expenses table")
             except Exception as e:
                 logger.debug(f"Failed to fetch client_expenses income fallback for clientid {clientid}: {e}")
-    
+                self._audit(case, "client_expenses (income)", "ERROR", str(e))
+
+    def _fetch_expenditure_data(self, connection, case: CaseData, clientid: int) -> None:
+        """Fetch detailed expenditure data from client_expenses for SFS breakdown."""
+        with connection.cursor() as cursor:
+            try:
+                # Fetch all non-income expenses
+                cursor.execute(
+                    "SELECT field, value, frequency FROM client_expenses WHERE clientid = %s AND type != 'income'",
+                    [clientid]
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for row in rows:
+                        field, value, freq = row[0], self._pence(row[1]), row[2] or 'monthly'
+                        monthly_val = self._normalise_to_monthly(value, freq)
+                        
+                        # Convert pence to pounds for the breakdown
+                        monthly_pounds = monthly_val / 100.0
+                        
+                        if monthly_pounds > 0:
+                            case.sfs_expenditure_breakdown.append({
+                                "category": field.replace('_', ' ').title(),
+                                "monthly_amount": monthly_pounds,
+                                "bank_proven_amount": monthly_pounds, # Default to same as declared for now
+                                "sfs_guideline_max": 0, # Guidelines not stored in Aryza expenses table
+                            })
+                            case.expenditure["total"] += monthly_val
+                    
+                    logger.debug(f"Fetched {len(case.sfs_expenditure_breakdown)} expenditure items for {clientid}")
+                    self._audit(case, "client_expenses (expenditure)", "FOUND", f"Fetched {len(rows)} items")
+                else:
+                    self._audit(case, "client_expenses (expenditure)", "EMPTY", "No expenditure entries found")
+            except Exception as e:
+                logger.debug(f"Failed to fetch expenditure data for clientid {clientid}: {e}")
+                self._audit(case, "client_expenses (expenditure)", "ERROR", str(e))
+
+    def _fetch_transaction_data(self, connection, case: CaseData, clientid: int) -> None:
+        """Fetch Open Banking transaction data if available."""
+        with connection.cursor() as cursor:
+            try:
+                # Search for transaction tables - common Aryza OB table is client_open_banking_transactions
+                cursor.execute(
+                    """SELECT transaction_date, description, amount, transaction_type, category 
+                       FROM client_open_banking_transactions 
+                       WHERE clientid = %s 
+                       ORDER BY transaction_date DESC""",
+                    [clientid]
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for row in rows:
+                        case.gold_transactions.append({
+                            "date": self._format_date(row[0]),
+                            "description": row[1],
+                            "amount": float(row[2]) if row[2] else 0.0,
+                            "transaction_type": row[3],
+                            "category": row[4],
+                        })
+                    logger.debug(f"Fetched {len(case.gold_transactions)} transactions for {clientid}")
+                    self._audit(case, "client_open_banking_transactions", "FOUND", f"Fetched {len(rows)} transactions")
+                else:
+                    self._audit(case, "client_open_banking_transactions", "EMPTY", "No transactions found")
+            except Exception as e:
+                # Log as debug because not all clients have Open Banking data
+                logger.debug(f"Open Banking transactions not available for clientid {clientid}: {e}")
+                self._audit(case, "client_open_banking_transactions", "ERROR", str(e))
+
     def _fetch_creditor_data(self, connection, case: CaseData, clientid: int) -> None:
         """Fetch creditor data from client_debt_new (primary) and iva_client_debt (secondary)."""
+        case.total_unsecured_debt = 0  # Reset — will sum from actual creditor rows
         with connection.cursor() as cursor:
             # 1. PRIMARY: client_debt_new (the main live debt table)
             try:
@@ -395,25 +599,32 @@ class AryzaClient:
                     [clientid]
                 )
                 rows = cursor.fetchall()
-                for row in rows:
-                    balance = self._pence(row[0])
-                    creditor_name = row[5]
-                    creditor = {
-                        "name": creditor_name,
-                        "balance": balance,
-                        "account_reference": "",
-                        "account_open_date": None,
-                        "last_transaction_date": None,
-                        "creditor_type": row[2] or "unsecured",
-                        "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
-                        "is_council": "council" in creditor_name.lower(),
-                        "from_credit_report": bool(row[4]),
-                    }
-                    case.creditors.append(creditor)
-                    case.total_unsecured_debt += balance
-                logger.debug(f"Fetched {len(rows)} debts from client_debt_new for clientid {clientid}")
+                if rows:
+                    for row in rows:
+                        balance = self._pence(row[0])
+                        creditor_name = row[5]
+                        creditor_ref = row[3] or f"debt_{row[2]}_{balance}"
+                        creditor = {
+                            "name": creditor_name,
+                            "balance": balance,
+                            "account_reference": row[3] or "",
+                            "linked_creditor": creditor_ref,
+                            "account_open_date": None,
+                            "last_transaction_date": None,
+                            "creditor_type": row[2] or "unsecured",
+                            "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
+                            "is_council": "council" in creditor_name.lower(),
+                            "from_credit_report": bool(row[4]),
+                        }
+                        case.creditors.append(creditor)
+                        case.total_unsecured_debt += balance
+                    logger.debug(f"Fetched {len(rows)} debts from client_debt_new for clientid {clientid}")
+                    self._audit(case, "client_debt_new", "FOUND", f"Fetched {len(rows)} debts")
+                else:
+                    self._audit(case, "client_debt_new", "EMPTY", "No debts found in client_debt_new")
             except Exception as e:
                 logger.debug(f"Failed to fetch client_debt_new for clientid {clientid}: {e}")
+                self._audit(case, "client_debt_new", "ERROR", str(e))
 
             # 2. SECONDARY: iva_client_debt (for IVA cases – only if no debts found yet)
             if not case.creditors:
@@ -428,25 +639,34 @@ class AryzaClient:
                         [clientid]
                     )
                     rows = cursor.fetchall()
-                    for row in rows:
-                        balance = self._pence(row[0])
-                        creditor_name = row[4]
-                        creditor = {
-                            "name": creditor_name,
-                            "balance": balance,
-                            "account_reference": row[3] or "",
-                            "account_open_date": None,
-                            "last_transaction_date": None,
-                            "creditor_type": row[2] or "unsecured",
-                            "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
-                            "is_council": "council" in creditor_name.lower(),
-                            "from_credit_report": False,
-                        }
-                        case.creditors.append(creditor)
-                        case.total_unsecured_debt += balance
-                    logger.debug(f"Fetched {len(rows)} debts from iva_client_debt for clientid {clientid}")
+                    if rows:
+                        for row in rows:
+                            balance = self._pence(row[0])
+                            creditor_name = row[4]
+                            creditor_ref = row[3] or f"iva_debt_{row[2]}_{balance}"
+                            creditor = {
+                                "name": creditor_name,
+                                "balance": balance,
+                                "account_reference": row[3] or "",
+                                "linked_creditor": creditor_ref,
+                                "account_open_date": None,
+                                "last_transaction_date": None,
+                                "creditor_type": row[2] or "unsecured",
+                                "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
+                                "is_council": "council" in creditor_name.lower(),
+                                "from_credit_report": False,
+                            }
+                            case.creditors.append(creditor)
+                            case.total_unsecured_debt += balance
+                        logger.debug(f"Fetched {len(rows)} debts from iva_client_debt for clientid {clientid}")
+                        self._audit(case, "iva_client_debt", "FOUND", f"Fetched {len(rows)} debts")
+                    else:
+                        self._audit(case, "iva_client_debt", "EMPTY", "No debts found in iva_client_debt")
                 except Exception as e:
                     logger.debug(f"Failed to fetch iva_client_debt for clientid {clientid}: {e}")
+                    self._audit(case, "iva_client_debt", "ERROR", str(e))
+        
+        logger.info(f"Creditors loaded for {clientid}: {[c['name'] for c in case.creditors]}")
     
     def _fetch_debt_arrangements(self, connection, case: CaseData, clientid: int) -> None:
         """Fetch existing debt arrangements and check for IVA."""
@@ -457,33 +677,100 @@ class AryzaClient:
                     [clientid]
                 )
                 rows = cursor.fetchall()
-                for row in rows:
-                    if row[0] and "iva" in row[0].lower():
-                        case.flags["previous_iva"] = True
-                        break
+                if rows:
+                    for row in rows:
+                        if row[0] and "iva" in row[0].lower():
+                            case.flags["previous_iva"] = True
+                            break
+                    self._audit(case, "slam_debt_arrangments", "FOUND", f"Fetched {len(rows)} arrangements")
+                else:
+                    self._audit(case, "slam_debt_arrangments", "EMPTY", "No debt arrangements found")
             except Exception as e:
                 logger.debug(f"Failed to fetch debt arrangements for clientid {clientid}: {e}")
+                self._audit(case, "slam_debt_arrangments", "ERROR", str(e))
     
     def _fetch_property_data(self, connection, case: CaseData, clientid: int) -> None:
-        """Fetch property details from slam_mortgage (live table)."""
+        """Fetch property details from slam_mortgage and slam_property_details."""
         with connection.cursor() as cursor:
-            # Check slam_mortgage first (main property table)
             try:
+                # Select mortgage balance from slam_mortgage and property value from slam_property_details
+                # Sum both totals correctly even if multiple rows exist in either table
                 cursor.execute(
-                    "SELECT COUNT(*) FROM slam_mortgage WHERE clientid = %s",
+                    """
+                    SELECT 
+                        (SELECT SUM(outstanding_total) FROM slam_mortgage WHERE clientid = %s) as mortgage_total,
+                        (SELECT SUM(current_valuation) FROM slam_property_details WHERE clientid = %s) as property_total
+                    """,
+                    [clientid, clientid]
+                )
+                row = cursor.fetchone()
+                if row and (row[0] is not None or row[1] is not None):
+                    mortgage_total = row[0] or 0
+                    property_value = row[1] or 0
+                    
+                    case.property["owns_property"] = True
+                    case.property["mortgage_balance"] = self._pence(mortgage_total)
+                    case.property["property_value"] = self._pence(property_value)
+                    
+                    # Calculate equity in pence
+                    case.property["equity"] = case.property["property_value"] - case.property["mortgage_balance"]
+                    
+                    logger.debug(f"Property data fetched for {clientid}: value={case.property['property_value']}, mortgage={case.property['mortgage_balance']}")
+                    self._audit(case, "slam_property/mortgage", "FOUND", f"Value: £{property_value}, Mortgage: £{mortgage_total}")
+                else:
+                    # No property data found in either table
+                    case.property["owns_property"] = False
+                    case.property["property_value"] = 0
+                    case.property["mortgage_balance"] = 0
+                    case.property["equity"] = 0
+                    self._audit(case, "slam_property/mortgage", "EMPTY", "No property or mortgage data found")
+            except Exception as e:
+                logger.debug(f"Error fetching property data for clientid {clientid}: {e}")
+                self._audit(case, "slam_property/mortgage", "ERROR", str(e))
+    
+    def _fetch_vehicle_data(self, connection, case: CaseData, clientid: int) -> None:
+        """Fetch vehicle data including valuation and HP payments."""
+        with connection.cursor() as cursor:
+            try:
+                # 1. Fetch from slam_vehicle_details
+                cursor.execute(
+                    """SELECT current_valuation, monthly_hp_payment, start_date 
+                       FROM slam_vehicle_details WHERE clientid = %s LIMIT 1""",
                     [clientid]
                 )
                 row = cursor.fetchone()
-                if row and row[0] > 0:
-                    case.property["owns_property"] = True
-                    logger.debug(f"Mortgage/property found for clientid {clientid}")
+                if row:
+                    case.vehicle["vehicle_value"] = self._pence(row[0])
+                    case.vehicle["hp_monthly_payment"] = self._pence(row[1])
+                    case.vehicle["car_finance_start_date"] = self._format_date(row[2])
+                    case.vehicle["has_vehicle"] = True
+                    logger.debug(f"Vehicle data fetched for {clientid}: value={case.vehicle['vehicle_value']}")
+                    self._audit(case, "slam_vehicle_details", "FOUND", f"Value: £{row[0]}")
+                else:
+                    self._audit(case, "slam_vehicle_details", "EMPTY", "No vehicles in slam_vehicle_details")
             except Exception as e:
-                logger.debug(f"No mortgage data for clientid {clientid}: {e}")
-    
-    def _fetch_vehicle_data(self, connection, case: CaseData, clientid: int) -> None:
-        """Fetch vehicle data - already partially set from td_client."""
-        # Vehicle data mainly comes from td_client (td_no_cars)
-        pass
+                logger.debug(f"Error fetching slam_vehicle_details for {clientid}: {e}")
+                self._audit(case, "slam_vehicle_details", "ERROR", str(e))
+
+            # 2. Fallback for HP payment from client_expenses
+            if not case.vehicle.get("hp_monthly_payment"):
+                try:
+                    cursor.execute(
+                        "SELECT value, frequency FROM client_expenses WHERE clientid = %s AND field LIKE '%%car_finance%%' LIMIT 1",
+                        [clientid]
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        val = self._pence(row[0])
+                        freq = row[1] or 'monthly'
+                        case.vehicle["hp_monthly_payment"] = self._normalise_to_monthly(val, freq)
+                        case.vehicle["has_vehicle"] = True
+                        self._audit(case, "client_expenses (HP)", "FOUND", f"HP payment found: £{row[0]}")
+                    else:
+                        self._audit(case, "client_expenses (HP)", "EMPTY", "No HP payment found in expenses")
+                except Exception as e:
+                    logger.debug(f"Error fetching HP fallback for {clientid}: {e}")
+                    self._audit(case, "client_expenses (HP)", "ERROR", str(e))
     
     def _fetch_flags_data(self, connection, case: CaseData, clientid: int) -> None:
         """Fetch flags: gambling, previous IVA, creditor questions."""
@@ -497,20 +784,112 @@ class AryzaClient:
                 row = cursor.fetchone()
                 if row and row[0] > 0:
                     case.flags["gambling_present"] = True
+                    self._audit(case, "client_debt_new (payday)", "FOUND", f"{row[0]} payday loans found")
+                else:
+                    self._audit(case, "client_debt_new (payday)", "EMPTY", "No payday loans found")
             except Exception as e:
                 logger.debug(f"No payday loan check for clientid {clientid}: {e}")
+                self._audit(case, "client_debt_new (payday)", "ERROR", str(e))
             
-            # Check for previous IVA in iva_client table
+            # Check for previous IVA in iva_client and factfind tables
             try:
+                # 1. Check current/recent IVA in iva_client
                 cursor.execute(
-                    "SELECT COUNT(*) FROM iva_client WHERE clientid = %s",
+                    "SELECT iva_failure_reason FROM iva_client WHERE clientid = %s LIMIT 1",
                     [clientid]
                 )
                 row = cursor.fetchone()
-                if row and row[0] > 0:
+                if row:
                     case.flags["previous_iva"] = True
+                    case.flags["previous_iva_failed_reason"] = row[0]
+                    self._audit(case, "iva_client (IVA flag)", "FOUND", f"Reason: {row[0]}")
+                else:
+                    self._audit(case, "iva_client (IVA flag)", "EMPTY", "No previous IVA in iva_client")
+                
+                # 2. Check historical IVAs in factfind
+                cursor.execute(
+                    "SELECT reason_iva_failed FROM iva_factfind_have_you_ever_had_an_ivas WHERE clientid = %s LIMIT 1",
+                    [clientid]
+                )
+                ff_row = cursor.fetchone()
+                if ff_row:
+                    case.flags["previous_iva"] = True
+                    # Only overwrite reason if it's currently empty
+                    if not case.flags.get("previous_iva_failed_reason"):
+                        case.flags["previous_iva_failed_reason"] = ff_row[0]
+                    self._audit(case, "iva_factfind_have_you_ever_had_an_ivas", "FOUND", f"Reason: {ff_row[0]}")
+                else:
+                    self._audit(case, "iva_factfind_have_you_ever_had_an_ivas", "EMPTY", "No previous IVA in factfind")
+                
+                # 3. Check for Vulnerability
+                cursor.execute(
+                    "SELECT vulnerability_claimed FROM factfind_vulnerability WHERE clientid = %s LIMIT 1",
+                    [clientid]
+                )
+                vuln_row = cursor.fetchone()
+                if vuln_row:
+                    case.flags["vulnerability_claimed"] = bool(vuln_row[0])
+                    self._audit(case, "factfind_vulnerability", "FOUND" if vuln_row[0] else "EMPTY", f"Claimed: {vuln_row[0]}")
+                else:
+                    self._audit(case, "factfind_vulnerability", "EMPTY", "No vulnerability record")
+
+                # 4. Check for SEISS debt flag and HMRC details
+                try:
+                    cursor.execute(
+                        "SELECT has_seiss_debt, currently_trading, has_vat_arrangement, paye_obligations_current "
+                        "FROM factfind_hmrc_details WHERE clientid = %s LIMIT 1",
+                        [clientid]
+                    )
+                    seiss_row = cursor.fetchone()
+                    if seiss_row:
+                        case.flags["seiss_debt_flag"] = bool(seiss_row[0])
+                        case.flags["is_currently_trading"] = bool(seiss_row[1]) if seiss_row[1] is not None else None
+                        case.flags["has_vat_arrangement"] = bool(seiss_row[2]) if seiss_row[2] is not None else None
+                        case.flags["employer_paye_obligations_current"] = bool(seiss_row[3]) if seiss_row[3] is not None else None
+                        self._audit(case, "factfind_hmrc_details", "FOUND", f"Has SEISS: {seiss_row[0]}")
+                except Exception:
+                    pass
+
+                # Fallback for SEISS debt flag
+                if case.flags.get("seiss_debt_flag") is None:
+                    try:
+                        cursor.execute("SELECT seiss_debt FROM client_flags WHERE clientid = %s", [clientid])
+                        row = cursor.fetchone()
+                        if row:
+                            case.flags["seiss_debt_flag"] = bool(row[0])
+                            self._audit(case, "client_flags", "FOUND", f"SEISS: {row[0]}")
+                    except Exception:
+                        pass
+
+                # 5. Check for Antecedent Transactions (Transfers)
+                try:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM factfind_transfers WHERE clientid = %s AND (deleted IS NULL OR deleted = 0)",
+                        [clientid]
+                    )
+                    trans_row = cursor.fetchone()
+                    if trans_row and trans_row[0] > 0:
+                        case.flags["antecedent_transactions"] = True
+                        self._audit(case, "factfind_transfers", "FOUND", f"{trans_row[0]} transfers found")
+                except Exception:
+                    pass
+
+                # 6. Check for Gamstop/AOE
+                try:
+                    cursor.execute(
+                        "SELECT gamstop_registered, aoe_in_place FROM factfind_additional_flags WHERE clientid = %s LIMIT 1",
+                        [clientid]
+                    )
+                    add_row = cursor.fetchone()
+                    if add_row:
+                        case.flags["gamstop_registered"] = bool(add_row[0])
+                        case.flags["aoe_in_place"] = bool(add_row[1])
+                        self._audit(case, "factfind_additional_flags", "FOUND", f"Gamstop: {add_row[0]}")
+                except Exception:
+                    pass
             except Exception as e:
-                logger.debug(f"No iva_client check for clientid {clientid}: {e}")
+                logger.debug(f"Error checking flags tables for clientid {clientid}: {e}")
+                self._audit(case, "flags_check", "ERROR", str(e))
     
     # ========================================================================
     # HELPER METHODS - DATA TRANSFORMATION
@@ -619,10 +998,10 @@ class AryzaClient:
         
         case.expenditure["total"] = case.expenditure["disability_expenses"]
         
-        # If disposable_income was not set by td_client, calculate it
-        if case.disposable_income == 0 and case.income["total"] > 0:
+        # Always recalculate — td_client contribution may be stale or zero
+        if case.income["total"] > 0:
             case.disposable_income = max(0, case.income["total"] - case.expenditure["total"])
-            logger.debug(f"Calculated disposable_income={case.disposable_income} from income-expenditure")
+            logger.debug(f"Calculated disposable_income={case.disposable_income}")
 
 
 # ============================================================================

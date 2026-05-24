@@ -1,4 +1,6 @@
 import axios from 'axios'
+import api from '../lib/axios'
+import { mapCriteriaError } from '../utils/errorMessages'
 
 const API_BASE = '/api'
 const CRITERIA_BASE = '/api/v1/criteria'
@@ -142,11 +144,52 @@ export const updateCreditor = async (id, data) => {
 }
 
 export const getRules = async () => {
-  const response = await apiClient.get(`${CRITERIA_BASE}/rules/`)
+  const response = await apiClient.get(`${CRITERIA_BASE}/rules/?include=full`)
+  return response.data
+}
+
+export const getRulesByCriteriaSet = async (criteriaSet) => {
+  const response = await apiClient.get(`${CRITERIA_BASE}/rules/?criteria_set=${criteriaSet}&include=full`)
+  return response.data
+}
+
+export const createRule = async (data) => {
+  const response = await apiClient.post(`${CRITERIA_BASE}/rules/`, data)
   return response.data
 }
 
 export const updateRule = async (ruleKey, data) => {
   const response = await apiClient.put(`${CRITERIA_BASE}/rules/${ruleKey}/`, data)
   return response.data
+}
+
+/**
+ * Sends a request to evaluate a specific case against the criteria engine.
+ * @param {string|number} caseId - The ID of the application/case to evaluate
+ * @returns {Promise<Object>} The parsed response data on success
+ * @throws {Object} Typed error object on failure
+ */
+export const evaluateCase = async (caseId) => {
+  try {
+    const response = await api.post(`${CRITERIA_BASE}/cases/${caseId}/evaluate`)
+    return response.data
+  } catch (error) {
+    throw mapCriteriaError(error)
+  }
+}
+
+/**
+ * Fetches the evaluation history for a specific case.
+ * @param {string|number} caseId - The ID of the application/case
+ * @param {number} page - The page number for pagination
+ * @returns {Promise<Object>} The paginated history results
+ * @throws {Object} Typed error object on failure
+ */
+export const getEvaluationHistory = async (caseId, page = 1) => {
+  try {
+    const response = await api.get(`${CRITERIA_BASE}/cases/${caseId}/evaluations?page=${page}`)
+    return response.data
+  } catch (error) {
+    throw mapCriteriaError(error)
+  }
 }

@@ -1,33 +1,123 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './hooks/useAuth.jsx'
+import React, { Suspense } from 'react'
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
-import ProtectedRoute from './components/ProtectedRoute.jsx'
-import Login from './pages/Login.jsx'
-import CriteriaLookup from './pages/criteria/CriteriaLookup.jsx'
-import DecisionHistory from './pages/criteria/DecisionHistory.jsx'
-import RulesAdmin from './pages/criteria/RulesAdmin.jsx'
-import CreditorAdmin from './pages/criteria/CreditorAdmin.jsx'
+import PrivateRoute from './components/PrivateRoute.jsx'
+import AdminRoute from './components/AdminRoute.jsx'
+import LoginPage from './pages/LoginPage.jsx'
+import LoadingSpinner from './components/shared/LoadingSpinner.jsx'
+import { useAuth } from './context/AuthContext.jsx'
 
-function App() {
-  const { isAuthenticated } = useAuth()
+// Lazy-loaded page components
+const AssessPage = React.lazy(() => import('./pages/AssessPage.jsx'))
+const RulesPage = React.lazy(() => import('./pages/RulesPage.jsx'))
+const UserManagementPage = React.lazy(() => import('./pages/UserManagementPage.jsx'))
+const AdminDashboard = React.lazy(() => import('./pages/admin/AdminDashboard.jsx'))
+const DecisionsPage = React.lazy(() => import('./pages/admin/DecisionsPage.jsx'))
 
+/**
+ * LayoutWrapper - wraps Layout with Outlet as children
+ */
+function LayoutWrapper() {
   return (
-    <div className="min-h-screen bg-[#f9fafb] text-[#111827]">
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/criteria" element={<CriteriaLookup />} />
-            <Route element={<ProtectedRoute adminOnly />}>
-              <Route path="/criteria/history" element={<DecisionHistory />} />
-              <Route path="/criteria/admin/rules" element={<RulesAdmin />} />
-              <Route path="/criteria/admin/creditors" element={<CreditorAdmin />} />
-            </Route>
+    <Layout>
+      <Outlet />
+    </Layout>
+  )
+}
+
+/**
+ * RootRedirect — sends admins to /admin, assessors to /assess
+ */
+function RootRedirect() {
+  const { isAdmin, isLoading, token } = useAuth()
+
+  if (isLoading) return <LoadingSpinner fullScreen />
+  if (!token) return <Navigate to="/login" replace />
+  return <Navigate to={isAdmin ? '/admin' : '/assess'} replace />
+}
+
+/**
+ * App component
+ * Sets up React Router v6 with public and private routes
+ */
+function App() {
+  return (
+    <Routes>
+      {/* Public route: Login */}
+      <Route path="/login" element={<LoginPage />} />
+
+      {/* Root redirect — role-aware */}
+      <Route path="/" element={<RootRedirect />} />
+
+      {/* Private routes */}
+      <Route element={<PrivateRoute />}>
+        <Route element={<LayoutWrapper />}>
+
+          {/* Assess page */}
+          <Route
+            path="/assess"
+            element={
+              <Suspense fallback={<LoadingSpinner fullScreen />}>
+                <AssessPage />
+              </Suspense>
+            }
+          />
+
+          {/* Rules page */}
+          <Route
+            path="/rules"
+            element={
+              <Suspense fallback={<LoadingSpinner fullScreen />}>
+                <RulesPage />
+              </Suspense>
+            }
+          />
+
+          {/* Admin-only routes */}
+          <Route element={<AdminRoute />}>
+
+            {/* Admin Dashboard */}
+            <Route
+              path="/admin"
+              element={
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <AdminDashboard />
+                </Suspense>
+              }
+            />
+
+            {/* User Management */}
+            <Route
+              path="/admin/users"
+              element={
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <UserManagementPage />
+                </Suspense>
+              }
+            />
+
+            {/* Redirects for removed pages */}
+            <Route path="/admin/applications" element={<Navigate to="/assess" replace />} />
+            <Route path="/admin/evidence" element={<Navigate to="/assess" replace />} />
+            <Route path="/admin/voters" element={<Navigate to="/assess" replace />} />
+
+            {/* Decisions (read-only + delete) */}
+            <Route
+              path="/admin/decisions"
+              element={
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <DecisionsPage />
+                </Suspense>
+              }
+            />
+
           </Route>
         </Route>
-        <Route path="*" element={<Navigate to={isAuthenticated ? '/criteria' : '/login'} replace />} />
-      </Routes>
-    </div>
+      </Route>
+
+      {/* Catch-all: redirect to root (which will role-redirect) */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 

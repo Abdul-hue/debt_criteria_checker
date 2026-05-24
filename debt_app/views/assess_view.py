@@ -8,6 +8,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from debt_app.criteria_engine import assess_case, detect_representatives
+from debt_app.recommendation_engine import get_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,78 @@ class DirectAssessView(View):
         except (json.JSONDecodeError, ValueError):
             return JsonResponse({"error": "Invalid JSON"}, status=400)
 
+        # Ensure name -> creditor_name mapping for engine (non-destructive)
+        # Apply alias map for better representative detection
+        from debt_app.helpers import CREDITOR_ALIAS_MAP
+        for c in case_json.get("creditors") or []:
+            raw_name = c.get("name") or c.get("creditor_name") or ""
+            normalized = raw_name.strip().lower()
+            resolved = CREDITOR_ALIAS_MAP.get(normalized, raw_name)
+            
+            c["creditor_name"] = resolved
+            if "name" not in c:
+                c["name"] = raw_name
+
         # 2 — Detect representatives and run engine
         try:
+            # Normalise evidence_ledger — engine expects a list of
+            # {"category": str, "is_verified": bool, "ref": str}
+            # Guard against dict format from external callers (CA Tool fallback)
+            _ev = case_json.get("evidence_ledger", [])
+            if isinstance(_ev, dict):
+                case_json["evidence_ledger"] = [
+                    {"category": k, "is_verified": bool(v), "ref": k}
+                    for k, v in _ev.items()
+                ]
+            elif not isinstance(_ev, list):
+                case_json["evidence_ledger"] = []
+
             creditors = case_json.get("creditors") or []
             detected_reps = detect_representatives(creditors)
             result = assess_case(case_json, detected_reps)
+
+            # STEP 7 — Add back ACCEPT creditors filtered out by engine
+            engine_positions = result.get("creditor_positions", [])
+            positioned_names = {
+                p.get("creditor_name", "").strip().lower()
+                for p in engine_positions
+            }
+
+            accept_positions = []
+            for c in creditors:
+                cname = (c.get("creditor_name") or "").strip()
+                original = (c.get("name") or c.get("original_name") or cname).strip()
+                if not cname:
+                    continue
+                if cname.lower() not in positioned_names:
+                    accept_positions.append({
+                        "creditor_name": cname,
+                        "resolved_canonical_name": cname,
+                        "original_aryza_name": original,
+                        "effective_status": "ACCEPT",
+                        "findings": [],
+                        "reason": "Creditor accepted — no conditions apply",
+                        "rule_ids": [],
+                        "balance": float(c.get("balance") or 0),
+                    })
+            
+            result["creditor_positions"] = engine_positions + accept_positions
+
+            # Determine decision and get recommendation
+            hard_blocks = result.get("hard_blocks", [])
+            flags = result.get("flags", [])
+            
+            if hard_blocks:
+                decision = "INELIGIBLE"
+            elif flags:
+                decision = "REFERRED"
+            else:
+                decision = "ELIGIBLE"
+                
+            recommendations = get_recommendation(decision, result, case_json)
+            result["recommended_solution"] = recommendations.get("recommended_solution")
+            result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
+
         except Exception as exc:
             logger.exception("Engine error during /api/v1/assess/")
             return JsonResponse(
@@ -49,7 +117,8 @@ class DirectAssessView(View):
                 "overall_status":         result.get("overall_status", result["overall"].upper()),
                 "passes_all_hard_blocks": result.get("passes_all_hard_blocks", False),
                 "tig_eligible":           result.get("tig_eligible", False),
-                "recommended_solution":   result.get("recommended_solution", ""),
+                "recommended_solution":   result.get("recommended_solution"),
+                "alternative_solutions":   result.get("alternative_solutions", []),
                 "representatives_detected": sorted(result.get("representatives_detected") or []),
 
                 # ── summary counts ────────────────────────────────────────
@@ -71,6 +140,7 @@ class DirectAssessView(View):
                     {
                         "creditor_name":          c.get("creditor_name", ""),
                         "resolved_canonical_name": c.get("resolved_canonical_name", ""),
+                        "representative":         c.get("representative", "NONE"),
                         "effective_status":        c.get("effective_status", "UNKNOWN"),
                         "balance":                 float(c.get("balance") or 0),
                         "reason":                  c.get("reason", ""),

@@ -3,7 +3,63 @@ Helper functions and constants for criteria management.
 """
 from decimal import Decimal
 from django.utils import timezone
-from .models import GlobalCriteria, CriteriaDecision, CreditorCriteria
+from .models import (
+    GlobalCriteria, CriteriaDecision, CreditorCriteria,
+    CouncilRule, Application, EvidenceLedger, Voter
+)
+
+import re
+
+def normalise_creditor_name(name: str) -> str:
+    """
+    Normalise a creditor name by stripping legal suffixes and noise words.
+    """
+    if not name:
+        return ""
+
+    # 1. Lowercase and 2. Strip whitespace
+    name = name.lower().strip()
+
+    # 4. Handle "t/a" or "trading as" - keep part after
+    # Do this early as the prefix might have suffixes we want to ignore anyway
+    # We use regex to handle various cases of t/a (e.g. T/A, t/a, T / A)
+    name = re.split(r"\s+t/a\s+|\s+trading as\s+", name, flags=re.IGNORECASE)[-1].strip()
+
+    # 6. Strip double spaces (repeated after steps)
+    name = re.sub(r"\s+", " ", name).strip()
+
+    # List of suffixes to remove from the END (must follow a space or be in parentheses)
+    # Ordered by length descending to avoid partial matches (e.g. "limited uk" before "limited")
+    suffixes = [
+        "group limited", "group plc", "group ltd",
+        "uk limited", "uk ltd", "limited uk",
+        "limited", "ltd.", "ltd", "plc.", "plc", "llp", "llc",
+        "(uk)", "uk", "(europe) plc", "(europe)"
+    ]
+
+    # 3 & 5. Remove suffixes from the end
+    # We loop until no more changes to handle "Capital One Bank (Europe) Plc"
+    changed = True
+    while changed:
+        changed = False
+        original = name
+        
+        # Handle parenthetical suffixes specifically first if they are at the end
+        # This catches (europe), (uk), etc.
+        name = re.sub(r"\s*\([^)]+\)$", "", name).strip()
+        
+        # Handle the specific suffix list
+        for suffix in suffixes:
+            # Match suffix at the end, either preceded by space or as the entire string
+            pattern = rf"(?:\s+|^){re.escape(suffix)}$"
+            name = re.sub(pattern, "", name).strip()
+            
+        if name != original:
+            changed = True
+            name = re.sub(r"\s+", " ", name).strip()
+
+    return name.strip()
+
 
 # ---------------------------------------------------------------------------
 # Debt type constants
@@ -85,6 +141,213 @@ def get_secured_debt_total(creditors: list) -> float:
 # Creditor name matchers
 # ---------------------------------------------------------------------------
 
+_RAW_CREDITOR_ALIAS_MAP = {
+    'natwest group plc': 'NatWest',
+    'natwest plc': 'NatWest',
+    'natwest': 'NatWest',
+    'rbs': 'NatWest',
+    'royal bank of scotland': 'NatWest',
+    'natwest current accounts': 'NatWest',
+    'lloyds banking group': 'Lloyds Bank',
+    'lloyds bank plc': 'Lloyds Bank',
+    'lloyds tsb': 'Lloyds Bank',
+    'lloyds': 'Lloyds Bank',
+    'lloyds bank': 'Lloyds Bank',
+    'lloyds bank plc hp': 'Lloyds Bank',
+    'mbna': 'MBNA - IVA',
+    'mbna limited': 'MBNA - IVA',
+    'mbna europe bank': 'MBNA - IVA',
+    'barclaycard': 'Barclaycard',
+    'barclaycard (including cards below) - iva': 'Barclaycard',
+    'barclays bank plc': 'Barclays Bank',
+    'barclays': 'Barclays Bank',
+    'barclays partner finance': 'Barclays',
+    'link financial outsourcing limited': 'Link Financial - IVA',
+    'link financial outsourcing': 'Link Financial - IVA',
+    'link financial ltd': 'Link Financial - IVA',
+    'link financial': 'Link Financial - IVA',
+    'link financial limited': 'Link Financial - IVA',
+    'asset link': 'Asset Link',
+    'jd williams (n brown group)': 'Shop Direct',
+    'jd williams': 'Shop Direct',
+    'n brown': 'Shop Direct',
+    'n brown group': 'Shop Direct',
+    'shop direct': 'Shop Direct',
+    'shop direct group': 'Shop Direct',
+    'jd williams (n brown group plc)': 'Shop Direct',
+    'the very group limited (wpm)': 'Very',
+    'capital one': 'Capital One',
+    'capital one bank (europe) plc': 'Capital One',
+    '118 118 money': '118 118 Money',
+    '118118 money': '118 Money',
+    '118 money': '118 Money',
+    'madison cf uk ltd t/a 118 118 money': '118 118 Money',
+    'creation': 'Creation',
+    'creation consumer finance': 'Creation',
+    'creation consumer finance ltd': 'Creation Consumer Finance',
+    'creation financial services': 'Creation',
+    'creation finance': 'Creation Financial Services',
+    'novuna': 'Hitachi Capital/Credit / Novuna',
+    'hitachi capital': 'Hitachi Capital/Credit / Novuna',
+    'zopa': 'Zopa - IVA or BKY',
+    'zopa bank limited': 'Zopa - IVA or BKY',
+    'zopa limited': 'Zopa - IVA or BKY',
+    'halifax': 'HBOS - Halifax - IVA',
+    'hsbc': 'HSBC',
+    'santander': 'Santander',
+    'santander cards': 'Santander Cards',
+    'santander consumer finance': 'Santander Consumer Finance',
+    'virgin credit card': 'Virgin Credit Card',
+    'virgin media': 'Virgin Media',
+    'virgin money': 'Virgin Money (Loan) WPM',
+    'tesco bank': 'Tesco Bank',
+    'tesco mobile': 'Tesco Mobile',
+    'american express': 'American Express Service',
+    'american express services europe ltd': 'American Express Service',
+    'amex': 'American Express Service',
+    'vanquis': 'Vanquis Bank',
+    'vanquis bank': 'Vanquis Bank',
+    'vanquis bank limited': 'Vanquis Bank',
+    'aqua': 'Aqua - IVA',
+    'newday': 'NewDay',
+    'newday limited': 'NewDay',
+    'paypal': 'Paypal Europe Ltd',
+    'very': 'Very',
+    'every day loans': 'Every Day Loans',
+    'everyday loans': 'Everyday Loans',
+    'next': 'Next Directory',
+    'next directory': 'Next Directory',
+    'littlewoods': 'Littlewoods',
+    'littlewoods.com': 'Littlewoods',
+    'studio': 'Studio Cards & Gifts',
+    'lowell': 'Lowell Financial',
+    'lowell portfolio': 'Lowell Financial',
+    'lowell group': 'Lowell Financial',
+    'lowell financial': 'Lowell',
+    'lowell portfolio i ltd': 'Lowell',
+    'pra': 'PRA (Portfolio Recovery Associates) - IVA',
+    'portfolio recovery associates': 'PRA (Portfolio Recovery Associates) - IVA',
+    'pra group': 'PRA (Portfolio Recovery Associates) - IVA',
+    'portfolio recovery': 'PRA (Portfolio Recovery Associates) - IVA',
+    'pra group (uk) limited (tix)': 'PRA Group',
+    'pra group (uk) ltd c/o wpm': 'PRA Group',
+    'lantern': 'Lantern Debt Recovery Limited - IVA or BKY',
+    'lantern debt recovery': 'Lantern Debt Recovery Limited - IVA or BKY',
+    'lantern debt recovery services ltd': 'Lantern',
+    'perch capital': 'PCO Holdco Sarl - IVA',
+    'perch capital limited': 'Perch Capital Limited',
+    'cabot': 'Cabot Financial',
+    'cabot financial': 'Cabot Financial',
+    'cabot financial (europe) ltd': 'Cabot Financial',
+    'cabot credit management group limited': 'Cabot Financial',
+    'intrum': 'Intrum UK Ltd (previously 1st Credit) - IVA or BKY',
+    '1st credit': 'Intrum UK Ltd (previously 1st Credit) - IVA or BKY',
+    'arrow global': 'Arrow Global',
+    'marlin': 'Marlin Financial - IVA',
+    'hoist': 'Hoist Financial',
+    'hoist financial': 'Hoist Financial',
+    'moorcroft': 'Moorcroft Debt Recovery',
+    'moorcroft debt recovery': 'Moorcroft Debt Recovery',
+    'jefferson capital': 'Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)',
+    'jcia': 'Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)',
+    'cars': 'Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)',
+    'jc international acquisition': 'Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)',
+    'jc international acquisition llc': 'Jefferson Capital International Acquisition (JCIA, or their UK operation Creditlink Account Recovery Services CARS)',
+    'nationwide recovery': 'Nationwide Recovery (SDG) - IVA or TD',
+    'max recovery': 'Max Recovery',
+    'grove': 'Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - IVA',
+    'tti spc': 'TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - IVA',
+    'klarna': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'klarna uk ltd': 'Klarna',
+    'klarna pay later and pay in 3': 'Klarna',
+    'zilch': 'NewDay',
+    'zilch technology limited': 'Zilch',
+    'zable': 'NewDay',
+    'lendable limited t/a zable': 'Zable',
+    'aquis': 'Aquis',
+    'fluid': 'Fluid',
+    'opus': 'Opus',
+    'jaja': 'Jaja Finance Ltd',
+    'lendable': 'Lendable',
+    'lendable limited t/a autolend': 'Lendable',
+    'plata': 'Plata Loans (BAMBOO)',
+    'salary finance': 'Salary Finance',
+    'ratesetter': 'Ratesetter',
+    'funding circle': 'Funding Circle',
+    'updraft': 'Updraft',
+    'fairscore limited t/a updraft': 'Updraft',
+    'tsb': 'TSB Bank',
+    'tsb bank': 'TSB Bank',
+    'tsb bank plc': 'TSB Bank',
+    'nationwide': 'Nationwide Building Society',
+    'nationwide building society': 'Nationwide Building Society',
+    'first direct': 'First Direct',
+    'monzo': 'Monzo Bank',
+    'monzo bank': 'Monzo',
+    'starling': 'Monzo Bank',
+    'argos': 'Argos Card Services',
+    'home retail group': 'Argos Card Services',
+    'freemans': 'Freemans Catalogue',
+    'kaleidoscope': 'Kaleidoscope',
+    'look again': 'Look Again',
+    'grattan': 'Grattan',
+    'octopus energy limited': 'Octopus Energy',
+    'british gas consumer': 'British Gas',
+    'amigo': 'Amigo',
+    'amigo loans': 'Amigo',
+    'bamboo': 'Bamboo',
+    'bamboo loans': 'Bamboo',
+    'bamboo limited (link financial)': 'Bamboo',
+    'guarantor my loan': 'Guarantor My Loan',
+    'buddy loans': 'Buddy Loans t/a Advancis Ltd',
+    'moneybarn': 'Moneybarn',
+    'black horse': 'Blackhorse - Blackhorse Finance - IVA',
+    'black horse limited': 'Blackhorse - Blackhorse Finance - IVA',
+    'black horse - td': 'Blackhorse - Blackhorse Finance - TD',
+    'blue motor finance': 'Blue Motor Finance',
+    'blue motor finance limited': 'Blue Motor Finance',
+    'specialist motor finance': 'Specialist Motor Finance',
+    'volkswagen financial services': 'Volkswagen Financial Services',
+    'vw financial services': 'Volkswagen Financial Services',
+    'fce bank': 'FCE Bank',
+    'ford credit': 'FCE Bank',
+    'hitachi': 'Hitachi',
+    'ikano': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'granite': 'Granite (Vanquis)',
+    'gracombex ltd t/a the money platform': 'The Money Platform',
+    'brighton & hove city council': 'Brighton and Hove City Council',
+    'north east lincolnshire borough council': 'North East Lincolnshire Council',
+    'mansfield district council': 'Mansfield District Council',
+    'west sussex & surrey credit union limited t/a boom community bank': 'Boom Credit Union ALSO known as East Sussex Credit Union Ltd t/a Wave Community Bank:',
+    'department for work & pensions (dwp)': 'DWP',
+    'hm revenue & customs': 'HM Revenue & Customs',
+    'northridge finance ltd': 'Northridge Finance',
+    'castle community bank': 'Castle Community Bank',
+    'advanced payment solutions ltd t/a cashplus bank': 'Cashplus',
+    'zempler bank limited': 'Cashplus',
+    'ccc debt management': 'CCC Debt Management',
+    'united trust bank limited': 'United Trust Bank',
+    'anderson brookes': 'Anderson Brookes',
+    'credit4 limited': 'Credit4',
+    'travis perkins plc': 'Travis Perkins',
+    'tyrell carpentry contractors limited': 'Tyrell Carpentry',
+    'huws gray builders merchant': 'Huws Gray',
+    'zopa limited': 'Zopa - IVA or BKY',
+    'halifax credit card': 'HBOS - Halifax - IVA',
+    'v12 finance': 'V12 Personal Finance',
+    'v12 personal finance': 'V12 Personal Finance',
+    'admiral financial services ltd': 'Admiral Loans',
+    'admiral financial services limited': 'Admiral Loans',
+    'shop direct finance company ltd': 'Shop Direct Finance Company - IVA or TD',
+    'home retail group card services': 'Home Retail Group',
+    'hbos - halifax - iva': 'HBOS - Halifax - IVA',
+    'secure trust bank plc': 'Secure Trust Bank',
+}
+
+# Apply normalisation to all keys in the alias map to ensure robust lookups
+CREDITOR_ALIAS_MAP = {normalise_creditor_name(k): v for k, v in _RAW_CREDITOR_ALIAS_MAP.items()}
+
+
 def is_asset_link_capital(name: str) -> bool:
     """True when the creditor name refers to Asset Link Capital (not generic Link Financial)."""
     if not name:
@@ -144,73 +407,65 @@ def log_criteria_decision(application_id: str, client_name: str,
     )
 
 
-def get_creditor_by_trading_name(
-    name: str,
-    all_names: list[str] | None = None,
-) -> CreditorCriteria:
+def get_creditor_by_trading_name(name: str, all_names=None):
     """
-    Find a creditor using a 3-layer lookup:
-    Layer 1 — Exact match on creditor_name (DB index, fast)
-    Layer 2 — Exact match on any entry in trading_names (case-insensitive)
-    Layer 3 — Fuzzy match via rapidfuzz token_sort_ratio at threshold 50
+    Find CreditorCriteria row for a given creditor name.
 
-    Raises CreditorCriteria.DoesNotExist if all three layers miss.
-
-    Parameters
-    ----------
-    name      : incoming creditor name from case payload
-    all_names : pre-loaded list of active creditor_name values.
-                Pass this from the calling loop to avoid N+1 DB queries.
-                If None, loads from DB automatically.
+    Search order:
+    1. CREDITOR_ALIAS_MAP exact match
+    2. Exact match on creditor_name (case-insensitive)
+    3. Search trading_names field for any row where this name is a known trading name
+    4. Substring: creditor_name is contained in the input name
+       e.g. DB="NatWest", Aryza="Natwest Group Plc"
+       "natwest" is in "natwest group plc" → match
+    5. Raise DoesNotExist
     """
-    # Preprocess name by stripping common business suffixes to ensure higher matching accuracy
-    import re
-    cleaned_name = re.sub(
-        r"\s+(limited|ltd|plc|uk|group|services|retail)\b",
-        "",
-        name,
-        flags=re.IGNORECASE
-    ).strip()
+    from debt_app.models import CreditorCriteria
 
-    # Layer 1 — exact creditor_name match (try exact incoming name first, then cleaned version)
+    cleaned = name.strip()
+    cleaned_lower = cleaned.lower()
+    normalised = normalise_creditor_name(name)
+
+    # 1. Alias map
+    alias = CREDITOR_ALIAS_MAP.get(normalised)
+    if alias:
+        try:
+            return CreditorCriteria.objects.get(
+                creditor_name__iexact=alias,
+                is_active=True
+            )
+        except CreditorCriteria.DoesNotExist:
+            pass
+
+    # 2. Exact creditor_name match
     try:
-        return CreditorCriteria.objects.get(creditor_name=name, is_active=True)
+        return CreditorCriteria.objects.get(
+            creditor_name__iexact=cleaned,
+            is_active=True
+        )
     except CreditorCriteria.DoesNotExist:
         pass
 
-    try:
-        return CreditorCriteria.objects.get(creditor_name=cleaned_name, is_active=True)
-    except CreditorCriteria.DoesNotExist:
-        pass
+    # 3. Trading names search
+    row = CreditorCriteria.objects.filter(
+        trading_names__icontains=cleaned,
+        is_active=True
+    ).first()
+    if row:
+        return row
 
-    # Layer 2 — trading_names exact match (case-insensitive)
-    name_lower = name.lower()
-    cleaned_name_lower = cleaned_name.lower()
-    for creditor in CreditorCriteria.objects.filter(is_active=True):
-        if creditor.trading_names:
-            if any(t.lower() == name_lower or t.lower() == cleaned_name_lower for t in creditor.trading_names):
-                return creditor
-
-    # Layer 3 — fuzzy match
-    matched = fuzzy_lookup_creditor(cleaned_name, all_names=all_names)
-    if matched is not None:
-        return matched
-
-    # Layer 4 — Substring / Word Containment Match (Self-healing fallback)
-    # Automatically links names containing primary creditor words (e.g. "Natwest Current Accounts" -> "NatWest")
-    active_creditors = list(CreditorCriteria.objects.filter(is_active=True))
-    for creditor in active_creditors:
-        # Extract the first/primary word of the canonical creditor name
-        words = [w for w in re.split(r"\W+", creditor.creditor_name.lower()) if w]
-        if words:
-            primary_word = words[0]
-            # Avoid matching generic short terms or noise words
-            if len(primary_word) >= 4 and primary_word not in ("bank", "loan", "ltd", "corp", "coop", "limited"):
-                if primary_word in cleaned_name_lower:
-                    return creditor
+    # 4. Substring: DB name contained in Aryza name
+    # Only match if DB name is >= 5 chars to avoid short false matches
+    # e.g. "NatWest" (7 chars) in "Natwest Group Plc" → match
+    # NOT "AO" (2 chars) in "MBNA" → no match
+    all_active = CreditorCriteria.objects.filter(is_active=True)
+    for row in all_active:
+        db_lower = row.creditor_name.strip().lower()
+        if len(db_lower) >= 5 and db_lower in cleaned_lower:
+            return row
 
     raise CreditorCriteria.DoesNotExist(
-        f"No criteria row found for creditor: {name!r}"
+        f"No criteria row found for: {name!r}"
     )
 
 

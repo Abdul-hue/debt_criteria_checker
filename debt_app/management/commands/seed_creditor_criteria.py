@@ -1,341 +1,18 @@
 """
 Seed CreditorCriteria with representative and parent_group data.
 
-Source of truth: TIP CRITERIA & VOTING HISTORY.xlsx — "Which Representative" sheet.
+Source of truth: Which_Representative_Criteria.md
 Run with: python manage.py seed_creditor_criteria [--dry-run]
 """
 
+import os
+import re
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from debt_app.models import CreditorCriteria
 
 # ---------------------------------------------------------------------------
-# WATCH creditors  (col B — "WATCH")
-# ---------------------------------------------------------------------------
-
-WATCH_SEED = [
-    {
-        "creditor_name": "Lloyds Bank",
-        "trading_names": [
-            "Lloyds", "Lloyds Banking Group", "Lloyds TSB", "Lloyds TSB Bank",
-        ],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "MBNA",
-        "trading_names": [
-            "MBNA Limited", "MBNA Europe", "MBNA Credit Card", "MBNA Bank",
-            "MBNA America",
-        ],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Halifax",
-        "trading_names": [
-            "Halifax Bank", "Halifax PLC", "Halifax Credit Card", "Bank of Halifax",
-            "Halifax Personal Loan",
-        ],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Bank of Scotland",
-        "trading_names": ["Bank of Scotland PLC"],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Blackhorse",
-        "trading_names": ["Black Horse", "Black Horse Finance", "Blackhorse Finance"],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Birmingham Midshires",
-        "trading_names": [],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Virgin Money",
-        "trading_names": [
-            "Virgin Money Credit Card", "Virgin Money Personal Loan", "Virgin Money UK",
-            "Virgin Money Investments",
-        ],
-        "parent_group": "Lloyds Group",
-    },
-    {
-        "creditor_name": "Clydesdale Bank",
-        "trading_names": [],
-        "parent_group": "Virgin Money Group",
-    },
-    {
-        "creditor_name": "Yorkshire Bank",
-        "trading_names": [],
-        "parent_group": "Virgin Money Group",
-    },
-    {
-        "creditor_name": "Monzo Bank",
-        "trading_names": ["Monzo"],
-        # Date-gated: only WATCH from 30/04/2024 — engine enforces this
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "La Redoute",
-        "trading_names": [
-            "LR UK (Retail) Limited", "LR UK", "Redcats UK",
-            "Droyds", "Droyds Debt & Collection Services",
-        ],
-        # Date-gated: only WATCH from 16/07/2025 — engine enforces this
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "New Day",
-        "trading_names": [
-            "NewDay", "NewDay Ltd", "NewDay Cards", "NewDay Group",
-            "Aqua", "Aqua Credit Card", "Aqua Card",
-            "Marbles", "Marbles Credit Card",
-            "Fluid", "Fluid Credit Card",
-            "Opus", "Opus Credit Card",
-            "Aquis", "Aquis Credit Card by NewDay",
-        ],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Tesco Bank",
-        "trading_names": [
-            "Tesco Personal Finance", "Tesco Credit Card", "Tesco Bank PLC",
-        ],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Thames Water",
-        "trading_names": [],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Asset Link Capital",
-        "trading_names": ["Asset Link", "Asset Link Capital Ltd"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Link Financial",
-        "trading_names": [
-            "Link Financial Outsourcing", "Link Financial Limited",
-        ],
-        "parent_group": None,
-    },
-]
-
-# ---------------------------------------------------------------------------
-# TIX creditors  (col C — "TIX")
-# ---------------------------------------------------------------------------
-
-TIX_SEED = [
-    {
-        "creditor_name": "Barclays Bank",
-        "trading_names": [
-            "Barclays", "Barclays PLC", "Barclays Personal Loan",
-            "Barclays Bank PLC", "Barclays Direct",
-        ],
-        "parent_group": "Barclays Group",
-    },
-    {
-        "creditor_name": "Woolwich",
-        "trading_names": ["Woolwich Building Society"],
-        "parent_group": "Barclays Group",
-    },
-    {
-        "creditor_name": "Capital One",
-        "trading_names": [
-            "Capital One Credit Card", "Capital One (Europe)", "Capital One Bank",
-        ],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "HSBC",
-        "trading_names": ["HSBC Bank", "HSBC PLC", "HSBC UK", "HSBC Holdings"],
-        "parent_group": "HSBC Group",
-    },
-    {
-        "creditor_name": "First Direct",
-        "trading_names": [],
-        "parent_group": "HSBC Group",
-    },
-    {
-        "creditor_name": "Marks and Spencer Financial Services",
-        "trading_names": ["M&S Bank", "M&S Credit Card", "Marks and Spencer Bank"],
-        "parent_group": "HSBC Group",
-    },
-    {
-        "creditor_name": "Santander",
-        "trading_names": [
-            "Santander UK", "Santander Bank", "Santander PLC",
-            "Santander Personal Loan", "Cahoot", "Alliance and Leicester",
-            "Abbey National",
-        ],
-        "parent_group": "Santander Group",
-    },
-    {
-        "creditor_name": "Nationwide",
-        "trading_names": ["Nationwide Building Society"],
-        "parent_group": "Nationwide Group",
-    },
-    {
-        "creditor_name": "Shop Direct",
-        "trading_names": [
-            "Shop Direct Finance", "Shop Direct Group", "Shop Direct Home Shopping",
-        ],
-        "parent_group": "Shop Direct Group",
-    },
-    {
-        "creditor_name": "Very",
-        "trading_names": ["Very.co.uk", "The Very Group"],
-        "parent_group": "Shop Direct Group",
-    },
-    {
-        "creditor_name": "Littlewoods",
-        "trading_names": [
-            "Littlewoods.com", "Littlewoods Catalogue",
-            "Littlewoods Online", "Littlewoods Home Shopping",
-        ],
-        "parent_group": "Shop Direct Group",
-    },
-    # EXCEL_CRITERIA_REFERENCE.md — Which Representative: TIX
-    {
-        "creditor_name": "JD Williams",
-        "trading_names": [
-            "J D Williams", "JD Williams & Company", "Simply Be",
-            "Jacamo", "Fashion World", "Marisota",
-        ],
-        "parent_group": "Shop Direct Group",
-    },
-    {
-        "creditor_name": "Creation Consumer Finance",
-        "trading_names": [
-            "Creation", "Creation Financial Services", "Creation Credit Card",
-            "Sygma", "Sygma Bank", "Laser", "Laser UK",
-        ],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Moneybarn",
-        "trading_names": ["Moneybarn No.1 Ltd"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Lombard",
-        "trading_names": ["Lombard North Central", "Lombard Finance"],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "Blemain Finance",
-        "trading_names": ["Blemain", "Together Financial Services"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Paragon",
-        "trading_names": ["Paragon Finance", "Paragon Bank"],
-        "parent_group": None,
-    },
-]
-
-# ---------------------------------------------------------------------------
-# EVOLVE creditors  (col D — "EVOLVE")
-# ---------------------------------------------------------------------------
-
-EVOLVE_SEED = [
-    # EXCEL_CRITERIA_REFERENCE.md — Which Representative sheet
-    {
-        "creditor_name": "Barclaycard",
-        "trading_names": [
-            "Barclaycard Credit Card", "Barclaycard Services", "Barclaycard Visa",
-            "Barclaycard Business", "Barclaycard Platinum",
-        ],
-        "parent_group": "Barclays Group",
-    },
-    {
-        "creditor_name": "NatWest Bank",
-        "trading_names": [
-            "NatWest", "NatWest Personal Loan", "National Westminster Bank", "Natwest",
-        ],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "The Royal Bank of Scotland Plc",
-        "trading_names": [
-            "Royal Bank of Scotland", "RBS", "RBS Group", "Royal Bank", "RBS PLC",
-        ],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "Ulster Bank",
-        "trading_names": [],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "Coutts",
-        "trading_names": ["Coutts & Co"],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "Think Banking",
-        "trading_names": [],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "Mint",
-        "trading_names": ["Mint Credit Card"],
-        "parent_group": "RBS Group",
-    },
-    {
-        "creditor_name": "TSB Bank",
-        "trading_names": ["TSB", "TSB PLC"],
-        "parent_group": None,
-    },
-]
-
-# ---------------------------------------------------------------------------
-# EVERYDAY LOANS creditors  (col G — "EVERYDAY LOANS")
-# ---------------------------------------------------------------------------
-
-EVERYDAY_LOANS_SEED = [
-    {
-        "creditor_name": "George Banco",
-        "trading_names": ["George Banco Ltd"],
-        "parent_group": "Everyday Loans Group",
-    },
-    {
-        "creditor_name": "Trust Two",
-        "trading_names": ["Trust II", "Trust 2"],
-        "parent_group": "Everyday Loans Group",
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Deregistered from TIX on 30/06/2023 — seeded as NONE so engine excludes them
-# ---------------------------------------------------------------------------
-
-DEREGISTERED_FROM_TIX_SEED = [
-    {
-        "creditor_name": "UKAR",
-        "trading_names": ["UK Asset Resolution", "UK Asset Resolution Ltd"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Whistletree",
-        "trading_names": ["Whistletree Mortgages"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Computershare",
-        "trading_names": ["Computershare Loan Services"],
-        "parent_group": None,
-    },
-    {
-        "creditor_name": "Landmark",
-        "trading_names": ["Landmark Mortgages"],
-        "parent_group": None,
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Banking group mappings (for non-representative creditors)
+# Banking group mappings (manual enrichment not in the MD file)
 # ---------------------------------------------------------------------------
 
 PARENT_GROUPS = {
@@ -387,68 +64,171 @@ PARENT_GROUPS = {
 }
 
 
-def _build_seed_rows():
-    rows = []
-    for entry in WATCH_SEED:
-        rows.append({**entry, "representative": "WATCH"})
-    for entry in TIX_SEED:
-        rows.append({**entry, "representative": "TIX"})
-    for entry in EVOLVE_SEED:
-        rows.append({**entry, "representative": "EVOLVE"})
-    for entry in EVERYDAY_LOANS_SEED:
-        rows.append({**entry, "representative": "EVERYDAY_LOANS"})
-    for entry in DEREGISTERED_FROM_TIX_SEED:
-        rows.append({**entry, "representative": "NONE"})
+def _parse_pence(s):
+    """Extracts integer pence from string like '50p' or '50'."""
+    if not s:
+        return None
+    match = re.search(r"(\d+)", s)
+    if match:
+        return int(match.group(1))
+    return None
 
-    # Add any creditors referenced in PARENT_GROUPS but not already in a rep list
-    seeded_names = {r["creditor_name"] for r in rows}
+
+def _parse_strict_sources():
+    """Parses Which_Representative_Criteria.md, General_Creditors.md, and Dividends_Criteria.md."""
+    criteria_dir = os.path.join(settings.BASE_DIR, "Excel Criteria")
+    if not os.path.exists(criteria_dir):
+        criteria_dir = os.path.join(os.path.dirname(settings.BASE_DIR), "Excel Criteria")
+
+    valid_creditors = {} # name -> {rep, source, group, trading_names, min_dividend_pence, dividend_notes}
+    
+    # 1. Parse Which_Representative_Criteria.md (Source: REPRESENTATIVE)
+    rep_md = os.path.join(criteria_dir, "Which_Representative_Criteria.md")
+    if os.path.exists(rep_md):
+        current_rep = "NONE"
+        rep_map = {
+            "TIX": "TIX",
+            "WATCH": "WATCH",
+            "WPM": "WATCH",
+            "EVOLVE": "EVOLVE",
+            "EVERYDAY LOANS": "EVERYDAY_LOANS"
+        }
+        with open(rep_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("## "):
+                    section = line[3:].strip().upper()
+                    found = False
+                    for key, val in rep_map.items():
+                        if key in section:
+                            current_rep = val
+                            found = True
+                            break
+                    if not found: current_rep = "NONE"
+                    continue
+                if line.startswith("- "):
+                    name = line[2:].strip()
+                    if name:
+                        valid_creditors[name] = {
+                            "representative": current_rep,
+                            "source": "REPRESENTATIVE",
+                            "trading_names": [],
+                            "parent_group": None,
+                            "min_dividend_pence": None,
+                            "dividend_notes": None
+                        }
+
+    # 2. Parse General_Creditors.md (Source: GENERAL_CREDITOR)
+    gen_md = os.path.join(criteria_dir, "General_Creditors.md")
+    if os.path.exists(gen_md):
+        with open(gen_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("|"):
+                    parts = [p.strip() for p in line.split("|")]
+                    if len(parts) > 1:
+                        name = parts[1]
+                        if name and name not in ["Creditor", "Group Name", "Entity", "#", "Council"] and not re.match(r"^[- :|]+$", name):
+                            if name in valid_creditors:
+                                valid_creditors[name]["source"] = "GENERAL_CREDITOR"
+                            else:
+                                valid_creditors[name] = {
+                                    "representative": "NONE",
+                                    "source": "GENERAL_CREDITOR",
+                                    "trading_names": [],
+                                    "parent_group": None,
+                                    "min_dividend_pence": None,
+                                    "dividend_notes": None
+                                }
+
+    # 3. Parse Dividends_Criteria.md
+    div_md = os.path.join(criteria_dir, "Dividends_Criteria.md")
+    if os.path.exists(div_md):
+        with open(div_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("|"):
+                    parts = [p.strip() for p in line.split("|")]
+                    # Format: | Creditor | Div Required | Notes |
+                    if len(parts) >= 4:
+                        name = parts[1]
+                        div_req = parts[2]
+                        notes = parts[3]
+                        if name and name not in ["Creditor", "Div Required"] and not re.match(r"^[- :|]+$", name):
+                            pence = _parse_pence(div_req)
+                            if name in valid_creditors:
+                                valid_creditors[name]["min_dividend_pence"] = pence
+                                valid_creditors[name]["dividend_notes"] = notes
+                            else:
+                                valid_creditors[name] = {
+                                    "representative": "NONE",
+                                    "source": "DIVIDEND",
+                                    "trading_names": [],
+                                    "parent_group": None,
+                                    "min_dividend_pence": pence,
+                                    "dividend_notes": notes
+                                }
+
+    # 4. Apply parent groups
     for group_name, members in PARENT_GROUPS.items():
         for member in members:
-            if member not in seeded_names:
-                rows.append({
-                    "creditor_name": member,
-                    "trading_names": [],
-                    "parent_group": group_name,
-                    "representative": "NONE",
-                })
-                seeded_names.add(member)
-    return rows
+            for name, data in valid_creditors.items():
+                if member.lower() in name.lower() or name.lower() in member.lower():
+                    data["parent_group"] = group_name
+
+    return valid_creditors
 
 
 class Command(BaseCommand):
-    help = "Seed CreditorCriteria with representative and parent_group data from the Which Representative sheet."
+    help = "Strict sync CreditorCriteria with General and Representative Excel sources"
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Print what would be seeded without writing to the database.",
+            help="Print what would be changed without writing to the database.",
         )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        rows = _build_seed_rows()
+        try:
+            valid_map = _parse_strict_sources()
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"Error parsing sources: {e}"))
+            return
+
+        # 1. Remove non-creditors (orphans not in General or Rep files)
+        db_creditors = CreditorCriteria.objects.all()
+        deleted_count = 0
+        for c in db_creditors:
+            if c.creditor_name not in valid_map:
+                if dry_run:
+                    self.stdout.write(self.style.WARNING(f"  [DELETE] {c.creditor_name}"))
+                else:
+                    c.delete()
+                deleted_count += 1
+
+        # 2. Upsert valid ones
         created_count = 0
         updated_count = 0
 
-        for row in sorted(rows, key=lambda r: r["creditor_name"]):
+        for name, data in sorted(valid_map.items()):
             defaults = {
-                "representative": row["representative"],
+                "representative": data["representative"],
+                "source_sheet": data["source"],
                 "is_active": True,
-                "trading_names": row.get("trading_names") or [],
+                "trading_names": data["trading_names"],
+                "min_dividend_pence": data["min_dividend_pence"],
+                "dividend_notes": data["dividend_notes"],
             }
-            if row.get("parent_group"):
-                defaults["parent_group"] = row["parent_group"]
+            if data["parent_group"]:
+                defaults["parent_group"] = data["parent_group"]
 
             if dry_run:
-                self.stdout.write(
-                    f"  {row['creditor_name']!r:50s} rep={row['representative']:15s} "
-                    f"group={row.get('parent_group') or '-'}"
-                )
                 continue
 
             _, created = CreditorCriteria.objects.update_or_create(
-                creditor_name=row["creditor_name"],
+                creditor_name=name,
                 defaults=defaults,
             )
             if created:
@@ -457,16 +237,19 @@ class Command(BaseCommand):
                 updated_count += 1
 
         if dry_run:
-            self.stdout.write(self.style.WARNING(
-                f"\nDry run — {len(rows)} rows would be written."
+            self.stdout.write(self.style.SUCCESS(
+                f"\nDry run complete. Would delete {deleted_count} and sync {len(valid_map)} creditors."
             ))
             return
 
         self.stdout.write(self.style.SUCCESS(
-            f"Done. Created: {created_count}  Updated: {updated_count}  "
-            f"Total: {created_count + updated_count}"
+            f"Strict Sync complete. Deleted: {deleted_count}  Created: {created_count}  Updated: {updated_count}"
         ))
 
-        for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS"):
+        for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS", "NONE"):
             count = CreditorCriteria.objects.filter(representative=rep).count()
             self.stdout.write(f"  {rep}: {count} creditors")
+        
+        for source in ("GENERAL_CREDITOR", "REPRESENTATIVE", "DIVIDEND"):
+            count = CreditorCriteria.objects.filter(source_sheet=source).count()
+            self.stdout.write(f"  Source {source}: {count} creditors")

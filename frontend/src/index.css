@@ -1,11 +1,32 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   color-scheme: light;
   color: #111827;
   background: #f9fafb;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Sora', sans-serif;
   font-feature-settings: 'cv10' on;
+  
+  /* Custom color palette CSS variables for shadcn/ui */
+  --color-blocked: #dc2626;
+  --color-blocked-light: #fef2f2;
+  --color-blocked-border: #fca5a5;
+  
+  --color-flagged: #f59e0b;
+  --color-flagged-light: #fffbeb;
+  --color-flagged-border: #fcd34d;
+  
+  --color-passed: #16a34a;
+  --color-passed-light: #f0fdf4;
+  --color-passed-border: #86efac;
+  
+  --color-info: #3b82f6;
+  --color-info-light: #eff6ff;
+  --color-info-border: #93c5fd;
 }
 
 html, body, #root {

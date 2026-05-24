@@ -255,7 +255,22 @@ class TestAssessCasePhase7Keys(TestCase):
 class TestPhase7ViewSerialization(TestCase):
     @patch("debt_app.views.criteria_views.fetch_case_by_reference")
     def test_view_includes_phase7_keys_and_serializes_decimals(self, mock_fetch):
-        mock_fetch.return_value = MagicMock(to_dict=lambda: _phase7_clean_payload())
+        mock_case = MagicMock()
+        mock_case.to_dict.return_value = _phase7_clean_payload()
+        mock_case.client_name = "Test Client"
+        mock_case.aryza_reference = "REF-PHASE7"
+        mock_case.dob = "1980-01-01"
+        mock_case.creditors = []
+        mock_case.income = {"total": 0}
+        mock_case.expenditure = {}
+        mock_case.property = {}
+        mock_case.vehicle = {}
+        mock_case.flags = {}
+        mock_case.dependants = 0
+        mock_case.employment_status = "employed"
+        mock_case.disposable_income = 10000
+        
+        mock_fetch.return_value = mock_case
         user = get_user_model().objects.create_user(
             username="phase7user",
             email="phase7@example.com",
@@ -269,7 +284,7 @@ class TestPhase7ViewSerialization(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 200)
-        data = response.data["data"]
+        data = response.data
         for key in PHASE7_RESPONSE_KEYS:
             self.assertIn(key, data)
         serializable = build_phase7_response_fields(

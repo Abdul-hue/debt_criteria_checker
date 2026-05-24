@@ -53,8 +53,26 @@ class CreditorCriteria(models.Model):
         null=True,
         help_text="Free-text notes for caseworkers about this creditor's dividend requirements",
     )
+    contact_name = models.CharField(max_length=255, blank=True, null=True)
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=20, blank=True, null=True)
+    criteria_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="General criteria notes for this creditor",
+    )
+    raw_updated_criteria = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Raw text from the 'updated criteria' column"
+    )
+    source_sheet = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="The Excel sheet this creditor was primarily sourced from"
+    )
     is_active = models.BooleanField(default=True)
     account_age_months = models.IntegerField(
         null=True,
@@ -124,6 +142,27 @@ class CreditorCriteria(models.Model):
         return self.creditor_name
 
 
+class CreditorResolutionMiss(models.Model):
+    raw_name = models.CharField(max_length=500)  # exact string Aryza sent
+    normalised_name = models.CharField(max_length=500, blank=True)  # after normalisation
+    case_reference = models.CharField(max_length=100)  # aryza_reference
+    client_name = models.CharField(max_length=300, blank=True)
+    balance = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    logged_at = models.DateTimeField(auto_now_add=True)
+    resolved = models.BooleanField(default=False)  # set True once alias is added
+    resolution_notes = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ['-logged_at']
+        indexes = [
+            models.Index(fields=['raw_name']),
+            models.Index(fields=['resolved', 'logged_at'])
+        ]
+
+    def __str__(self):
+        return f"{self.raw_name} ({self.case_reference})"
+
+
 class GlobalCriteria(models.Model):
     """Global rules and thresholds for debt criteria assessment."""
 
@@ -140,8 +179,20 @@ class GlobalCriteria(models.Model):
         ('info', 'Info'),
     ]
 
+    CATEGORY_CHOICES = [
+        ('income', 'Income'),
+        ('bank_statements', 'Bank Statements'),
+        ('proof_of_debts', 'Proof of Debts'),
+        ('creditor_specific', 'Creditor Specific'),
+        ('hmrc', 'HMRC'),
+        ('vehicle', 'Vehicle'),
+        ('flags', 'Flags'),
+        ('other', 'Other'),
+    ]
+
     id = models.BigAutoField(primary_key=True)
 
+    # --- Core fields ---
     criteria_set = models.CharField(
         max_length=10,
         choices=CRITERIA_SET_CHOICES
@@ -164,6 +215,96 @@ class GlobalCriteria(models.Model):
         null=True,
         help_text="Numeric threshold value for this rule"
     )
+
+    # --- Documentation fields ---
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Detailed description of what this rule does"
+    )
+    action = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Recommended action if this rule is triggered"
+    )
+    implementation_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Technical implementation details"
+    )
+    example_case = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Real-world example scenario"
+    )
+    rejection_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="User-facing message if rule results in rejection"
+    )
+    flag_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="User-facing message if rule results in a flag"
+    )
+
+    # --- Organization fields ---
+    category = models.CharField(
+        max_length=50,
+        choices=CATEGORY_CHOICES,
+        blank=True,
+        null=True,
+        help_text="Category for organizing rules"
+    )
+    is_creditor_specific = models.BooleanField(
+        default=False,
+        help_text="Whether this rule only applies to specific creditors"
+    )
+    applies_to_creditors = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        help_text="List of creditor names this rule applies to"
+    )
+    execution_order = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text="Order in which this rule should be evaluated"
+    )
+
+    # --- Reference fields ---
+    references = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        help_text="List of documentation references (file paths, URLs, etc.)"
+    )
+    related_rules = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        help_text="List of related rule keys (e.g., ['TIG-01', 'TIG-02'])"
+    )
+    depends_on_rules = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        help_text="List of rule keys this rule depends on"
+    )
+
+    # --- Review fields ---
+    last_reviewed = models.DateField(
+        blank=True,
+        null=True,
+        help_text="Date when this rule was last reviewed"
+    )
+    review_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Administrative notes from latest review"
+    )
+
+    # --- Audit fields ---
     updated_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -178,6 +319,8 @@ class GlobalCriteria(models.Model):
         indexes = [
             models.Index(fields=['rule_key']),
             models.Index(fields=['criteria_set']),
+            models.Index(fields=['category']),
+            models.Index(fields=['is_active']),
         ]
 
     def __str__(self):
@@ -222,6 +365,9 @@ class CouncilRule(models.Model):
     )
     include_current_year_ct = models.BooleanField(default=False)
     blocked_reason = models.TextField(blank=True, default='')
+    criteria_changed_from_rej_date = models.CharField(max_length=100, blank=True, default='')
+    contact_name = models.CharField(max_length=255, blank=True, default='')
+    contact_number = models.CharField(max_length=255, blank=True, default='')
     source_priority = models.IntegerField(
         default=2,
         help_text='1=council sheet (authoritative), 2=dividends sheet',
@@ -417,6 +563,7 @@ class CriteriaDecision(models.Model):
         ('IVA NOT SUITABLE', 'IVA Not Suitable'),
         ('IVA POSSIBLE', 'IVA Possible - Review Flagged Items'),
         ('DMP', 'DMP - Debt Management Plan'),
+        ('BREATHING_SPACE', 'Debt Respite Scheme (Breathing Space)'),
         ('FREE_SECTOR', 'Free Sector Solution'),
         ('UNCLEAR', 'Unclear'),
     ]
@@ -438,6 +585,11 @@ class CriteriaDecision(models.Model):
     )
     decision_output = models.JSONField(
         help_text="Full result from criteria engine"
+    )
+    result_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Phase 1 standardized evaluation response"
     )
     recommended_solution = models.CharField(
         max_length=20,

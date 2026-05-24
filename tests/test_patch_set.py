@@ -72,9 +72,9 @@ def _base_payload(**overrides) -> dict:
             "income_source": "payslip",
         },
         "evidence_ledger": [
-            {"ref": "EVID-B", "doc_type": "bank_statement"},
-            {"ref": "EVID-H", "doc_type": "bank_statement"},
-            {"ref": "EVID-PG", "doc_type": "letter"},
+            {"ref": "EVID-B", "doc_type": "bank_statement", "is_verified": True},
+            {"ref": "EVID-H", "doc_type": "bank_statement", "is_verified": True},
+            {"ref": "EVID-PG", "doc_type": "letter", "is_verified": True},
         ],
         "documents": [
             {

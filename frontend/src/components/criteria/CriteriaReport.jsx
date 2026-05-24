@@ -1,0 +1,578 @@
+import React, { useState, useMemo } from 'react'
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  X, 
+  Lightbulb, 
+  CheckCircle2, 
+  AlertCircle, 
+  Info,
+  Check
+} from 'lucide-react'
+
+const REPRESENTATIVE_META = { 
+  "WATCH": { 
+    label: "WATCH", 
+    fullName: "WATCH Debt Solutions", 
+    color: "purple", 
+    chipClass: "bg-purple-100 text-purple-800 border border-purple-200", 
+    description: "This case is governed by WATCH creditor " + 
+      "criteria. WATCH-specific rules apply in addition to " + 
+      "standard TIG requirements.", 
+  }, 
+  "TIG": { 
+    label: "TIG", 
+    fullName: "Trust IVA Group", 
+    color: "blue", 
+    chipClass: "bg-blue-100 text-blue-800 border border-blue-200", 
+    description: "This case is governed by TIG criteria. " + 
+      "Standard TIG rules apply.", 
+  }, 
+  "TIX": { 
+    label: "TIX", 
+    fullName: "TIX Representative", 
+    color: "teal", 
+    chipClass: "bg-teal-100 text-teal-800 border border-teal-200", 
+    description: "This case is governed by TIX criteria.", 
+  }, 
+  "EVOLVE": { 
+    label: "EVOLVE", 
+    fullName: "Evolve", 
+    color: "amber", 
+    chipClass: "bg-amber-100 text-amber-800 border border-amber-200", 
+    description: "This case is governed by EVOLVE criteria.", 
+  }, 
+  "NONE": { 
+    label: "No Representative", 
+    fullName: "No Representative Detected", 
+    color: "gray", 
+    chipClass: "bg-gray-100 text-gray-600 border border-gray-200", 
+    description: "No creditor representative was detected " + 
+      "for this case.", 
+  }, 
+}
+
+const formatCurrency = (val) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(val || 0)
+const formatPence = (val) => `${(val || 0).toFixed(2)}p`
+
+const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
+  const meta = { 
+    title: rule.title || rule.rule_id, 
+    description: rule.description || rule.message, 
+    action: rule.action || null, 
+  }
+  
+  const severity = rule.severity || 'pass'
+  
+  const styles = {
+    hard_block: {
+      bg: 'bg-block-red',
+      border: 'border-block-red-border',
+      chip: 'bg-brand-navy text-white',
+      label: 'HARD BLOCK',
+      icon: <X className="w-4 h-4 text-red-600" />
+    },
+    flag: {
+      bg: 'bg-flag-amber',
+      border: 'border-flag-amber-border',
+      chip: 'bg-brand-navy text-white',
+      label: 'FLAG',
+      icon: <AlertCircle className="w-4 h-4 text-amber-600" />
+    },
+    pass: {
+      bg: 'bg-pass-green',
+      border: 'border-pass-green-border',
+      chip: 'bg-emerald-600 text-white',
+      label: 'PASS',
+      icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+    }
+  }[severity] || {
+    bg: 'bg-info-blue',
+    border: 'border-info-blue-border',
+    chip: 'bg-brand-navy text-white',
+    label: 'INFO',
+    icon: <Info className="w-4 h-4 text-blue-600" />
+  }
+
+  // Creditor List Extraction for TIG-10
+  const renderCreditorList = () => {
+    if (rule.rule_id !== 'TIG-10') return null
+    
+    // Extracting creditors from message: "Hard block: No linked verified evidence for debts >= £1,000: Natwest Group Plc (£8,039.00), Lloyds Bank (£8,499.00)..."
+    const creditorsPart = rule.message.split(': ').pop()
+    if (!creditorsPart) return null
+    
+    const creditors = creditorsPart.split('), ').map(s => {
+      const match = s.match(/(.+) \(£(.+)\)?/)
+      if (match) {
+        const name = match[1].trim()
+        // Find matching creditor in the full positions list to get the actual status
+        const pos = creditorPositions.find(p => p.creditor_name === name)
+        return { 
+          name, 
+          balance: match[2].replace(')', ''),
+          status: pos?.effective_status || 'MISSING'
+        }
+      }
+      return null
+    }).filter(Boolean)
+
+    return (
+      <div className="mt-4 border border-gray-100 rounded-lg overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-widest font-bold">
+            <tr>
+              <th className="px-4 py-2">Creditor</th>
+              <th className="px-4 py-2 text-right">Balance</th>
+              <th className="px-4 py-2 text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {creditors.map((c, i) => {
+              const statusKey = (c.status || '').toUpperCase().trim()
+              const STATUS_CHIP = {
+                'ACCEPT': 'bg-emerald-100 text-emerald-700',
+                'REJECT': 'bg-red-100 text-red-700',
+                'UNKNOWN': 'bg-gray-100 text-gray-500',
+                'REVIEW': 'bg-amber-100 text-amber-700',
+                'MISSING': 'bg-red-100 text-red-700',
+              }
+              const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
+
+              return (
+                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">£{c.balance}</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${chipClass}`}>
+                      {statusKey}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  if (severity === 'pass' && !isExpanded) {
+    return (
+      <div 
+        onClick={onToggle}
+        className={`bg-white border border-gray-100 border-l-4 ${styles.border} rounded-xl p-5 cursor-pointer hover:shadow-md transition-all duration-200 flex items-center justify-between group`}
+      >
+        <div className="flex items-center gap-3">
+          {styles.icon}
+          <span className="text-sm font-bold text-gray-900">{meta.title}</span>
+          <span className="text-sm text-gray-500 truncate max-w-md">— {rule.message}</span>
+        </div>
+        <ChevronDown className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-transform" />
+      </div>
+    )
+  }
+
+  return (
+    <div 
+      className={`bg-white border border-gray-100 border-l-4 ${styles.border} rounded-xl p-5 shadow-sm transition-all duration-200`}
+    >
+      <div className="flex justify-between items-start cursor-pointer" onClick={onToggle}>
+        <div className="flex gap-4">
+          <div className="flex flex-col items-center gap-1">
+            <div className={`px-2 py-1 rounded text-[10px] font-bold tracking-widest ${styles.chip}`}>
+              {rule.rule_id}
+            </div>
+            <div className="text-[10px] font-bold text-gray-400 tracking-tighter uppercase">{styles.label}</div>
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">{meta.title}</h3>
+            <p className="text-sm text-gray-500 mt-0.5">{rule.message}</p>
+          </div>
+        </div>
+        <ChevronUp className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? '' : 'rotate-180'}`} />
+      </div>
+
+      <div className={`overflow-hidden transition-all duration-300 ${isExpanded ? 'max-h-[1000px] mt-6' : 'max-h-0'}`}>
+        <div className="space-y-6">
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-px bg-gray-100 flex-1" />
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">What this rule checks</span>
+              <div className="h-px bg-gray-100 flex-1" />
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 leading-relaxed">
+              {meta.description}
+            </div>
+          </section>
+
+          {renderCreditorList()}
+
+          {(rule.threshold !== null || rule.actual_value !== null) && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-px bg-gray-100 flex-1" />
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Values</span>
+                <div className="h-px bg-gray-100 flex-1" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {rule.threshold !== null && (
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Required</label>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {typeof rule.threshold === 'number' && rule.rule_id.includes('WATCH-22.2') ? `${rule.threshold} months` : (typeof rule.threshold === 'object' ? JSON.stringify(rule.threshold) : rule.threshold)}
+                    </div>
+                  </div>
+                )}
+                {rule.actual_value !== null && (
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Actual</label>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {typeof rule.actual_value === 'number' ? rule.actual_value.toFixed(2) : (typeof rule.actual_value === 'object' ? JSON.stringify(rule.actual_value) : rule.actual_value)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {meta.action && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-px bg-gray-100 flex-1" />
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  {severity === 'flag' ? 'Advisory' : 'Action Required'}
+                </span>
+                <div className="h-px bg-gray-100 flex-1" />
+              </div>
+              <div className={`${severity === 'flag' ? 'bg-amber-50 text-amber-700' : 'bg-info-blue text-blue-700'} rounded-lg p-3 flex items-center gap-2 text-sm font-medium`}>
+                <span className="text-lg">→</span>
+                {meta.action}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function CriteriaReport({ result }) {
+  const hard_blocks = result?.hard_blocks || []
+  const flags = result?.flags || []
+  const passed = result?.passed || []
+  const total = hard_blocks.length + flags.length + passed.length
+
+  const [activeTab, setActiveTab] = useState(hard_blocks.length > 0 ? 'failed' : 'all')
+  const [expandedRules, setExpandedRules] = useState(() => {
+    const expanded = {}
+    if (activeTab === 'failed') hard_blocks.forEach(r => { expanded[r.rule_id] = true })
+    if (activeTab === 'flagged') flags.forEach(r => { expanded[r.rule_id] = true })
+    return expanded
+  })
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    const expanded = {}
+    if (tab === 'failed') hard_blocks.forEach(r => { expanded[r.rule_id] = true })
+    if (tab === 'flagged') flags.forEach(r => { expanded[r.rule_id] = true })
+    // For 'all' and 'passed', keep collapsed by default
+    setExpandedRules(expanded)
+  }
+
+  const toggleRule = (id) => {
+    setExpandedRules(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const filteredResults = useMemo(() => {
+    if (activeTab === 'failed') return hard_blocks
+    if (activeTab === 'flagged') return flags
+    if (activeTab === 'passed') return passed
+    return [...hard_blocks, ...flags, ...passed]
+  }, [activeTab, hard_blocks, flags, passed])
+
+  const solutionStyles = {
+    IVA: 'border-emerald-400 bg-emerald-50 text-emerald-800',
+    DMP: 'border-blue-400 bg-blue-50 text-blue-800',
+    NON_IVA: 'border-blue-400 bg-blue-50 text-blue-800',
+    IVA_NOT_VIABLE: 'border-red-400 bg-red-50 text-red-800',
+    IVA_VIABLE: 'border-emerald-400 bg-emerald-50 text-emerald-800',
+    IVA_WITH_CONDITIONS: 'border-emerald-400 bg-emerald-50 text-emerald-800',
+    REVIEW_REQUIRED: 'border-amber-400 bg-amber-50 text-amber-800',
+    BREATHING_SPACE: 'border-amber-400 bg-amber-50 text-amber-800',
+    UNCLEAR: 'border-gray-400 bg-gray-50 text-gray-800'
+  }
+
+  const solutionDescriptions = {
+    IVA_NOT_VIABLE: "Based on this client's income and debt level, a Debt Management Plan is the most suitable alternative to an IVA.",
+    IVA: "This client appears eligible for an IVA based on the criteria assessed.",
+    DMP: "A Debt Management Plan is recommended for this client's current situation.",
+    BREATHING_SPACE: "A temporary stay of action is recommended to provide relief."
+  }
+
+  const solutionLabelMap = {
+    'IVA_VIABLE': 'IVA Recommended',
+    'IVA_WITH_CONDITIONS': 'IVA with Conditions',
+    'IVA_NOT_VIABLE': 'Debt Management Plan',
+    'REVIEW_REQUIRED': 'Review Required',
+    'DMP': 'Debt Management Plan',
+    'BREATHING_SPACE': 'Breathing Space',
+    'UNCLEAR': 'Inconclusive — Manual Review Needed'
+  }
+
+  // Handle recommended_solution being either a string (legacy/direct) or a rich object (standard)
+  const solutionObj = result?.recommended_solution
+  const solutionCode = typeof solutionObj === 'object' ? (solutionObj?.code || 'IVA') : (solutionObj || 'IVA')
+  const solutionLabel = typeof solutionObj === 'object' 
+    ? (solutionObj?.label || solutionCode) 
+    : (solutionLabelMap[solutionCode] || solutionCode)
+  
+  const solutionRationale = typeof solutionObj === 'object' && solutionObj?.rationale
+    ? solutionObj.rationale
+    : (solutionDescriptions[solutionCode] || "Based on the assessment, this is the most suitable path forward.")
+
+  const isAchievable = result?.majority_analysis?.achievable === true
+  const estDividend = result?.dividend_analysis?.estimated_pence || 0
+
+  return (
+    <div className="max-w-5xl mx-auto py-8 px-4 font-sans text-gray-600">
+      {/* SECTION A — CLIENT HEADER CARD */}
+      <div className="bg-white rounded-2xl shadow-md p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border border-gray-100">
+        <div className="space-y-3">
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
+            {result?.client_name || 'Theresa Topp'}
+          </h1>
+          <p className="text-sm text-gray-400">
+            Aryza Ref: {result?.aryza_reference || '324991'} • Assessed {new Date(result?.evaluated_at).toLocaleDateString()}
+          </p>
+          <div className="space-y-1">
+            <div className="text-xs uppercase tracking-widest text-gray-400">REPRESENTATIVES DETECTED</div>
+            <div className="flex flex-col gap-2">
+              {((result?.representatives_detected && result.representatives_detected.length > 0) 
+                ? result.representatives_detected 
+                : ["NONE"]
+              ).map((entry, idx) => {
+                const meta = REPRESENTATIVE_META[entry] ?? REPRESENTATIVE_META["NONE"]
+                return (
+                  <div key={idx} className="flex flex-col">
+                    <div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${meta.chipClass}`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{meta.description}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          {result?.overall_status === 'BLOCKED' && (
+            <div className="inline-flex items-center gap-1.5 bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest">
+              <X className="w-3.5 h-3.5" />
+              BLOCKED
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-3 w-full md:w-auto">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Recommended Solution</span>
+          <div className={`rounded-xl border-2 px-4 py-3 flex items-center gap-2 min-w-[200px] ${solutionStyles[solutionCode] || solutionStyles.IVA}`}>
+            <Lightbulb className="w-5 h-5" />
+            <span className="text-lg font-bold">{solutionLabel}</span>
+          </div>
+          <p className="text-xs text-right text-gray-500 max-w-[280px] leading-relaxed">
+            {solutionRationale}
+          </p>
+        </div>
+      </div>
+
+      {/* SECTION B — KEY METRICS ROW */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Debt</label>
+          <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.total_unsecured_debt)}</div>
+        </div>
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Disposable Income</label>
+          <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.disposable_income)}</div>
+        </div>
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Est. Dividend</label>
+          <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
+          {result?.dividend_analysis && (
+            <div className="mt-2">
+              {result.dividend_analysis.below_min?.length > 0 ? (
+                <div className="text-xs text-amber-600">
+                  Below minimum for: {result.dividend_analysis.below_min.map(b => typeof b === 'object' ? b.creditor_name : b).join(', ')}
+                </div>
+              ) : (
+                <div className="text-xs text-green-600">All creditors satisfied</div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Majority</label>
+          <div className="flex items-center gap-2">
+            {isAchievable ? (
+              <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
+            ) : (
+              <X className="w-6 h-6 text-red-500 stroke-[3]" />
+            )}
+            <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
+          </div>
+          {result?.majority_analysis && (
+            <div className="mt-2 space-y-0.5">
+              <div className="text-xs text-gray-500">
+                75% threshold: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.threshold || 0))}
+              </div>
+              <div className="text-xs text-gray-500">
+                Voting debt: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.voting_debt || 0))}
+              </div>
+              {result.majority_analysis.achievable ? (
+                <div className="text-xs font-medium text-green-600">Majority Achievable</div>
+              ) : (
+                <div className="text-xs font-medium text-red-500">
+                  Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CASE SUMMARY section */}
+      <div className="mt-8 space-y-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Creditor Positions</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="pb-3 font-semibold text-gray-500">Creditor</th>
+                  <th className="pb-3 font-semibold text-gray-500">Rep</th>
+                  <th className="pb-3 font-semibold text-gray-500 text-right">Balance</th>
+                  <th className="pb-3 font-semibold text-gray-500 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {(result?.creditor_positions || []).map((creditor, idx) => (
+                  <tr key={idx}>
+                    <td className="py-3">
+                      <div className="text-sm text-gray-800">{creditor.creditor_name}</div>
+                      {creditor.original_aryza_name && creditor.original_aryza_name !== creditor.creditor_name && (
+                        <div className="text-xs text-gray-400">{creditor.original_aryza_name}</div>
+                      )}
+                    </td>
+                    <td className="py-3">
+                      {(() => {
+                        const REP_CHIP = {
+                          'WATCH': 'bg-blue-50 text-blue-600 border-blue-100',
+                          'TIX': 'bg-indigo-50 text-indigo-600 border-indigo-100',
+                          'EVOLVE': 'bg-teal-50 text-teal-600 border-teal-100',
+                          'EVERYDAY_LOANS': 'bg-orange-50 text-orange-600 border-orange-100',
+                          'NONE': 'bg-gray-50 text-gray-500 border-gray-100',
+                        }
+                        const rep = (creditor.representative || 'NONE').toUpperCase().trim()
+                        const chipClass = REP_CHIP[rep] || 'bg-gray-50 text-gray-500 border-gray-100'
+                        return (
+                          <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${chipClass}`}>
+                            {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}
+                          </span>
+                        )
+                      })()}
+                    </td>
+                    <td className="py-3 text-sm text-gray-700 text-right">
+                      {formatCurrency(creditor.balance)}
+                    </td>
+                    <td className="py-3 text-center">
+                      {(() => {
+                        const STATUS_CHIP = {
+                          'ACCEPT': 'bg-emerald-100 text-emerald-700',
+                          'REJECT': 'bg-red-100 text-red-700',
+                          'UNKNOWN': 'bg-gray-100 text-gray-500',
+                          'REVIEW': 'bg-amber-100 text-amber-700',
+                        }
+                        const statusKey = (creditor.effective_status || '').toUpperCase().trim()
+                        const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
+                        return (
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${chipClass}`}>
+                            {statusKey || 'UNKNOWN'}
+                          </span>
+                        )
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan="4" className="pt-4 text-right">
+                    <span className="font-semibold text-sm text-gray-500 mr-2">Total Unsecured Debt:</span>
+                    <span className="font-semibold text-sm text-gray-900">
+                      {formatCurrency((result?.creditor_positions || []).reduce((sum, c) => sum + (c.balance || 0), 0))}
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION C — FILTER TAB BAR */}
+      <div className="flex flex-wrap gap-2 mt-8 mb-6">
+        <button 
+          onClick={() => handleTabChange('all')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'all' ? 'bg-brand-navy text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          All Results ({total})
+        </button>
+        <button 
+          onClick={() => handleTabChange('failed')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'failed' ? 'bg-red-600 text-white shadow-md' : 'bg-red-50 text-red-700 hover:bg-red-100'
+          }`}
+        >
+          Not Qualifying ({hard_blocks.length})
+        </button>
+        <button 
+          onClick={() => handleTabChange('flagged')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'flagged' ? 'bg-amber-500 text-white shadow-md' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+          }`}
+        >
+          Needs Review ({flags.length})
+        </button>
+        <button 
+          onClick={() => handleTabChange('passed')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-all duration-200 ${
+            activeTab === 'passed' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          }`}
+        >
+          Requirements Met ({passed.length})
+        </button>
+      </div>
+
+      {/* SECTION D — RULE CARDS */}
+      <div className="space-y-4">
+        {filteredResults.map((rule, idx) => (
+          <RuleCard 
+            key={`${rule.rule_id}-${idx}`} 
+            rule={rule} 
+            isExpanded={expandedRules[rule.rule_id]}
+            onToggle={() => toggleRule(rule.rule_id)}
+            creditorPositions={result?.creditor_positions || []}
+          />
+        ))}
+        {filteredResults.length === 0 && (
+          <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+            <p className="text-gray-400 font-medium">No results found in this category.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

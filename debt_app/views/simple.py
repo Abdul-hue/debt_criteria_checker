@@ -28,8 +28,53 @@ class AssessView(View):
                 status=400,
             )
 
+        # Ensure name -> creditor_name mapping for engine (non-destructive)
+        # Apply alias map for better representative detection
+        from debt_app.helpers import CREDITOR_ALIAS_MAP
+        for c in body.get("creditors") or []:
+            raw_name = c.get("name") or c.get("creditor_name") or ""
+            normalized = raw_name.strip().lower()
+            resolved = CREDITOR_ALIAS_MAP.get(normalized, raw_name)
+            
+            c["creditor_name"] = resolved
+            if "name" not in c:
+                c["name"] = raw_name
+
         try:
+            # Normalise evidence_ledger — engine expects a list of
+            # {"category": str, "is_verified": bool, "ref": str}
+            # Guard against dict format from external callers (CA Tool fallback)
+            _ev = body.get("evidence_ledger", [])
+            if isinstance(_ev, dict):
+                body["evidence_ledger"] = [
+                    {"category": k, "is_verified": bool(v), "ref": k}
+                    for k, v in _ev.items()
+                ]
+            elif not isinstance(_ev, list):
+                body["evidence_ledger"] = []
+
             result = assess_case(body)
+
+            # Add back ACCEPT creditors filtered out by engine
+            engine_positions = result.get("creditor_positions", [])
+            positioned_names = {
+                p.get("creditor_name", "").strip().lower()
+                for p in engine_positions
+            }
+
+            accept_positions = []
+            for c in body.get("creditors") or []:
+                cname = (c.get("creditor_name") or "").strip()
+                if not cname:
+                    continue
+                if cname.lower() not in positioned_names:
+                    accept_positions.append({
+                        "creditor_name": cname,
+                        "effective_status": "ACCEPT",
+                        "balance": float(c.get("balance") or 0),
+                    })
+            
+            result["creditor_positions"] = engine_positions + accept_positions
         except Exception as exc:
             return JsonResponse({'error': f'Engine error: {exc}'}, status=500)
 
@@ -40,4 +85,5 @@ class AssessView(View):
             'flags':       [dataclasses.asdict(r) for r in result['flags']],
             'info':        [dataclasses.asdict(r) for r in result['info']],
             'passed':      [dataclasses.asdict(r) for r in result['passed']],
+            'creditor_positions': result.get('creditor_positions', []),
         })

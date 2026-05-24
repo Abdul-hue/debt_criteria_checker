@@ -1,49 +1,92 @@
-import * as ToastPrimitive from '@radix-ui/react-toast'
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useMemo, useState, useContext } from 'react'
+import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 
-const ToastContext = createContext(null)
+export const ToastContext = createContext(null)
+
+const toastTypeStyles = {
+  success: {
+    bg: 'bg-green-600',
+    icon: CheckCircle,
+  },
+  error: {
+    bg: 'bg-red-600',
+    icon: XCircle,
+  },
+  warning: {
+    bg: 'bg-amber-600',
+    icon: AlertTriangle,
+  },
+  info: {
+    bg: 'bg-blue-600',
+    icon: Info,
+  },
+}
+
+function Toast({ id, type, title, message, onRemove }) {
+  const { bg, icon: IconComponent } = toastTypeStyles[type]
+
+  return (
+    <div
+      className={`${bg} flex items-start gap-3 p-4 rounded-lg shadow-lg text-white w-80 animate-in slide-in-from-right fade-in`}
+    >
+      <IconComponent size={20} className="mt-0.5 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm">{title}</p>
+        <p className="text-sm opacity-90 mt-1">
+          {typeof message === 'string' 
+            ? message 
+            : message?.message ?? String(message)}
+        </p>
+      </div>
+      <button
+        onClick={() => onRemove(id)}
+        className="flex-shrink-0 hover:opacity-75 transition-opacity mt-0.5"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
 
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([])
-
-  const addToast = useCallback((type, title, description) => {
-    const id = crypto.randomUUID()
-    setToasts((current) => [
-      ...current,
-      { id, type, title, description },
-    ])
-  }, [])
 
   const removeToast = useCallback((id) => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
   }, [])
 
-  const value = useMemo(() => ({
-    success: (message) => addToast('success', 'Success', message),
-    error: (message) => addToast('error', 'Error', message),
-  }), [addToast])
+  const addToast = useCallback(
+    (type, title, message, duration = 4000) => {
+      const id = crypto.randomUUID()
+      setToasts((current) => {
+        const updated = [...current, { id, type, title, message, duration }]
+        return updated.slice(-5)
+      })
+
+      setTimeout(() => {
+        removeToast(id)
+      }, duration)
+    },
+    [removeToast]
+  )
+
+  const value = useMemo(
+    () => ({
+      addToast,
+    }),
+    [addToast]
+  )
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <ToastPrimitive.Provider swipeDirection="right">
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map((toast) => (
-          <ToastPrimitive.Root
-            key={toast.id}
-            open
-            onOpenChange={(open) => !open && removeToast(toast.id)}
-            className="max-w-sm rounded-lg border bg-white border-[#e5e7eb] p-4 shadow-sm"
-          >
-            <ToastPrimitive.Title className="text-sm font-semibold text-[#111827]">
-              {toast.title}
-            </ToastPrimitive.Title>
-            <ToastPrimitive.Description asChild>
-              <div className="mt-1 text-sm text-[#6b7280]">{toast.description}</div>
-            </ToastPrimitive.Description>
-          </ToastPrimitive.Root>
+          <div key={toast.id} className="pointer-events-auto">
+            <Toast {...toast} onRemove={removeToast} />
+          </div>
         ))}
-        <ToastPrimitive.Viewport className="fixed right-4 bottom-4 z-50 flex w-[320px] flex-col gap-2" />
-      </ToastPrimitive.Provider>
+      </div>
     </ToastContext.Provider>
   )
 }
