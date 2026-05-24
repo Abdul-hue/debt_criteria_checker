@@ -25,7 +25,10 @@ def email_token_obtain_pair(request):
     email = request.data.get('email')
     password = request.data.get('password')
 
+    print(f"[AUTH DEBUG] Attempting login for email: {email}")
+
     if not email or not password:
+        print("[AUTH DEBUG] Missing email or password")
         return Response(
             {'detail': 'Email and password are required.'},
             status=status.HTTP_400_BAD_REQUEST
@@ -34,7 +37,9 @@ def email_token_obtain_pair(request):
     try:
         # Look up user by email
         user = User.objects.get(email=email)
+        print(f"[AUTH DEBUG] Found user: {user.username}")
     except User.DoesNotExist:
+        print(f"[AUTH DEBUG] User not found for email: {email}")
         return Response(
             {'detail': 'Invalid credentials.'},
             status=status.HTTP_401_UNAUTHORIZED
@@ -42,6 +47,7 @@ def email_token_obtain_pair(request):
 
     # Check password
     if not user.check_password(password):
+        print(f"[AUTH DEBUG] Password check failed for user: {user.username}")
         return Response(
             {'detail': 'Invalid credentials.'},
             status=status.HTTP_401_UNAUTHORIZED

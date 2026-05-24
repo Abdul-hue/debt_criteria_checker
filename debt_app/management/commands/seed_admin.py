@@ -8,7 +8,8 @@ class Command(BaseCommand):
         email = 'admin@test.com'
         password = 'password123'
         
-        if not User.objects.filter(email=email).exists():
+        user = User.objects.filter(email=email).first()
+        if not user:
             User.objects.create_superuser(
                 username='admin',
                 email=email,
@@ -16,4 +17,9 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS(f'Successfully created admin user: {email}'))
         else:
-            self.stdout.write(self.style.WARNING(f'Admin user with email {email} already exists.'))
+            user.set_password(password)
+            user.is_active = True
+            user.is_staff = True
+            user.is_superuser = True
+            user.save()
+            self.stdout.write(self.style.SUCCESS(f'Successfully updated admin user password and status: {email}'))
