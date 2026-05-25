@@ -342,6 +342,8 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'home retail group card services': 'Home Retail Group',
     'hbos - halifax - iva': 'HBOS - Halifax - IVA',
     'secure trust bank plc': 'Secure Trust Bank',
+    'mbna ltd': 'MBNA - IVA',
+    'jd williams ta jacamo': 'Shop Direct',
 }
 
 # Apply normalisation to all keys in the alias map to ensure robust lookups

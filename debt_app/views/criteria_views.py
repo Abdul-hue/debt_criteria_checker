@@ -278,7 +278,12 @@ class AssessCaseView(APIView):
         })
 
         # Convert pence to pounds for all financial fields
-        di_pounds = case_data_obj.disposable_income / 100.0
+        _income_total_pence = (case_data_obj.income or {}).get("total", 0) or 0
+        _expenditure_total_pence = (case_data_obj.expenditure or {}).get("total", 0) or 0
+        if _expenditure_total_pence > 0:
+            di_pounds = (_income_total_pence - _expenditure_total_pence) / 100.0
+        else:
+            di_pounds = case_data_obj.disposable_income / 100.0
         
         # Deduplication on (name, type, reference) — same entry only counted once
         seen_keys = set()
@@ -377,7 +382,15 @@ class AssessCaseView(APIView):
             "property": {
                 "owns_property": case_data_obj.property.get("owns_property", False),
                 "property_value": (case_data_obj.property.get("property_value") or 0) / 100.0 if case_data_obj.property.get("property_value") is not None else 0.0,
-                "mortgage_balance": (case_data_obj.property.get("mortgage_balance") or 0) / 100.0 if case_data_obj.property.get("mortgage_balance") is not None else 0.0,
+                "mortgage_balance": (
+                    (case_data_obj.property.get("mortgage_balance") or 0) / 100.0
+                    or sum(
+                        float(cr.get("balance") or 0) / 100.0
+                        for cr in (case_data_obj.creditors or [])
+                        if (cr.get("type") or cr.get("creditor_type") or "").lower()
+                        in {"mortgage", "secured", "secured_loan", "second_charge"}
+                    )
+                ),
                 "equity": (case_data_obj.property.get("equity") or 0) / 100.0 if case_data_obj.property.get("equity") is not None else 0.0,
             },
             "vehicle": {
