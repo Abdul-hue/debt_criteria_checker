@@ -7,6 +7,7 @@ import { useAssessHistory } from '../../hooks/useAssessHistory'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../hooks/useToast'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import axiosInstance from '../../lib/axios'
 
 /**
  * CaseSearch component
@@ -14,6 +15,9 @@ import LoadingSpinner from '../shared/LoadingSpinner'
  */
 export default function CaseSearch({ onResult, onError }) {
   const [lastRun, setLastRun] = useState(null)
+  const [uploadState, setUploadState] = useState('idle') // idle | uploading | success | error
+  const [uploadResult, setUploadResult] = useState(null)
+  const [uploadError, setUploadError] = useState(null)
   const { isAdmin } = useAuth()
   const toast = useToast()
   
@@ -47,6 +51,41 @@ export default function CaseSearch({ onResult, onError }) {
         toast.error('Assessment failed', errorMessage)
       },
     })
+  }
+
+  const handleCreditReportChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const currentRef = reference.trim()
+    if (!currentRef) {
+      setUploadError('Enter a case reference before uploading')
+      setUploadState('error')
+      e.target.value = ''
+      return
+    }
+
+    setUploadState('uploading')
+    setUploadResult(null)
+    setUploadError(null)
+
+    const formData = new FormData()
+    formData.append('aryza_reference', currentRef)
+    formData.append('credit_report', file)
+
+    try {
+      const { data } = await axiosInstance.post('/api/v1/criteria/upload-credit-report/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setUploadState('success')
+      setUploadResult(data)
+    } catch (err) {
+      const msg = err?.response?.data?.error || 'Upload failed. Please try again.'
+      setUploadState('error')
+      setUploadError(msg)
+    } finally {
+      e.target.value = ''
+    }
   }
 
   const handleLoadSaved = async () => {
@@ -100,6 +139,40 @@ export default function CaseSearch({ onResult, onError }) {
           )}
         </button>
       </form>
+
+      <div className="mt-4 space-y-2">
+        <label className="block text-xs font-medium text-gray-500 mb-1">
+          Credit Report (optional PDF)
+        </label>
+        <input
+          type="file"
+          accept=".pdf"
+          onChange={handleCreditReportChange}
+          disabled={uploadState === 'uploading'}
+          className="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 disabled:opacity-50"
+        />
+        {uploadState === 'uploading' && (
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            <LoadingSpinner size="sm" /> Uploading...
+          </p>
+        )}
+        {uploadState === 'success' && uploadResult && (
+          <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">
+            <span className="font-medium">Uploaded</span>
+            {uploadResult.agency && uploadResult.agency !== 'Unknown' && (
+              <span> — {uploadResult.agency}</span>
+            )}
+            {uploadResult.accounts_found > 0 && (
+              <span>, {uploadResult.accounts_found} account{uploadResult.accounts_found !== 1 ? 's' : ''} found</span>
+            )}
+          </div>
+        )}
+        {uploadState === 'error' && uploadError && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+            {uploadError}
+          </p>
+        )}
+      </div>
 
       <div className="my-6 border-t border-gray-100" />
 

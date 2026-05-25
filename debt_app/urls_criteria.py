@@ -18,6 +18,11 @@ from debt_app.views.criteria_views import (
     VoterDetailView,
     UserListView,
     UserDetailView,
+    ExpenditureGuidelineCategoryListView,
+    ExpenditureGuidelineCategoryDetailView,
+    ExpenditureGuidelineListView,
+    ExpenditureGuidelineDetailView,
+    CreditReportUploadView,
 )
 from debt_app.views.evaluate_view import EvaluateCaseView
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
@@ -43,4 +48,9 @@ urlpatterns = [
     path("voters/<int:pk>/",               VoterDetailView.as_view()),
     path("users/",                          UserListView.as_view()),
     path("users/<int:pk>/",                UserDetailView.as_view()),
+    path("sfs/categories/",                ExpenditureGuidelineCategoryListView.as_view()),
+    path("sfs/categories/<int:pk>/",       ExpenditureGuidelineCategoryDetailView.as_view()),
+    path("sfs/guidelines/",               ExpenditureGuidelineListView.as_view()),
+    path("sfs/guidelines/<int:pk>/",      ExpenditureGuidelineDetailView.as_view()),
+    path("upload-credit-report/",         CreditReportUploadView.as_view(), name="upload-credit-report"),
 ]

@@ -10,3 +10,4 @@ rapidfuzz
 django-cors-headers
 whitenoise
 openpyxl
+pdfplumber

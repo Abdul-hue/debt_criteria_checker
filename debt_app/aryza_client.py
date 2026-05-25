@@ -19,6 +19,33 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# MODULE-LEVEL SCHEMA-ABSENT WARNINGS (fired once at import time)
+# ============================================================================
+
+_SCHEMA_ABSENT_WARNED = False
+
+
+def _warn_schema_absent_once():
+    global _SCHEMA_ABSENT_WARNED
+    if not _SCHEMA_ABSENT_WARNED:
+        _SCHEMA_ABSENT_WARNED = True
+        logger.warning(
+            "iva_client schema: iva_bankruptcy_dividend and iva_bankruptcy_return "
+            "are absent from this Aryza instance — WATCH-22.3 and TIG-15.5 will "
+            "evaluate as not-applicable."
+        )
+        logger.warning("aryza schema: client_open_banking_transactions absent — open_banking_transactions defaults to []")
+        logger.warning("aryza schema: factfind_vulnerability absent — vulnerability_flags defaults to {}")
+        logger.warning("aryza schema: factfind_hmrc_details absent — hmrc_details defaults to None")
+        logger.warning("aryza schema: client_flags absent — client_flags defaults to {}")
+        logger.warning("aryza schema: factfind_transfers absent — transfers defaults to []")
+        logger.warning("aryza schema: factfind_additional_flags absent — additional_flags defaults to {}")
+
+
+_warn_schema_absent_once()
+
+
+# ============================================================================
 # CUSTOM EXCEPTIONS
 # ============================================================================
 
@@ -101,6 +128,7 @@ class CaseData:
         self.vehicle: Dict[str, Any] = {
             "has_vehicle": False,
             "vehicle_value": None,
+            "vehicle_make": None,
             "hp_monthly_payment": None,
             "car_finance_start_date": None,
         }
@@ -165,7 +193,7 @@ class AryzaClient:
         
         if status == "FOUND":
             logger.info(log_msg)
-        elif status == "EMPTY":
+        elif status in ("EMPTY", "SCHEMA-ABSENT"):
             logger.warning(log_msg)
         else:
             logger.error(log_msg)
@@ -322,31 +350,50 @@ class AryzaClient:
             
             # Fetch dependants / children ages
             try:
-                # 1. Primary: factfind_dependants
-                cursor.execute(
-                    "SELECT ages_of_children FROM factfind_dependants WHERE clientid = %s LIMIT 1",
-                    [clientid]
-                )
-                dep_row = cursor.fetchone()
-                if dep_row and dep_row[0]:
-                    self._parse_children_ages(case, dep_row[0])
-                    self._audit(case, "factfind_dependants", "FOUND", f"Ages: {dep_row[0]}")
+                # 1. Primary: factfind_dependants (absent in this Aryza instance — isolated)
+                try:
+                    cursor.execute(
+                        "SELECT ages_of_children FROM factfind_dependants WHERE clientid = %s LIMIT 1",
+                        [clientid]
+                    )
+                    dep_row = cursor.fetchone()
+                    if dep_row and dep_row[0]:
+                        self._parse_children_ages(case, dep_row[0])
+                        self._audit(case, "factfind_dependants", "FOUND", f"Ages: {dep_row[0]}")
+                except Exception:
+                    pass  # table absent — fall through to client_dependant
                 
-                # 2. Fallback: client_dependant (common table for individual dependants)
+                # 2. Fallback: client_dependant — no age column; calculate from dob (unix ts)
                 if not case.dependants:
                     try:
                         cursor.execute(
-                            "SELECT age FROM client_dependant WHERE clientid = %s",
+                            "SELECT dob FROM client_dependant "
+                            "WHERE clientid = %s AND deleted = 0 AND dependant = 1",
                             [clientid]
                         )
                         rows = cursor.fetchall()
                         if rows:
+                            today = datetime.now().date()
                             for row in rows:
                                 if row[0] is not None:
-                                    case.dependants.append({"age": int(row[0])})
-                            self._audit(case, "client_dependant", "FOUND", f"Fetched {len(rows)} dependants")
-                    except Exception:
-                        pass
+                                    try:
+                                        born = datetime.fromtimestamp(int(row[0])).date()
+                                        age = (today.year - born.year
+                                               - ((today.month, today.day) < (born.month, born.day)))
+                                        if 0 <= age <= 120:
+                                            case.dependants.append({"age": age})
+                                    except (ValueError, TypeError, OverflowError):
+                                        pass
+                            if case.dependants:
+                                self._audit(case, "client_dependant", "FOUND",
+                                            f"Fetched {len(case.dependants)} dependants (age from dob)")
+                            else:
+                                self._audit(case, "client_dependant", "EMPTY",
+                                            "Rows found but no valid ages from dob")
+                        else:
+                            self._audit(case, "client_dependant", "EMPTY", "No dependant rows found")
+                    except Exception as e:
+                        self._audit(case, "client_dependant", "ERROR", str(e))
                 
                 # 3. Fallback: dependants (another common table name)
                 if not case.dependants:
@@ -396,10 +443,13 @@ class AryzaClient:
                 logger.debug(f"td_client not available for clientid {clientid}: {e}")
                 self._audit(case, "td_client", "ERROR", str(e))
 
-            # Try iva_client for TPC fallback and other potential fields
+            # Try iva_client for TPC fallback only — iva_bankruptcy_dividend and
+            # iva_bankruptcy_return are absent from this Aryza instance (schema-absent).
+            bankruptcy_dividend = None  # schema-absent: column not in this Aryza instance
+            bankruptcy_return = None    # schema-absent: column not in this Aryza instance
             try:
                 cursor.execute(
-                    "SELECT iva_third_party_contribution, iva_bankruptcy_dividend, iva_bankruptcy_return "
+                    "SELECT iva_third_party_contribution "
                     "FROM iva_client WHERE clientid = %s",
                     [clientid]
                 )
@@ -408,14 +458,8 @@ class AryzaClient:
                     if case.income.get("third_party_contribution") == 0 and iva_row[0] is not None:
                         case.income["third_party_contribution"] = self._pence(iva_row[0])
                         self._audit(case, "iva_client", "FOUND", "TPC fallback found")
-                    
-                    # Try to get bankruptcy return
-                    if iva_row[1] is not None:
-                        case.flags["bankruptcy_return"] = self._pence(iva_row[1])
-                        self._audit(case, "iva_client", "FOUND", "Bankruptcy dividend found")
-                    elif iva_row[2] is not None:
-                        case.flags["bankruptcy_return"] = self._pence(iva_row[2])
-                        self._audit(case, "iva_client", "FOUND", "Bankruptcy return found")
+                    else:
+                        self._audit(case, "iva_client", "FOUND", "Row present, TPC already set or null")
                 else:
                     self._audit(case, "iva_client", "EMPTY", "No row in iva_client")
             except Exception as e:
@@ -554,35 +598,11 @@ class AryzaClient:
                 self._audit(case, "client_expenses (expenditure)", "ERROR", str(e))
 
     def _fetch_transaction_data(self, connection, case: CaseData, clientid: int) -> None:
-        """Fetch Open Banking transaction data if available."""
-        with connection.cursor() as cursor:
-            try:
-                # Search for transaction tables - common Aryza OB table is client_open_banking_transactions
-                cursor.execute(
-                    """SELECT transaction_date, description, amount, transaction_type, category 
-                       FROM client_open_banking_transactions 
-                       WHERE clientid = %s 
-                       ORDER BY transaction_date DESC""",
-                    [clientid]
-                )
-                rows = cursor.fetchall()
-                if rows:
-                    for row in rows:
-                        case.gold_transactions.append({
-                            "date": self._format_date(row[0]),
-                            "description": row[1],
-                            "amount": float(row[2]) if row[2] else 0.0,
-                            "transaction_type": row[3],
-                            "category": row[4],
-                        })
-                    logger.debug(f"Fetched {len(case.gold_transactions)} transactions for {clientid}")
-                    self._audit(case, "client_open_banking_transactions", "FOUND", f"Fetched {len(rows)} transactions")
-                else:
-                    self._audit(case, "client_open_banking_transactions", "EMPTY", "No transactions found")
-            except Exception as e:
-                # Log as debug because not all clients have Open Banking data
-                logger.debug(f"Open Banking transactions not available for clientid {clientid}: {e}")
-                self._audit(case, "client_open_banking_transactions", "ERROR", str(e))
+        """Open Banking transaction data — table absent in this Aryza instance."""
+        # schema-absent: client_open_banking_transactions not present
+        case.gold_transactions = []
+        self._audit(case, "client_open_banking_transactions", "SCHEMA-ABSENT",
+                    "table absent from this Aryza instance")
 
     def _fetch_creditor_data(self, connection, case: CaseData, clientid: int) -> None:
         """Fetch creditor data from client_debt_new (primary) and iva_client_debt (secondary)."""
@@ -732,25 +752,27 @@ class AryzaClient:
         """Fetch vehicle data including valuation and HP payments."""
         with connection.cursor() as cursor:
             try:
-                # 1. Fetch from slam_vehicle_details
+                # 1. Fetch from client_vehicle (slam_vehicle_details absent in this Aryza instance)
                 cursor.execute(
-                    """SELECT current_valuation, monthly_hp_payment, start_date 
-                       FROM slam_vehicle_details WHERE clientid = %s LIMIT 1""",
+                    """SELECT estimated_value, make, hp_monthly_amount, finance_start_date
+                       FROM client_vehicle
+                       WHERE clientid = %s AND deleted = 0 LIMIT 1""",
                     [clientid]
                 )
                 row = cursor.fetchone()
                 if row:
                     case.vehicle["vehicle_value"] = self._pence(row[0])
-                    case.vehicle["hp_monthly_payment"] = self._pence(row[1])
-                    case.vehicle["car_finance_start_date"] = self._format_date(row[2])
+                    case.vehicle["vehicle_make"] = row[1]
+                    case.vehicle["hp_monthly_payment"] = self._pence(row[2])
+                    case.vehicle["car_finance_start_date"] = self._format_date(row[3])
                     case.vehicle["has_vehicle"] = True
                     logger.debug(f"Vehicle data fetched for {clientid}: value={case.vehicle['vehicle_value']}")
-                    self._audit(case, "slam_vehicle_details", "FOUND", f"Value: £{row[0]}")
+                    self._audit(case, "client_vehicle", "FOUND", f"Value: £{row[0]}, Make: {row[1]}")
                 else:
-                    self._audit(case, "slam_vehicle_details", "EMPTY", "No vehicles in slam_vehicle_details")
+                    self._audit(case, "client_vehicle", "EMPTY", "No vehicles in client_vehicle")
             except Exception as e:
-                logger.debug(f"Error fetching slam_vehicle_details for {clientid}: {e}")
-                self._audit(case, "slam_vehicle_details", "ERROR", str(e))
+                logger.debug(f"Error fetching client_vehicle for {clientid}: {e}")
+                self._audit(case, "client_vehicle", "ERROR", str(e))
 
             # 2. Fallback for HP payment from client_expenses
             if not case.vehicle.get("hp_monthly_payment"):
@@ -821,72 +843,29 @@ class AryzaClient:
                 else:
                     self._audit(case, "iva_factfind_have_you_ever_had_an_ivas", "EMPTY", "No previous IVA in factfind")
                 
-                # 3. Check for Vulnerability
-                cursor.execute(
-                    "SELECT vulnerability_claimed FROM factfind_vulnerability WHERE clientid = %s LIMIT 1",
-                    [clientid]
-                )
-                vuln_row = cursor.fetchone()
-                if vuln_row:
-                    case.flags["vulnerability_claimed"] = bool(vuln_row[0])
-                    self._audit(case, "factfind_vulnerability", "FOUND" if vuln_row[0] else "EMPTY", f"Claimed: {vuln_row[0]}")
-                else:
-                    self._audit(case, "factfind_vulnerability", "EMPTY", "No vulnerability record")
+                # 3. factfind_vulnerability — schema-absent in this Aryza instance
+                # vulnerability_flags defaults to {} / vulnerability_claimed defaults to False
+                self._audit(case, "factfind_vulnerability", "SCHEMA-ABSENT",
+                            "table absent from this Aryza instance")
 
-                # 4. Check for SEISS debt flag and HMRC details
-                try:
-                    cursor.execute(
-                        "SELECT has_seiss_debt, currently_trading, has_vat_arrangement, paye_obligations_current "
-                        "FROM factfind_hmrc_details WHERE clientid = %s LIMIT 1",
-                        [clientid]
-                    )
-                    seiss_row = cursor.fetchone()
-                    if seiss_row:
-                        case.flags["seiss_debt_flag"] = bool(seiss_row[0])
-                        case.flags["is_currently_trading"] = bool(seiss_row[1]) if seiss_row[1] is not None else None
-                        case.flags["has_vat_arrangement"] = bool(seiss_row[2]) if seiss_row[2] is not None else None
-                        case.flags["employer_paye_obligations_current"] = bool(seiss_row[3]) if seiss_row[3] is not None else None
-                        self._audit(case, "factfind_hmrc_details", "FOUND", f"Has SEISS: {seiss_row[0]}")
-                except Exception:
-                    pass
+                # 4. factfind_hmrc_details — schema-absent in this Aryza instance
+                # hmrc_details defaults to None; seiss_debt_flag / trading flags remain unset
+                self._audit(case, "factfind_hmrc_details", "SCHEMA-ABSENT",
+                            "table absent from this Aryza instance")
 
-                # Fallback for SEISS debt flag
-                if case.flags.get("seiss_debt_flag") is None:
-                    try:
-                        cursor.execute("SELECT seiss_debt FROM client_flags WHERE clientid = %s", [clientid])
-                        row = cursor.fetchone()
-                        if row:
-                            case.flags["seiss_debt_flag"] = bool(row[0])
-                            self._audit(case, "client_flags", "FOUND", f"SEISS: {row[0]}")
-                    except Exception:
-                        pass
+                # client_flags — schema-absent in this Aryza instance (no SEISS fallback available)
+                self._audit(case, "client_flags", "SCHEMA-ABSENT",
+                            "table absent from this Aryza instance")
 
-                # 5. Check for Antecedent Transactions (Transfers)
-                try:
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM factfind_transfers WHERE clientid = %s AND (deleted IS NULL OR deleted = 0)",
-                        [clientid]
-                    )
-                    trans_row = cursor.fetchone()
-                    if trans_row and trans_row[0] > 0:
-                        case.flags["antecedent_transactions"] = True
-                        self._audit(case, "factfind_transfers", "FOUND", f"{trans_row[0]} transfers found")
-                except Exception:
-                    pass
+                # 5. factfind_transfers — schema-absent in this Aryza instance
+                # antecedent_transactions defaults to False
+                self._audit(case, "factfind_transfers", "SCHEMA-ABSENT",
+                            "table absent from this Aryza instance")
 
-                # 6. Check for Gamstop/AOE
-                try:
-                    cursor.execute(
-                        "SELECT gamstop_registered, aoe_in_place FROM factfind_additional_flags WHERE clientid = %s LIMIT 1",
-                        [clientid]
-                    )
-                    add_row = cursor.fetchone()
-                    if add_row:
-                        case.flags["gamstop_registered"] = bool(add_row[0])
-                        case.flags["aoe_in_place"] = bool(add_row[1])
-                        self._audit(case, "factfind_additional_flags", "FOUND", f"Gamstop: {add_row[0]}")
-                except Exception:
-                    pass
+                # 6. factfind_additional_flags — schema-absent in this Aryza instance
+                # gamstop_registered / aoe_in_place remain unset
+                self._audit(case, "factfind_additional_flags", "SCHEMA-ABSENT",
+                            "table absent from this Aryza instance")
             except Exception as e:
                 logger.debug(f"Error checking flags tables for clientid {clientid}: {e}")
                 self._audit(case, "flags_check", "ERROR", str(e))

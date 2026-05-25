@@ -97,25 +97,9 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
   // Creditor List Extraction for TIG-10
   const renderCreditorList = () => {
     if (rule.rule_id !== 'TIG-10') return null
-    
-    // Extracting creditors from message: "Hard block: No linked verified evidence for debts >= £1,000: Natwest Group Plc (£8,039.00), Lloyds Bank (£8,499.00)..."
-    const creditorsPart = rule.message.split(': ').pop()
-    if (!creditorsPart) return null
-    
-    const creditors = creditorsPart.split('), ').map(s => {
-      const match = s.match(/(.+) \(£(.+)\)?/)
-      if (match) {
-        const name = match[1].trim()
-        // Find matching creditor in the full positions list to get the actual status
-        const pos = creditorPositions.find(p => p.creditor_name === name)
-        return { 
-          name, 
-          balance: match[2].replace(')', ''),
-          status: pos?.effective_status || 'MISSING'
-        }
-      }
-      return null
-    }).filter(Boolean)
+
+    const creditors = rule.creditors
+    if (!creditors || creditors.length === 0) return null
 
     return (
       <div className="mt-4 border border-gray-100 rounded-lg overflow-hidden">
@@ -129,20 +113,21 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {creditors.map((c, i) => {
-              const statusKey = (c.status || '').toUpperCase().trim()
-              const STATUS_CHIP = {
-                'ACCEPT': 'bg-emerald-100 text-emerald-700',
-                'REJECT': 'bg-red-100 text-red-700',
-                'UNKNOWN': 'bg-gray-100 text-gray-500',
-                'REVIEW': 'bg-amber-100 text-amber-700',
-                'MISSING': 'bg-red-100 text-red-700',
-              }
-              const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
+              const statusKey = (c.evidence_status || '').toUpperCase().trim()
+              const isNegative = statusKey === 'MISSING' || statusKey === 'UNVERIFIED'
+              const chipClass = isNegative
+                ? 'bg-red-100 text-red-700'
+                : statusKey === 'VERIFIED'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-gray-100 text-gray-500'
+              const balanceFormatted = typeof c.balance === 'number'
+                ? c.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : c.balance
 
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
-                  <td className="px-4 py-2 text-right text-gray-600">£{c.balance}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">£{balanceFormatted}</td>
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${chipClass}`}>
                       {statusKey}

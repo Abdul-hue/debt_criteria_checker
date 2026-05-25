@@ -13,6 +13,7 @@ const RulesPage = React.lazy(() => import('./pages/RulesPage.jsx'))
 const UserManagementPage = React.lazy(() => import('./pages/UserManagementPage.jsx'))
 const AdminDashboard = React.lazy(() => import('./pages/admin/AdminDashboard.jsx'))
 const DecisionsPage = React.lazy(() => import('./pages/admin/DecisionsPage.jsx'))
+const SFSGuidelinesPage = React.lazy(() => import('./pages/admin/SFSGuidelinesPage.jsx'))
 
 /**
  * LayoutWrapper - wraps Layout with Outlet as children
@@ -107,6 +108,16 @@ function App() {
               element={
                 <Suspense fallback={<LoadingSpinner fullScreen />}>
                   <DecisionsPage />
+                </Suspense>
+              }
+            />
+
+            {/* SFS Expenditure Guidelines */}
+            <Route
+              path="/admin/sfs-guidelines"
+              element={
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <SFSGuidelinesPage />
                 </Suspense>
               }
             />

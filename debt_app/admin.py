@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import CreditorCriteria, GlobalCriteria, Voter, Application, EvidenceLedger, CriteriaDecision
+from .models import (
+    CreditorCriteria, GlobalCriteria, Voter, Application, EvidenceLedger,
+    CriteriaDecision, GuidelineCategory, ExpenditureGuideline, CreditReport,
+)
 
 
 @admin.register(CreditorCriteria)
@@ -42,3 +45,31 @@ class CriteriaDecisionAdmin(admin.ModelAdmin):
     list_filter = ['recommended_solution', 'source', 'passes_all_hard_blocks', 'triggered_at']
     search_fields = ['application_id', 'client_name']
     readonly_fields = ['id', 'triggered_at', 'input_snapshot', 'decision_output']
+
+
+@admin.register(GuidelineCategory)
+class GuidelineCategoryAdmin(admin.ModelAdmin):
+    list_display = ['name', 'sort_order', 'upper_cap']
+    ordering = ['sort_order']
+
+
+@admin.register(ExpenditureGuideline)
+class ExpenditureGuidelineAdmin(admin.ModelAdmin):
+    list_display = ['label', 'category', 'category_group', 'min', 'max', 'sort_order', 'updated_at']
+    list_filter = ['category_group', 'min', 'max']
+    search_fields = ['label', 'category']
+    ordering = ['category_group__sort_order', 'sort_order', 'category']
+
+
+@admin.register(CreditReport)
+class CreditReportAdmin(admin.ModelAdmin):
+    list_display = ['aryza_reference', 'agency', 'extraction_status', 'accounts_found_display', 'uploaded_by', 'created_at']
+    list_filter = ['extraction_status', 'agency']
+    search_fields = ['aryza_reference', 'client_name_on_report']
+    readonly_fields = ['extracted_data', 'extraction_error', 'created_at', 'updated_at']
+
+    def accounts_found_display(self, obj):
+        if obj.extracted_data and "accounts" in obj.extracted_data:
+            return len(obj.extracted_data["accounts"])
+        return 0
+    accounts_found_display.short_description = "Accounts Found"

@@ -116,6 +116,10 @@ class CreditorCriteria(models.Model):
     conditional_voter = models.BooleanField(default=False)
     conditional_voter_min_dividend_pence = models.IntegerField(blank=True, null=True)
     open_banking_access = models.BooleanField(default=False)
+    requires_credit_report = models.BooleanField(
+        default=False,
+        help_text="If True, engine emits FLAG when no credit report is uploaded"
+    )
     fraud_claim_risk = models.BooleanField(default=False)
     blocked_until_cleared = models.BooleanField(default=False)
     blocked_reason = models.TextField(blank=True, default='')
@@ -617,3 +621,167 @@ class CriteriaDecision(models.Model):
 
     def __str__(self):
         return f"Decision for {self.application_id} - {self.recommended_solution}"
+
+
+class GuidelineCategory(models.Model):
+    """Top-level grouping for SFS expenditure guideline rows."""
+
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=100)
+    upper_cap = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    sort_order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'guideline_categories'
+        ordering = ['sort_order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class ExpenditureGuideline(models.Model):
+    """SFS expenditure guideline amounts per household composition."""
+
+    id = models.BigAutoField(primary_key=True)
+    category_group = models.ForeignKey(
+        GuidelineCategory,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='guidelines',
+    )
+    category = models.CharField(max_length=100, unique=True, db_index=True)
+    label = models.CharField(max_length=255)
+    max = models.BooleanField(default=False)
+    min = models.BooleanField(default=False)
+    sort_order = models.IntegerField(default=0)
+
+    # Single-adult and dual-adult (no children)
+    adult_1 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_2 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Single adult + children
+    adult_1_child_1 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_1_child_2 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_1_child_3 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_1_child_4 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_1_child_5 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Two adults + children
+    adult_2_child_1 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_2_child_2 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_2_child_3 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_2_child_4 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    adult_2_child_5 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Per-unit rates
+    per_child = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    per_vehicle = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    first_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    additional_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    child_under_16 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    child_16_18 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Representative-specific rates
+    watch_per_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    non_watch_per_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    watch_per_vehicle = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    non_watch_per_vehicle = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Household caps
+    one_adult_cap = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    two_adults_cap = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    formula = models.TextField(blank=True)
+    below_action = models.CharField(max_length=50, blank=True)
+    above_action = models.CharField(max_length=50, blank=True)
+    mismatch_action = models.CharField(max_length=50, blank=True)
+    notes = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'expenditure_guidelines'
+        ordering = ['category_group__sort_order', 'sort_order', 'category']
+
+    def __str__(self):
+        return f"{self.label} ({self.category})"
+
+
+# extracted_data JSON schema:
+# {
+#   "agency": "Experian",
+#   "client_name": "John Smith",
+#   "report_date": "2024-01-15",
+#   "accounts": [
+#     {
+#       "raw_name": "BARCLAYCARD",
+#       "normalised_name": "barclaycard",
+#       "matched_creditor": "Barclaycard",
+#       "account_age_months": 34,
+#       "missed_payments_last_3_months": 1,
+#       "recent_spending": true,
+#       "current_balance": 230000,       # pence
+#       "credit_limit": 300000,          # pence
+#       "utilisation_pct": 76.7,
+#       "account_status": "open",        # open|closed|defaulted|arrangement
+#       "payment_history_months": 24
+#     }
+#   ],
+#   "unmatched_accounts": ["RAW NAME THAT DID NOT MAP"]
+# }
+
+EXTRACTION_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("extracted", "Extracted"),
+    ("failed", "Failed"),
+]
+
+
+class CreditReport(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    aryza_reference = models.CharField(
+        max_length=255, db_index=True,
+        help_text="Aryza case reference this report belongs to"
+    )
+    uploaded_file = models.FileField(
+        upload_to="credit_reports/%Y/%m/",
+        help_text="Raw PDF file"
+    )
+    agency = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="Detected credit agency: Experian, Equifax, TransUnion, Unknown"
+    )
+    client_name_on_report = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Client name as it appears on the credit report"
+    )
+    extraction_status = models.CharField(
+        max_length=20,
+        choices=EXTRACTION_STATUS_CHOICES,
+        default="pending"
+    )
+    extracted_data = models.JSONField(
+        null=True, blank=True,
+        help_text="Structured per-creditor data extracted from PDF"
+    )
+    extraction_error = models.TextField(
+        blank=True, default="",
+        help_text="Error message if extraction failed"
+    )
+    uploaded_by = models.ForeignKey(
+        "auth.User", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="uploaded_credit_reports"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["aryza_reference"])]
+
+    def __str__(self):
+        return f"CreditReport({self.aryza_reference}, {self.extraction_status})"

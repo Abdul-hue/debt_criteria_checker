@@ -193,6 +193,7 @@ class EvaluateCaseView(APIView):
                     "last_payment_date": c.get("last_payment_date"),
                     "first_payment_made": c.get("first_payment_made", False),
                     "account_age_months": c.get("account_age_months"),
+                    "linked_creditor": c.get("linked_creditor"),
                     "is_hire_purchase": "hp" in c["name"].lower() or c.get("creditor_type", "").lower() in ("hp", "hire_purchase", "secured"),
                 } for c in case_data_obj.creditors
                 if "hp" not in c["name"].lower() 

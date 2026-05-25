@@ -31,7 +31,7 @@ Creditor representative lookup is done once in assess_case() and passed in.
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -52,6 +52,7 @@ class RuleResult:
     message: str            # Human-readable explanation for the caseworker
     threshold: Optional[float] = None    # Threshold compared against (numeric rules)
     actual_value: Optional[float] = None # Actual value from the case (numeric rules)
+    creditors: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +280,8 @@ def _todo_flag(rule_id: str, field_name: str) -> RuleResult:
     )
 
 
-def _pass(rule_id: str, message: str = "Passed.") -> RuleResult:
-    return RuleResult(rule_id=rule_id, severity="pass", triggered=False, message=message)
+def _pass(rule_id: str, message: str = "Passed.", creditors: list = None) -> RuleResult:
+    return RuleResult(rule_id=rule_id, severity="pass", triggered=False, message=message, creditors=creditors or [])
 
 
 def _func_to_rule_id(name: str) -> str:
@@ -562,7 +563,7 @@ def _parse_case(case_json: dict) -> dict:
 
     return {
         # Metadata
-        "aryza_reference": case_json.get("aryza_reference", ""),
+        "aryza_reference": case_json.get("aryza_reference") or case_json.get("application_id", ""),
         "client_name": case_json.get("client_name") or client_info.get("client_name", ""),
         # Core financials
         "total_debt": total_debt,
@@ -890,6 +891,7 @@ def _tig_10(c: dict) -> RuleResult:
     hard_blocks = []
     flags = []
     verified_count = 0
+    creditors_detail = []
 
     for creditor in creditors:
         balance = creditor.get("balance", 0)
@@ -906,6 +908,13 @@ def _tig_10(c: dict) -> RuleResult:
         if evidence and evidence.get("is_verified") is True:
             is_verified = True
 
+        creditors_detail.append({
+            "name": creditor.get("name", "Unknown Creditor"),
+            "balance": balance,
+            "is_verified": is_verified,
+            "evidence_status": "verified" if is_verified else ("missing" if not ref else "unverified"),
+        })
+
         if not is_verified:
             name = creditor.get("name", "Unknown Creditor")
             if balance >= 1000:
@@ -920,7 +929,8 @@ def _tig_10(c: dict) -> RuleResult:
             rule_id="TIG-10",
             severity="hard_block",
             triggered=True,
-            message=f"Hard block: No linked verified evidence for debts >= £1,000: {', '.join(hard_blocks)}."
+            message=f"Hard block: No linked verified evidence for debts >= £1,000: {', '.join(hard_blocks)}.",
+            creditors=creditors_detail,
         )
 
     if flags:
@@ -928,11 +938,12 @@ def _tig_10(c: dict) -> RuleResult:
             rule_id="TIG-10",
             severity="flag",
             triggered=True,
-            message=f"Flag: No linked verified evidence for: {', '.join(flags)}."
+            message=f"Flag: No linked verified evidence for: {', '.join(flags)}.",
+            creditors=creditors_detail,
         )
 
     # If all creditors have verified evidence: return pass with count
-    return _pass("TIG-10", f"Verified evidence present for all {verified_count} creditors.")
+    return _pass("TIG-10", f"Verified evidence present for all {verified_count} creditors.", creditors=creditors_detail)
 
 
 def _tig_11(c: dict) -> RuleResult:
@@ -3021,6 +3032,201 @@ def detect_representatives(creditors: list, assessment_date: Optional[date] = No
 
 
 # ---------------------------------------------------------------------------
+# Credit report enrichment
+# ---------------------------------------------------------------------------
+
+def _enrich_from_credit_report(case_data: dict) -> str:
+    """
+    Looks up CreditReport by aryza_reference from case_data and enriches
+    per-creditor fields and evidence_ledger in-place. Never raises.
+    Returns "present" | "absent" | "extraction_failed".
+    """
+    try:
+        from rapidfuzz import fuzz, process as rfprocess
+        from debt_app.models import CreditReport, CreditorCriteria
+
+        ref = case_data.get("aryza_reference")
+        if not ref:
+            return "absent"
+
+        # Determine status — check for record existence separately from extraction
+        any_report = CreditReport.objects.filter(aryza_reference=ref).order_by("-created_at").first()
+        report = CreditReport.objects.filter(
+            aryza_reference=ref,
+            extraction_status="extracted",
+        ).order_by("-created_at").first()
+
+        logger.info("[CREDIT REPORT] ref=%s report=%s", ref, "found" if report else "NOT FOUND")
+
+        if not any_report:
+            status = "absent"
+        elif not report or not (report.extracted_data or {}).get("accounts"):
+            status = "extraction_failed"
+        else:
+            status = "present"
+
+        if status == "present":
+            accounts = report.extracted_data["accounts"]
+
+            # Build lookup pool: case creditors with a positive balance
+            case_creditors = [c for c in case_data.get("creditors", []) if (c.get("balance") or 0) > 0]
+            creditor_names = [c["name"] for c in case_creditors]
+
+            evidence_ledger = case_data.setdefault("evidence_ledger", [])
+            existing_refs = {e.get("ref") for e in evidence_ledger}
+            unmatched = []
+
+            # claimed_ids ensures accounts with a real balance claim rows first,
+            # preventing null-balance accounts from always grabbing the lowest-balance row
+            claimed_ids: set[int] = set()
+
+            # Process accounts with a real balance first so the tiebreaker works
+            # correctly before null-balance accounts fall through to claim-and-exclude.
+            # current_balance from extractor is pence; None sorts last (True > False).
+            accounts = sorted(
+                accounts,
+                key=lambda a: a.get("current_balance") is None,
+            )
+
+            for account in accounts:
+                matched_creditor = account.get("matched_creditor", "")
+                raw_name = matched_creditor or account.get("raw_name", "")
+                key_used = "matched_creditor" if matched_creditor else "raw_name"
+                logger.debug("[ENRICH] account resolved: '%s' (via %s)", raw_name, key_used)
+                if not raw_name:
+                    logger.warning("[ENRICH] account skipped — no name resolved: %s", account)
+                    continue
+
+                # Fuzzy-match the raw PDF name against live case creditor names
+                result = rfprocess.extractOne(
+                    raw_name,
+                    creditor_names,
+                    scorer=fuzz.token_sort_ratio,
+                    score_cutoff=80,
+                )
+                if result is None:
+                    logger.info("[CREDIT REPORT MATCH] '%s' → no match (below cutoff)", raw_name)
+                    unmatched.append(raw_name)
+                    continue
+
+                matched_name, score, _ = result
+                logger.info("[CREDIT REPORT MATCH] '%s' → '%s' (score=%s)", raw_name, matched_name, score)
+
+                # When multiple creditors share the same name, pick by balance proximity.
+                # Exclude rows already claimed by a previous account to prevent two PDF
+                # accounts from landing on the same case creditor row.
+                candidates = [
+                    c for c in case_creditors
+                    if c["name"] == matched_name and id(c) not in claimed_ids
+                ]
+
+                if not candidates:
+                    # Fall back: check linked_creditor field, also excluding claimed rows
+                    candidates = [
+                        c for c in case_creditors
+                        if c.get("linked_creditor") == matched_name
+                        and id(c) not in claimed_ids
+                    ]
+                    if candidates:
+                        logger.info(
+                            "[ENRICH FALLBACK] '%s' matched via linked_creditor", matched_name
+                        )
+                    else:
+                        if any(
+                            c["name"] == matched_name or c.get("linked_creditor") == matched_name
+                            for c in case_creditors
+                        ):
+                            logger.warning(
+                                "[ENRICH] '%s' — all candidates claimed, no row available",
+                                raw_name,
+                            )
+                        else:
+                            logger.warning(
+                                "[ENRICH] '%s' fuzzy-matched to '%s' but no case creditor row found",
+                                raw_name, matched_name,
+                            )
+                        unmatched.append(raw_name)
+                        continue
+
+                # current_balance from extractor is pence; case creditor balance is pounds.
+                # Convert pence → pounds so the tiebreaker arithmetic is in the same unit.
+                account_balance_pounds = (account.get("current_balance") or 0) / 100.0
+                best_creditor = min(
+                    candidates,
+                    key=lambda c: abs((c.get("balance") or 0) - account_balance_pounds),
+                )
+
+                claimed_ids.add(id(best_creditor))
+                logger.debug(
+                    "[ENRICH] claimed '%s' (id=%s) for pdf account '%s'",
+                    best_creditor.get("name"), id(best_creditor), raw_name,
+                )
+                logger.debug(
+                    "[ENRICH] '%s' → best_creditor '%s' balance=£%.2f (pdf balance=£%.2f)",
+                    raw_name,
+                    best_creditor.get("name"),
+                    best_creditor.get("balance") or 0,
+                    account_balance_pounds,
+                )
+
+                # Enrich per-creditor fields on the matched creditor row
+                if best_creditor.get("account_age_months") is None and account.get("account_age_months") is not None:
+                    best_creditor["account_age_months"] = account["account_age_months"]
+                best_creditor["missed_payments_last_3_months"] = account.get("missed_payments_last_3_months")
+                best_creditor["recent_spending"] = account.get("recent_spending")
+                best_creditor["credit_report_balance"] = account.get("current_balance")
+                best_creditor["payment_history_months"] = account.get("payment_history_months")
+
+                # Inject evidence entries keyed by linked_creditor AND name so
+                # _tig_10 hits on whichever key it uses for lookup
+                account_balance_pence = account.get("current_balance") or 0
+                for ref_key in [best_creditor.get("linked_creditor"), best_creditor.get("name")]:
+                    if ref_key is not None and ref_key not in existing_refs:
+                        evidence_ledger.append({
+                            "ref": ref_key,
+                            "is_verified": True,
+                            "category": "credit_report",
+                            "source": "credit_report",
+                            "raw_name": raw_name,
+                            "matched_engine_name": matched_name,
+                            "match_score": score,
+                            "account_age_months": account.get("account_age_months"),
+                            "missed_payments_last_3_months": account.get("missed_payments_last_3_months"),
+                            "account_status": account.get("account_status"),
+                        })
+                        existing_refs.add(ref_key)
+                    elif ref_key is not None:
+                        logger.warning(
+                            "[ENRICH] evidence entry skipped for '%s' — already present. "
+                            "Second account balance=£%.2f", ref_key, account_balance_pounds
+                        )
+
+            if unmatched:
+                case_data["credit_report_unmatched_accounts"] = unmatched
+
+        # Check requires_credit_report flag regardless of status
+        for creditor in case_data.get("creditors", []):
+            try:
+                criteria = CreditorCriteria.objects.get(creditor_name=creditor.get("name", ""))
+                if criteria.requires_credit_report and status == "absent":
+                    case_data.setdefault("credit_report_flags", []).append({
+                        "creditor": creditor["name"],
+                        "message": (
+                            f"{creditor['name']}: upload a credit report to "
+                            "complete evaluation of this creditor's criteria"
+                        ),
+                    })
+            except CreditorCriteria.DoesNotExist:
+                pass
+
+        return status
+
+    except Exception as exc:
+        logger.error("_enrich_from_credit_report failed: %s", exc, exc_info=True)
+        return "extraction_failed"
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -3045,8 +3251,9 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         }
     """
     c = _parse_case(case_json)
+    credit_report_status = _enrich_from_credit_report(c)
 
-    logger.info("DEBUG: has_property=%s, property_value=%s, mortgage_balance=%s, disposable_income=%s", 
+    logger.info("DEBUG: has_property=%s, property_value=%s, mortgage_balance=%s, disposable_income=%s",
         c["has_property"], c["property_value"], c["mortgage_balance"], c["disposable_income"])
 
     if detected_representatives is None:
@@ -3200,6 +3407,15 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     for r in _check_conditional_voters(c, _all_creditor_positions):
         _route(r)
 
+    # Add any credit report required flags emitted by _enrich_from_credit_report
+    for _cr_flag in c.get("credit_report_flags", []):
+        flags.append(RuleResult(
+            rule_id="CREDIT-REPORT-REQUIRED",
+            severity="flag",
+            triggered=True,
+            message=_cr_flag["message"],
+        ))
+
     # --- Overall result ---
     if hard_blocks:
         overall = "blocked"
@@ -3252,6 +3468,39 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions)
     tig_eligible = len(hard_blocks) == 0
 
+    # SFS guideline comparison — non-blocking, appended to result
+    from debt_app.sfs_calculator import derive_household_key, get_guideline_rate, apply_guideline_constraint
+    from debt_app.models import ExpenditureGuideline
+
+    sfs_breakdown = case_json.get('sfs_expenditure_breakdown', {})
+    dependants = case_json.get('dependants', {})
+    _sfs_adults = dependants.get('adults', 1) if isinstance(dependants, dict) else 1
+    _sfs_children = dependants.get('children', 0) if isinstance(dependants, dict) else 0
+    hh_key = derive_household_key(_sfs_adults, _sfs_children)
+
+    guideline_map = {
+        g.category: g
+        for g in ExpenditureGuideline.objects.select_related('category_group').all()
+    }
+
+    sfs_results = []
+    if not isinstance(sfs_breakdown, dict):
+        sfs_breakdown = {}
+    for category_slug, declared_pence in sfs_breakdown.items():
+        guideline = guideline_map.get(category_slug)
+        if not guideline:
+            continue
+        declared_pounds = (declared_pence or 0) / 100.0
+        rate = get_guideline_rate(guideline, hh_key)
+        constraint = apply_guideline_constraint(rate, guideline.min, guideline.max, declared_pounds)
+        sfs_results.append({
+            'category': category_slug,
+            'label': guideline.label,
+            'declared': declared_pounds,
+            'hh_key': hh_key,
+            **constraint,
+        })
+
     return {
         "hard_blocks": hard_blocks,
         "flags": flags,
@@ -3269,4 +3518,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "majority_analysis": majority_analysis,
         "dividend_analysis": dividend_analysis,
         "representatives_detected": detected_representatives,
+        "sfs_guideline_results": sfs_results,
+        "sfs_household_key": hh_key,
+        "credit_report_status": credit_report_status,
     }

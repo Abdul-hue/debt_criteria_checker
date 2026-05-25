@@ -5,6 +5,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -24,6 +25,8 @@ from debt_app.helpers import (
     GlobalCriteria, CreditorCriteria, CriteriaDecision, CouncilRule,
     Application, EvidenceLedger, Voter,
 )
+from debt_app.models import GuidelineCategory, ExpenditureGuideline, CreditReport
+from debt_app.credit_report_extractor import extract_credit_report
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,7 @@ def _rule_to_dict(r) -> dict:
             "message": r.get("message"),
             "threshold": r.get("threshold"),
             "actual_value": r.get("actual_value"),
+            "creditors": r.get("creditors", []),
             "title": r.get("title"),
             "description": r.get("description"),
             "action": r.get("action"),
@@ -168,6 +172,7 @@ def enrich_rules_with_meta(rule_list):
                 "message": r.message,
                 "threshold": r.threshold,
                 "actual_value": r.actual_value,
+                "creditors": r.creditors if hasattr(r, 'creditors') else [],
             }
         else:
             r_dict = {**r}
@@ -1702,3 +1707,351 @@ class RuleHistoryView(APIView):
             "times_triggered_30d": count_30d,
             "latest_case_id": latest_case_id,
         })
+
+
+# ---------------------------------------------------------------------------
+# SFS Expenditure Guidelines
+# ---------------------------------------------------------------------------
+
+def _guideline_to_dict(g) -> dict:
+    return {
+        "id": g.id,
+        "category": g.category,
+        "label": g.label,
+        "category_group": g.category_group_id,
+        "max": g.max,
+        "min": g.min,
+        "sort_order": g.sort_order,
+        "adult_1": float(g.adult_1),
+        "adult_2": float(g.adult_2),
+        "adult_1_child_1": float(g.adult_1_child_1),
+        "adult_1_child_2": float(g.adult_1_child_2),
+        "adult_1_child_3": float(g.adult_1_child_3),
+        "adult_1_child_4": float(g.adult_1_child_4),
+        "adult_1_child_5": float(g.adult_1_child_5),
+        "adult_2_child_1": float(g.adult_2_child_1),
+        "adult_2_child_2": float(g.adult_2_child_2),
+        "adult_2_child_3": float(g.adult_2_child_3),
+        "adult_2_child_4": float(g.adult_2_child_4),
+        "adult_2_child_5": float(g.adult_2_child_5),
+        "per_child": float(g.per_child),
+        "per_vehicle": float(g.per_vehicle),
+        "first_adult": float(g.first_adult),
+        "additional_adult": float(g.additional_adult),
+        "child_under_16": float(g.child_under_16),
+        "child_16_18": float(g.child_16_18),
+        "watch_per_adult": float(g.watch_per_adult),
+        "non_watch_per_adult": float(g.non_watch_per_adult),
+        "watch_per_vehicle": float(g.watch_per_vehicle),
+        "non_watch_per_vehicle": float(g.non_watch_per_vehicle),
+        "one_adult_cap": float(g.one_adult_cap),
+        "two_adults_cap": float(g.two_adults_cap),
+        "formula": g.formula,
+        "below_action": g.below_action,
+        "above_action": g.above_action,
+        "mismatch_action": g.mismatch_action,
+        "notes": g.notes,
+        "created_at": g.created_at.isoformat(),
+        "updated_at": g.updated_at.isoformat(),
+    }
+
+
+def _guideline_category_to_dict(cat, include_guidelines=False) -> dict:
+    d = {
+        "id": cat.id,
+        "name": cat.name,
+        "upper_cap": float(cat.upper_cap) if cat.upper_cap is not None else None,
+        "sort_order": cat.sort_order,
+    }
+    if include_guidelines:
+        d["guidelines"] = [_guideline_to_dict(g) for g in cat.guidelines.all()]
+    return d
+
+
+class ExpenditureGuidelineCategoryListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = GuidelineCategory.objects.prefetch_related('guidelines').order_by('sort_order', 'name')
+        return Response({
+            "count": qs.count(),
+            "results": [_guideline_category_to_dict(c, include_guidelines=True) for c in qs],
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        data = request.data
+        name = data.get('name', '').strip()
+        if not name:
+            return error_response("name is required", "MISSING_NAME", status.HTTP_400_BAD_REQUEST)
+        cat = GuidelineCategory.objects.create(
+            name=name,
+            upper_cap=data.get('upper_cap') or None,
+            sort_order=int(data.get('sort_order', 0)),
+        )
+        return Response(_guideline_category_to_dict(cat), status=status.HTTP_201_CREATED)
+
+
+class ExpenditureGuidelineCategoryDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def _get_object(self, pk):
+        try:
+            return GuidelineCategory.objects.prefetch_related('guidelines').get(pk=pk)
+        except GuidelineCategory.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        cat = self._get_object(pk)
+        if cat is None:
+            return error_response("Category not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        return Response(_guideline_category_to_dict(cat, include_guidelines=True), status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        cat = self._get_object(pk)
+        if cat is None:
+            return error_response("Category not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        data = request.data
+        if 'name' in data:
+            cat.name = data['name']
+        if 'upper_cap' in data:
+            cat.upper_cap = data['upper_cap'] or None
+        if 'sort_order' in data:
+            cat.sort_order = int(data['sort_order'])
+        cat.save()
+        return Response(_guideline_category_to_dict(cat, include_guidelines=True), status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        cat = self._get_object(pk)
+        if cat is None:
+            return error_response("Category not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        cat.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExpenditureGuidelineListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = ExpenditureGuideline.objects.select_related('category_group').order_by(
+            'category_group__sort_order', 'sort_order', 'category'
+        )
+        category_filter = request.query_params.get('category')
+        if category_filter:
+            qs = qs.filter(category=category_filter)
+        return Response({
+            "count": qs.count(),
+            "results": [_guideline_to_dict(g) for g in qs],
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        data = request.data
+        category = data.get('category', '').strip()
+        label = data.get('label', '').strip()
+        if not category:
+            return error_response("category is required", "MISSING_CATEGORY", status.HTTP_400_BAD_REQUEST)
+        if not label:
+            return error_response("label is required", "MISSING_LABEL", status.HTTP_400_BAD_REQUEST)
+        if ExpenditureGuideline.objects.filter(category=category).exists():
+            return error_response("A guideline with this category already exists", "DUPLICATE_CATEGORY", status.HTTP_400_BAD_REQUEST)
+
+        category_group = None
+        if data.get('category_group'):
+            try:
+                category_group = GuidelineCategory.objects.get(pk=data['category_group'])
+            except GuidelineCategory.DoesNotExist:
+                return error_response("category_group not found", "INVALID_CATEGORY_GROUP", status.HTTP_400_BAD_REQUEST)
+
+        decimal_fields = [
+            'adult_1', 'adult_2',
+            'adult_1_child_1', 'adult_1_child_2', 'adult_1_child_3', 'adult_1_child_4', 'adult_1_child_5',
+            'adult_2_child_1', 'adult_2_child_2', 'adult_2_child_3', 'adult_2_child_4', 'adult_2_child_5',
+            'per_child', 'per_vehicle', 'first_adult', 'additional_adult',
+            'child_under_16', 'child_16_18',
+            'watch_per_adult', 'non_watch_per_adult', 'watch_per_vehicle', 'non_watch_per_vehicle',
+            'one_adult_cap', 'two_adults_cap',
+        ]
+        kwargs = {
+            'category': category,
+            'label': label,
+            'category_group': category_group,
+            'max': bool(data.get('max', False)),
+            'min': bool(data.get('min', False)),
+            'sort_order': int(data.get('sort_order', 0)),
+            'formula': data.get('formula', ''),
+            'below_action': data.get('below_action', ''),
+            'above_action': data.get('above_action', ''),
+            'mismatch_action': data.get('mismatch_action', ''),
+            'notes': data.get('notes', ''),
+        }
+        for f in decimal_fields:
+            kwargs[f] = data.get(f, 0) or 0
+
+        g = ExpenditureGuideline.objects.create(**kwargs)
+        return Response(_guideline_to_dict(g), status=status.HTTP_201_CREATED)
+
+
+class ExpenditureGuidelineDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def _get_object(self, pk):
+        try:
+            return ExpenditureGuideline.objects.select_related('category_group').get(pk=pk)
+        except ExpenditureGuideline.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        g = self._get_object(pk)
+        if g is None:
+            return error_response("Guideline not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        return Response(_guideline_to_dict(g), status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        g = self._get_object(pk)
+        if g is None:
+            return error_response("Guideline not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        data = request.data
+        updatable = [
+            'label', 'max', 'min', 'sort_order', 'formula',
+            'below_action', 'above_action', 'mismatch_action', 'notes',
+            'adult_1', 'adult_2',
+            'adult_1_child_1', 'adult_1_child_2', 'adult_1_child_3', 'adult_1_child_4', 'adult_1_child_5',
+            'adult_2_child_1', 'adult_2_child_2', 'adult_2_child_3', 'adult_2_child_4', 'adult_2_child_5',
+            'per_child', 'per_vehicle', 'first_adult', 'additional_adult',
+            'child_under_16', 'child_16_18',
+            'watch_per_adult', 'non_watch_per_adult', 'watch_per_vehicle', 'non_watch_per_vehicle',
+            'one_adult_cap', 'two_adults_cap',
+        ]
+        for field in updatable:
+            if field in data:
+                setattr(g, field, data[field])
+        if 'category_group' in data:
+            if data['category_group'] is None:
+                g.category_group = None
+            else:
+                try:
+                    g.category_group = GuidelineCategory.objects.get(pk=data['category_group'])
+                except GuidelineCategory.DoesNotExist:
+                    return error_response("category_group not found", "INVALID_CATEGORY_GROUP", status.HTTP_400_BAD_REQUEST)
+        g.save()
+        return Response(_guideline_to_dict(g), status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        g = self._get_object(pk)
+        if g is None:
+            return error_response("Guideline not found", "NOT_FOUND", status.HTTP_404_NOT_FOUND)
+        g.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CreditReportUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        aryza_reference = (request.data.get("aryza_reference") or "").strip()
+        if not aryza_reference:
+            return Response(
+                {"success": False, "error": "aryza_reference is required.", "code": "MISSING_REFERENCE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        uploaded_file = request.FILES.get("credit_report")
+        if not uploaded_file:
+            return Response(
+                {"success": False, "error": "credit_report file is required.", "code": "MISSING_FILE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name_lower = uploaded_file.name.lower()
+        if not name_lower.endswith(".pdf"):
+            return Response(
+                {"success": False, "error": "File must be a PDF (.pdf extension required).", "code": "INVALID_FILE_TYPE"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        header = uploaded_file.read(4)
+        uploaded_file.seek(0)
+        if header != b"%PDF":
+            return Response(
+                {"success": False, "error": "File does not appear to be a valid PDF.", "code": "INVALID_PDF"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if uploaded_file.size == 0:
+            return Response(
+                {"success": False, "error": "Uploaded file is empty.", "code": "INVALID_PDF"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        record = CreditReport.objects.create(
+            aryza_reference=aryza_reference,
+            uploaded_file=uploaded_file,
+            extraction_status="pending",
+            uploaded_by=request.user,
+        )
+
+        try:
+            result = extract_credit_report(record.uploaded_file.path)
+            if "extraction_error" in result:
+                record.extraction_status = "failed"
+                record.extraction_error = result["extraction_error"]
+                record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+                return Response({
+                    "success": True,
+                    "credit_report_id": record.id,
+                    "aryza_reference": aryza_reference,
+                    "agency": "",
+                    "extraction_status": "failed",
+                    "accounts_found": 0,
+                    "client_name_on_report": "",
+                    "unmatched_accounts": [],
+                    "message": "Credit report uploaded but extraction failed",
+                })
+
+            record.extracted_data = result
+            record.agency = result.get("agency", "")
+            record.client_name_on_report = result.get("client_name", "")
+            record.extraction_status = "extracted"
+            record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "extraction_status", "updated_at"])
+
+            logger.info(
+                "[CREDIT REPORT EXTRACT] ref=%s agency=%s accounts=%d unmatched=%s matched=%s",
+                aryza_reference,
+                record.agency,
+                len(result.get("accounts", [])),
+                result.get("unmatched_accounts", []),
+                [a.get("matched_creditor") for a in result.get("accounts", [])],
+            )
+
+            return Response({
+                "success": True,
+                "credit_report_id": record.id,
+                "aryza_reference": aryza_reference,
+                "agency": record.agency,
+                "extraction_status": "extracted",
+                "accounts_found": len(result.get("accounts", [])),
+                "client_name_on_report": record.client_name_on_report,
+                "unmatched_accounts": result.get("unmatched_accounts", []),
+                "message": "Credit report uploaded and extracted successfully",
+            })
+
+        except Exception as exc:
+            logger.error("Credit report extraction failed: %s", exc, exc_info=True)
+            record.extraction_status = "failed"
+            record.extraction_error = str(exc)
+            record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+            return Response({
+                "success": True,
+                "credit_report_id": record.id,
+                "aryza_reference": aryza_reference,
+                "agency": "",
+                "extraction_status": "failed",
+                "accounts_found": 0,
+                "client_name_on_report": "",
+                "unmatched_accounts": [],
+                "message": "Credit report uploaded but extraction failed",
+            })

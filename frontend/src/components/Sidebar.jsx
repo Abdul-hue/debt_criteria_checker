@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   CheckSquare,
   BarChart3,
+  Table2,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -40,6 +41,12 @@ export default function Sidebar() {
       to: '/rules',
       label: 'Rule Management',
       icon: <Settings size={18} />,
+      adminOnly: true,
+    },
+    {
+      to: '/admin/sfs-guidelines',
+      label: 'SFS Guidelines',
+      icon: <Table2 size={18} />,
       adminOnly: true,
     },
     {

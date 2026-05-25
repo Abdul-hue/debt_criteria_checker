@@ -11,6 +11,7 @@ import {
   Settings,
   Building2,
   ChevronRight,
+  Table2,
 } from 'lucide-react'
 
 /**
@@ -70,6 +71,7 @@ export default function AdminDashboard() {
   const decisions = useModelCount(['decisions-count'], '/api/v1/criteria/assess/history/?page_size=1')
   const rules = useModelCount(['rules-count'], '/api/v1/criteria/rules/?page_size=1')
   const councils = useModelCount(['councils-count'], '/api/v1/criteria/councils/?page_size=1')
+  const sfsGuidelines = useModelCount(['sfs-guidelines-count'], '/api/v1/criteria/sfs/guidelines/?page_size=1')
 
   return (
     <div className="p-8 max-w-7xl mx-auto min-h-screen bg-slate-50/50">
@@ -135,6 +137,13 @@ export default function AdminDashboard() {
           iconColor="bg-indigo-50 text-indigo-600"
           count={councils.isLoading ? null : (councils.data ?? '?')}
           changeTo="/rules"
+        />
+        <DashboardCard
+          title="SFS Expenditure Guidelines"
+          icon={Table2}
+          iconColor="bg-amber-50 text-amber-600"
+          count={sfsGuidelines.isLoading ? null : (sfsGuidelines.data ?? '?')}
+          changeTo="/admin/sfs-guidelines"
         />
       </div>
     </div>
