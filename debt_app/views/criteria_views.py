@@ -274,7 +274,9 @@ class AssessCaseView(APIView):
           payload: dict for assess_case()
           prepared_creditors: list of creditor dicts, used for ACCEPT creditor restoration
         """
+        from rapidfuzz import fuzz, process as rfprocess
         from debt_app.helpers import CREDITOR_ALIAS_MAP
+        from debt_app.models import CountyCouncilRouting
 
         # Secured debt types — exclude ONLY if debt type confirms it
         _SECURED_DEBT_TYPES = frozenset({
@@ -296,6 +298,11 @@ class AssessCaseView(APIView):
         unsecured_debt_pounds = 0
 
         raw_creditors = case_data_obj.creditors or []
+
+        # DB name lists — queried once before the loop, never per-creditor
+        council_names = list(CouncilRule.objects.values_list('council_name', flat=True))
+        county_names = list(CountyCouncilRouting.objects.values_list('county_name', flat=True))
+        creditor_db_names = list(CreditorCriteria.objects.filter(is_active=True).values_list('creditor_name', flat=True))
 
         for creditor in raw_creditors:
             raw_name = (creditor.get('name') or '').strip()
@@ -321,14 +328,67 @@ class AssessCaseView(APIView):
                     f"type='{debt_type}' — name has HP but type is unsecured"
                 )
 
-            # Apply alias map — deterministic, no false positives
-            resolved_name = CREDITOR_ALIAS_MAP.get(raw_lower, raw_name)
+            # --- 5-check name resolution waterfall ---
+            resolved_name = raw_name
+            debt_type_override = None
+
+            # CHECK 1 — CouncilRule fuzzy match (partial_ratio ≥ 85)
+            _cr = rfprocess.extractOne(
+                raw_name, council_names, scorer=fuzz.partial_ratio, score_cutoff=85
+            )
+            if _cr:
+                _matched, _score, _ = _cr
+                logger.info(
+                    "[COUNCIL MATCH] '%s' → '%s' score=%d — "
+                    "reclassified from type='%s' to council",
+                    raw_name, _matched, _score, debt_type,
+                )
+                resolved_name = _matched
+                debt_type_override = 'council_tax'
+            else:
+                # CHECK 2 — CountyCouncilRouting fuzzy match (partial_ratio ≥ 85)
+                _cr = rfprocess.extractOne(
+                    raw_name, county_names, scorer=fuzz.partial_ratio, score_cutoff=85
+                )
+                if _cr:
+                    _matched, _score, _ = _cr
+                    logger.info(
+                        "[COUNTY COUNCIL MATCH] '%s' → '%s' score=%d — "
+                        "reclassified from type='%s' to council",
+                        raw_name, _matched, _score, debt_type,
+                    )
+                    resolved_name = _matched
+                    debt_type_override = 'council_tax'
+                else:
+                    # CHECK 3 — CreditorCriteria DB fuzzy match (token_sort_ratio ≥ 85)
+                    _cr = rfprocess.extractOne(
+                        raw_name, creditor_db_names, scorer=fuzz.token_sort_ratio, score_cutoff=85
+                    )
+                    if _cr:
+                        _matched, _score, _ = _cr
+                        logger.info(
+                            "[CREDITOR DB MATCH] '%s' → '%s' score=%d — resolved from DB",
+                            raw_name, _matched, _score,
+                        )
+                        resolved_name = _matched
+                    else:
+                        # CHECK 4 — CREDITOR_ALIAS_MAP exact match (existing behaviour)
+                        _alias = CREDITOR_ALIAS_MAP.get(raw_lower)
+                        if _alias:
+                            resolved_name = _alias
+                        else:
+                            # CHECK 5 — Aryza type fallback
+                            logger.info(
+                                "[CREDITOR UNRESOLVED] '%s' type='%s' — "
+                                "no DB match, passing raw name",
+                                raw_name, debt_type,
+                            )
 
             balance_pence = creditor.get('balance') or creditor.get('total') or 0
             balance_pounds = float(balance_pence) / 100.0
 
             # STEP 5 — Deduplication on (name, type, reference, balance)
-            # Including balance ensures that separate debts with the same name/type (e.g. 2 loans) 
+            # Including balance ensures that separate debts with the same name/type (e.g. 2 loans)
             # are not incorrectly merged when they lack a reference number.
             dedup_key = (raw_name.lower(), debt_type, ref, balance_pence)
             if dedup_key in seen_keys:
@@ -342,19 +402,23 @@ class AssessCaseView(APIView):
             # Only count unsecured debts toward total
             unsecured_debt_pounds += balance_pounds
 
+            effective_type = debt_type_override if debt_type_override else debt_type
             creditor_dict = {
                 **creditor,
-                'creditor_name': resolved_name,  # engine uses this for detection
-                'original_name': raw_name,       # preserve raw for reference
+                'creditor_name': resolved_name,
+                'original_name': raw_name,
                 'crm_balance': balance_pounds,
                 'balance': balance_pounds,
-                'debt_type_normalised': debt_type,
+                # Set both fields so _parse_case reads our intended type at priority 1
+                # regardless of which field name Aryza used in the original payload.
+                'creditor_type': effective_type,
+                'debt_type_normalised': effective_type,
             }
             prepared_creditors.append(creditor_dict)
-            
+
             logger.warning(
                 f"[PASS TO ENGINE] '{raw_name}' → '{resolved_name}' "
-                f"balance=£{balance_pounds:,.2f} type='{debt_type}'"
+                f"balance=£{balance_pounds:,.2f} type='{effective_type}'"
             )
 
         logger.warning(

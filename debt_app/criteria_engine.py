@@ -893,7 +893,14 @@ def _tig_10(c: dict) -> RuleResult:
     verified_count = 0
     creditors_detail = []
 
+    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT
+    _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
+
     for creditor in creditors:
+        # Council debts are evaluated by _check_council_rules, not by proof-of-debt evidence
+        if creditor.get("debt_type_normalised") in _COUNCIL_TYPES:
+            continue
+
         balance = creditor.get("balance", 0)
         # Edge case: Creditor with balance = 0: skip (no evidence needed)
         if balance <= 0:

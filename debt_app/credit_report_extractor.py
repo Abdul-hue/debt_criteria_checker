@@ -15,8 +15,12 @@ PDF structure (confirmed from real report):
     Each integer = missed payments that month. D = defaulted.
   - Missed payments last 3 months: sum of last 3 values in most recent year row.
 
-Accounts skipped (not unsecured debt):
-  TYPE_CODE in {MG, CA, UT}  → mortgage, current account, utility
+Type code inclusion rules:
+  MG          → always skip (secured mortgage)
+  CC/UL/MO/TM → always include
+  BD          → include only if balance > 0
+  CA/UT       → include only if status is defaulted/late/arrangement
+                skip if up to date or closed
 """
 
 import re
@@ -32,8 +36,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # These suffix codes appear at the end of every account header line
-SKIP_TYPE_CODES = {"MG", "CA", "UT"}  # mortgage, current account, utility
-DEBT_TYPE_CODES = {"CC", "UL", "MO", "PL", "HP"}  # credit card, loan, mail order
+SKIP_TYPE_CODES = {"MG"}                              # always skip: secured mortgage
+DEBT_TYPE_CODES = {"CC", "UL", "MO", "PL", "HP", "TM", "BD"}  # always include
+CONDITIONAL_TYPE_CODES = {"CA", "UT"}                 # include only if defaulted/arrears
 
 # ---------------------------------------------------------------------------
 # Creditor alias map
@@ -138,7 +143,7 @@ def match_creditor(raw_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 _TYPE_CODE_RE = re.compile(
-    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT)$"
+    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT|TM|BD)$"
 )
 
 def _parse_amount(text: str) -> int | None:
@@ -407,8 +412,11 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     raw_name = m.group(1).strip()
     type_code = m.group(2).strip()
 
-    # Skip non-debt accounts
-    if type_code in SKIP_TYPE_CODES:
+    # Always skip mortgages — secured debt, never in IVA
+    if type_code == "MG":
+        logger.debug(
+            f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='' — excluded from extraction"
+        )
         return None
 
     lines = block_text.split("\n")
@@ -447,6 +455,29 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     # --- Name resolution ---
     normalised = raw_name.lower().strip()
     matched = CREDITOR_ALIAS_MAP.get(normalised, raw_name)
+
+    # --- Conditional type code filtering ---
+
+    # BD: include only if balance > 0
+    if type_code == "BD":
+        if not current_balance or current_balance <= 0:
+            logger.debug(
+                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' — excluded from extraction"
+            )
+            return None
+
+    # CA / UT: include only if defaulted or in arrears (unsecured IVA debt)
+    if type_code in {"CA", "UT"}:
+        if account_status not in {"defaulted", "late", "arrangement"}:
+            logger.debug(
+                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' — excluded from extraction"
+            )
+            return None
+
+    balance_display = round(current_balance / 100) if current_balance else 0
+    logger.debug(
+        f"[EXTRACTOR INCLUDE] '{raw_name}' type={type_code} balance=£{balance_display}"
+    )
 
     return {
         "raw_name": raw_name,
