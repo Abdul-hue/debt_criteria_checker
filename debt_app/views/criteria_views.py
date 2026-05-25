@@ -275,7 +275,7 @@ class AssessCaseView(APIView):
           prepared_creditors: list of creditor dicts, used for ACCEPT creditor restoration
         """
         from rapidfuzz import fuzz, process as rfprocess
-        from debt_app.helpers import CREDITOR_ALIAS_MAP
+        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
         from debt_app.models import CountyCouncilRouting
 
         # Secured debt types — exclude ONLY if debt type confirms it
@@ -373,7 +373,9 @@ class AssessCaseView(APIView):
                         resolved_name = _matched
                     else:
                         # CHECK 4 — CREDITOR_ALIAS_MAP exact match (existing behaviour)
-                        _alias = CREDITOR_ALIAS_MAP.get(raw_lower)
+                        # Keys in CREDITOR_ALIAS_MAP are normalised (legal suffixes stripped),
+                        # so we must normalise the raw name before lookup.
+                        _alias = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(raw_name))
                         if _alias:
                             resolved_name = _alias
                         else:

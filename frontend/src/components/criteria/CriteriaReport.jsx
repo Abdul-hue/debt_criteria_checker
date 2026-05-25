@@ -101,36 +101,65 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
     const creditors = rule.creditors
     if (!creditors || creditors.length === 0) return null
 
+    const REP_CHIP = {
+      'WATCH': 'bg-blue-50 text-blue-600 border-blue-100',
+      'TIX': 'bg-indigo-50 text-indigo-600 border-indigo-100',
+      'EVOLVE': 'bg-teal-50 text-teal-600 border-teal-100',
+      'EVERYDAY_LOANS': 'bg-orange-50 text-orange-600 border-orange-100',
+      'NONE': 'bg-gray-50 text-gray-400 border-gray-100',
+    }
+
     return (
       <div className="mt-4 border border-gray-100 rounded-lg overflow-hidden">
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-widest font-bold">
             <tr>
               <th className="px-4 py-2">Creditor</th>
+              <th className="px-4 py-2">Rep</th>
               <th className="px-4 py-2 text-right">Balance</th>
-              <th className="px-4 py-2 text-center">Status</th>
+              <th className="px-4 py-2 text-center">Type</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {creditors.map((c, i) => {
-              const statusKey = (c.evidence_status || '').toUpperCase().trim()
-              const isNegative = statusKey === 'MISSING' || statusKey === 'UNVERIFIED'
-              const chipClass = isNegative
-                ? 'bg-red-100 text-red-700'
-                : statusKey === 'VERIFIED'
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-gray-100 text-gray-500'
               const balanceFormatted = typeof c.balance === 'number'
                 ? c.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                 : c.balance
+              const rep = (c.representative || 'NONE').toUpperCase().trim()
+              const repChipClass = REP_CHIP[rep] || 'bg-gray-50 text-gray-400 border-gray-100'
+              const rawType = (c.debt_type || '').toLowerCase()
+              const debtType = rawType.replace(/_/g, ' ')
+              const TYPE_CHIP = {
+                'credit_card':    'bg-blue-50 text-blue-700 border border-blue-200',
+                'catalogue':      'bg-purple-50 text-purple-700 border border-purple-200',
+                'personal_loan':  'bg-amber-50 text-amber-700 border border-amber-200',
+                'unsecured_loan': 'bg-amber-50 text-amber-700 border border-amber-200',
+                'overdraft':      'bg-orange-50 text-orange-700 border border-orange-200',
+                'store_card':     'bg-pink-50 text-pink-700 border border-pink-200',
+                'utility':        'bg-teal-50 text-teal-700 border border-teal-200',
+                'council_tax':    'bg-red-50 text-red-700 border border-red-200',
+                'mobile':         'bg-cyan-50 text-cyan-700 border border-cyan-200',
+                'rent':           'bg-green-50 text-green-700 border border-green-200',
+              }
+              const typeChipClass = TYPE_CHIP[rawType] || 'bg-gray-50 text-gray-500 border border-gray-200'
 
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
+                  <td className="px-4 py-2">
+                    <div className="font-medium text-gray-900">{c.canonical_name || c.name}</div>
+                    {c.canonical_name && (
+                      <div className="text-xs text-gray-400">{c.name}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${repChipClass}`}>
+                      {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}
+                    </span>
+                  </td>
                   <td className="px-4 py-2 text-right text-gray-600">£{balanceFormatted}</td>
                   <td className="px-4 py-2 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${chipClass}`}>
-                      {statusKey}
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold capitalize tracking-wide ${typeChipClass}`}>
+                      {debtType || '—'}
                     </span>
                   </td>
                 </tr>

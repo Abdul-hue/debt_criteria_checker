@@ -893,8 +893,17 @@ def _tig_10(c: dict) -> RuleResult:
     verified_count = 0
     creditors_detail = []
 
-    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT
+    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT, CREDITOR_ALIAS_MAP, normalise_creditor_name
+    from debt_app.models import CreditorCriteria
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
+
+    # Pre-load representative info once — keyed by canonical creditor name
+    _criteria_map = {
+        c.creditor_name: (c.representative or 'NONE', c.status or 'ACCEPT')
+        for c in CreditorCriteria.objects.filter(is_active=True).only(
+            'creditor_name', 'representative', 'status'
+        )
+    }
 
     for creditor in creditors:
         # Council debts are evaluated by _check_council_rules, not by proof-of-debt evidence
@@ -915,11 +924,20 @@ def _tig_10(c: dict) -> RuleResult:
         if evidence and evidence.get("is_verified") is True:
             is_verified = True
 
+        name = creditor.get("name", "Unknown Creditor")
+        # Resolve raw Aryza name → canonical DB name via alias map before lookup
+        canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(name)) or name
+        _rep, _cstatus = _criteria_map.get(canonical) or _criteria_map.get(name, ('NONE', None))
+
         creditors_detail.append({
-            "name": creditor.get("name", "Unknown Creditor"),
+            "name": name,
+            "canonical_name": canonical if canonical != name else None,
             "balance": balance,
             "is_verified": is_verified,
             "evidence_status": "verified" if is_verified else ("missing" if not ref else "unverified"),
+            "debt_type": creditor.get("creditor_type") or creditor.get("debt_type_normalised") or "",
+            "representative": _rep,
+            "creditor_status": _cstatus,
         })
 
         if not is_verified:
