@@ -109,15 +109,17 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
       'NONE': 'bg-gray-50 text-gray-400 border-gray-100',
     }
 
+    const totalBalance = creditors.reduce((sum, c) => sum + (typeof c.balance === 'number' ? c.balance : 0), 0)
+
     return (
       <div className="mt-4 border border-gray-100 rounded-lg overflow-hidden">
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-widest font-bold">
             <tr>
-              <th className="px-4 py-2">Creditor</th>
-              <th className="px-4 py-2">Rep</th>
-              <th className="px-4 py-2 text-right">Balance</th>
-              <th className="px-4 py-2 text-center">Type</th>
+              <th className="px-4 py-3 w-full">Creditor</th>
+              <th className="px-4 py-3 w-20 whitespace-nowrap">Rep</th>
+              <th className="px-4 py-3 w-32 text-right whitespace-nowrap">Balance</th>
+              <th className="px-4 py-3 w-28 text-center whitespace-nowrap">Type</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -145,19 +147,19 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
 
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">{c.canonical_name || c.name}</div>
                     {c.canonical_name && (
                       <div className="text-xs text-gray-400">{c.name}</div>
                     )}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3">
                     <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${repChipClass}`}>
                       {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right text-gray-600">£{balanceFormatted}</td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="px-4 py-3 text-right text-gray-600">£{balanceFormatted}</td>
+                  <td className="px-4 py-3 text-center">
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold capitalize tracking-wide ${typeChipClass}`}>
                       {debtType || '—'}
                     </span>
@@ -166,6 +168,17 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
               )
             })}
           </tbody>
+          <tfoot>
+            <tr className="border-t border-gray-200 bg-gray-50">
+              <td colSpan="2" className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Total
+              </td>
+              <td className="px-4 py-3 text-right font-semibold text-sm text-gray-900">
+                {formatCurrency(totalBalance)}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
     )
@@ -463,22 +476,22 @@ export default function CriteriaReport({ result }) {
             <table className="w-full text-sm text-left">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="pb-3 font-semibold text-gray-500">Creditor</th>
-                  <th className="pb-3 font-semibold text-gray-500">Rep</th>
-                  <th className="pb-3 font-semibold text-gray-500 text-right">Balance</th>
-                  <th className="pb-3 font-semibold text-gray-500 text-center">Status</th>
+                  <th className="px-4 pb-3 font-semibold text-gray-500 w-full">Creditor</th>
+                  <th className="px-4 pb-3 font-semibold text-gray-500 w-24 whitespace-nowrap">Rep</th>
+                  <th className="px-4 pb-3 font-semibold text-gray-500 text-right w-36 whitespace-nowrap">Balance</th>
+                  <th className="px-4 pb-3 font-semibold text-gray-500 text-center w-28 whitespace-nowrap">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {(result?.creditor_positions || []).map((creditor, idx) => (
                   <tr key={idx}>
-                    <td className="py-3">
-                      <div className="text-sm text-gray-800">{creditor.creditor_name}</div>
-                      {creditor.original_aryza_name && creditor.original_aryza_name !== creditor.creditor_name && (
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-gray-800">{creditor.display_name || creditor.creditor_name}</div>
+                      {creditor.original_aryza_name && (
                         <div className="text-xs text-gray-400">{creditor.original_aryza_name}</div>
                       )}
                     </td>
-                    <td className="py-3">
+                    <td className="px-4 py-3">
                       {(() => {
                         const REP_CHIP = {
                           'WATCH': 'bg-blue-50 text-blue-600 border-blue-100',
@@ -496,10 +509,10 @@ export default function CriteriaReport({ result }) {
                         )
                       })()}
                     </td>
-                    <td className="py-3 text-sm text-gray-700 text-right">
+                    <td className="px-4 py-3 text-sm text-gray-700 text-right">
                       {formatCurrency(creditor.balance)}
                     </td>
-                    <td className="py-3 text-center">
+                    <td className="px-4 py-3 text-center">
                       {(() => {
                         const STATUS_CHIP = {
                           'ACCEPT': 'bg-emerald-100 text-emerald-700',
@@ -521,7 +534,7 @@ export default function CriteriaReport({ result }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan="4" className="pt-4 text-right">
+                  <td colSpan="4" className="px-4 pt-4 pb-1 text-right">
                     <span className="font-semibold text-sm text-gray-500 mr-2">Total Unsecured Debt:</span>
                     <span className="font-semibold text-sm text-gray-900">
                       {formatCurrency((result?.creditor_positions || []).reduce((sum, c) => sum + (c.balance || 0), 0))}

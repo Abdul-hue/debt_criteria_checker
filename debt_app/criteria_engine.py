@@ -347,6 +347,7 @@ def _parse_case(case_json: dict) -> dict:
 
         creditors.append({
             "name": c.get("creditor_name", ""),
+            "original_name": c.get("original_name", ""),
             "balance": balance,
             "crm_balance": Decimal(str(balance)),
             "creditor_type": raw_type,
@@ -2215,8 +2216,11 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             except Exception as e:
                 logger.error(f"Failed to log CreditorResolutionMiss for {name}: {e}")
 
+            original_name = cr.get("original_name") or ""
             positions.append({
                 "creditor_name": name,
+                "display_name": None,
+                "original_aryza_name": original_name if original_name and original_name != name else None,
                 "resolved_canonical_name": resolved_name,
                 "representative": "NONE",
                 "effective_status": "UNKNOWN",
@@ -2327,9 +2331,13 @@ def _check_creditor_individual(case: dict) -> list[dict]:
 
         effective_status = "REJECT" if reject_level else _STATUS_NORMALISE.get(criteria.status, criteria.status)
 
+        original_name = cr.get("original_name") or ""
+        canonical = criteria.creditor_name
         positions.append({
             "creditor_name": name,
-            "resolved_canonical_name": criteria.creditor_name,
+            "display_name": canonical if canonical != name else None,
+            "original_aryza_name": original_name if original_name and original_name != name else None,
+            "resolved_canonical_name": canonical,
             "representative": criteria.representative,
             "effective_status": effective_status,
             "findings": findings,
