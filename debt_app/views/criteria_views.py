@@ -1169,7 +1169,8 @@ class RulesDetailView(APIView):
 
         # Update review fields
         if 'last_reviewed' in request.data:
-            rule.last_reviewed = request.data['last_reviewed']
+            val = request.data['last_reviewed']
+            rule.last_reviewed = val if val else None
         if 'review_notes' in request.data:
             rule.review_notes = request.data['review_notes']
 
