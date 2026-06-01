@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { editUserSchema } from '../../schemas/userSchema'
-import { useUpdateUser } from '../../hooks/useUsers'
+import { useUpdateUser, useUpdateUserDepartment } from '../../hooks/useUsers'
+import { useDepartments } from '../../hooks/useDepartments'
 import { useToast } from '../../hooks/useToast'
 import { useAuth } from '../../context/AuthContext'
 import { extractErrorMessage } from '../../lib/errorHandler'
@@ -11,9 +12,12 @@ import { Eye, EyeOff, AlertTriangle } from 'lucide-react'
 
 export default function UserEditDrawer({ user, isOpen, onClose }) {
   const { mutateAsync: updateUser, isPending } = useUpdateUser()
+  const { mutateAsync: updateUserDept, isPending: isDeptPending } = useUpdateUserDepartment()
+  const { data: departments = [] } = useDepartments()
   const { user: currentUser } = useAuth()
   const toast = useToast()
   const [showPassword, setShowPassword] = useState(false)
+  const [selectedDeptId, setSelectedDeptId] = useState('')
 
   const isSelf = currentUser?.user_id === user?.id
 
@@ -43,6 +47,7 @@ export default function UserEditDrawer({ user, isOpen, onClose }) {
         is_active: user.is_active,
         password: '',
       })
+      setSelectedDeptId(user.department?.id ? String(user.department.id) : '')
     }
   }, [user, reset])
 
@@ -54,6 +59,13 @@ export default function UserEditDrawer({ user, isOpen, onClose }) {
       const payload = { id: user.id, ...data }
       if (!data.password) delete payload.password
       await updateUser(payload)
+      const currentDeptId = user.department?.id ? String(user.department.id) : ''
+      if (selectedDeptId !== currentDeptId) {
+        await updateUserDept({
+          userId: user.id,
+          department_id: selectedDeptId ? parseInt(selectedDeptId, 10) : null,
+        })
+      }
       toast.success('User updated', 'Changes have been saved successfully.')
       onClose()
     } catch (err) {
@@ -118,6 +130,20 @@ export default function UserEditDrawer({ user, isOpen, onClose }) {
               </p>
             </div>
           )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          >
+            <option value="">No department</option>
+            {departments.filter((d) => d.is_active || d.id === user?.department?.id).map((d) => (
+              <option key={d.id} value={String(d.id)}>{d.name}</option>
+            ))}
+          </select>
         </div>
 
         <div className="flex items-center justify-between py-1">

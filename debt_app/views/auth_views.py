@@ -54,10 +54,13 @@ def email_token_obtain_pair(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    # Generate tokens with role claim
+    # Generate tokens with role and identity claims
     refresh = RefreshToken.for_user(user)
     access_token = refresh.access_token
     access_token['role'] = 'admin' if (user.is_staff or user.is_superuser) else 'assessor'
+    access_token['first_name'] = user.first_name
+    access_token['last_name'] = user.last_name
+    access_token['is_staff'] = user.is_staff
     return Response(
         {
             'access': str(access_token),

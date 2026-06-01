@@ -60,16 +60,32 @@ class AssessView(View):
             positioned_names = {
                 p.get("creditor_name", "").strip().lower()
                 for p in engine_positions
+            } | {
+                p.get("original_aryza_name", "").strip().lower()
+                for p in engine_positions
+                if p.get("original_aryza_name")
             }
+
+            from debt_app.helpers import get_creditor_by_trading_name
+            from debt_app.models import CreditorCriteria as _CC
 
             accept_positions = []
             for c in body.get("creditors") or []:
                 cname = (c.get("creditor_name") or "").strip()
+                original = (c.get("name") or cname).strip()
                 if not cname:
                     continue
-                if cname.lower() not in positioned_names:
+                if cname.lower() not in positioned_names and original.lower() not in positioned_names:
+                    rep = "NONE"
+                    try:
+                        _crit = get_creditor_by_trading_name(cname)
+                        rep = _crit.representative or "NONE"
+                    except _CC.DoesNotExist:
+                        pass
                     accept_positions.append({
                         "creditor_name": cname,
+                        "original_aryza_name": original if original != cname else None,
+                        "representative": rep,
                         "effective_status": "ACCEPT",
                         "balance": float(c.get("balance") or 0),
                     })

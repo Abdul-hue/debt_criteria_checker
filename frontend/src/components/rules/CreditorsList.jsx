@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useCreditors, useDeleteCreditor } from '../../hooks/useCreditors'
 import { useAuth } from '../../context/AuthContext'
+import { useMyPermissions } from '../../hooks/useFeatureAccess'
 import { useToast } from '../../hooks/useToast'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import ConfirmDialog from '../shared/ConfirmDialog'
@@ -98,6 +99,8 @@ function ExpandableText({ text, maxLen = 100 }) {
 
 export default function CreditorsList() {
   const { isAdmin } = useAuth()
+  const { hasWritePermission } = useMyPermissions()
+  const canEdit = isAdmin || hasWritePermission('representative_creditors')
   const toast = useToast()
   const { data: creditors, isLoading, error } = useCreditors()
   const { mutateAsync: deleteCreditor, isPending: isDeleting } = useDeleteCreditor()
@@ -327,7 +330,7 @@ export default function CreditorsList() {
         <CreditorEditDrawer
           creditor={editTarget}
           onClose={() => setEditTarget(null)}
-          readOnly={!isAdmin}
+          readOnly={!canEdit}
         />
       )}
     </div>

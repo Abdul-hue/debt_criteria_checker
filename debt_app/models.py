@@ -785,3 +785,239 @@ class CreditReport(models.Model):
 
     def __str__(self):
         return f"CreditReport({self.aryza_reference}, {self.extraction_status})"
+
+
+# ---------------------------------------------------------------------------
+# Department & rule-visibility models
+# ---------------------------------------------------------------------------
+
+class Department(models.Model):
+    """Organisational department used to control rule visibility per team."""
+
+    name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=255, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Department'
+        verbose_name_plural = 'Departments'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class UserProfile(models.Model):
+    """Extended profile for Django's built-in User — links user to a Department."""
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='members',
+    )
+
+    class Meta:
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
+
+    def __str__(self):
+        return f"Profile({self.user.username})"
+
+
+class DepartmentRuleVisibility(models.Model):
+    """Controls whether a Department can see a particular GlobalCriteria rule."""
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='rule_visibilities',
+    )
+    rule_key = models.ForeignKey(
+        GlobalCriteria,
+        on_delete=models.CASCADE,
+        to_field='rule_key',
+        related_name='department_visibilities',
+    )
+    is_visible = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Department Rule Visibility'
+        verbose_name_plural = 'Department Rule Visibilities'
+        unique_together = [('department', 'rule_key')]
+
+    def __str__(self):
+        return f"{self.department} — {self.rule_key_id}: {self.is_visible}"
+
+
+class DepartmentCreditorVisibility(models.Model):
+    """Controls whether a Department can see a particular CreditorCriteria entry."""
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='creditor_visibilities',
+    )
+    creditor = models.ForeignKey(
+        CreditorCriteria,
+        on_delete=models.CASCADE,
+        related_name='department_visibilities',
+    )
+    is_visible = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Department Creditor Visibility'
+        verbose_name_plural = 'Department Creditor Visibilities'
+        unique_together = [('department', 'creditor')]
+
+    def __str__(self):
+        return f"{self.department} — {self.creditor}: {self.is_visible}"
+
+
+class DepartmentCouncilVisibility(models.Model):
+    """Controls whether a Department can see a particular CouncilRule."""
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='council_visibilities',
+    )
+    council = models.ForeignKey(
+        CouncilRule,
+        on_delete=models.CASCADE,
+        related_name='department_visibilities',
+    )
+    is_visible = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Department Council Visibility'
+        verbose_name_plural = 'Department Council Visibilities'
+        unique_together = [('department', 'council')]
+
+    def __str__(self):
+        return f"{self.department} — {self.council}: {self.is_visible}"
+
+
+class DepartmentSFSVisibility(models.Model):
+    """Controls whether a Department can see a particular ExpenditureGuideline."""
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='sfs_visibilities',
+    )
+    guideline = models.ForeignKey(
+        ExpenditureGuideline,
+        on_delete=models.CASCADE,
+        related_name='department_visibilities',
+    )
+    is_visible = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Department SFS Visibility'
+        verbose_name_plural = 'Department SFS Visibilities'
+        unique_together = [('department', 'guideline')]
+        ordering = ['department', 'guideline']
+
+    def __str__(self):
+        return f"{self.department} — {self.guideline}: {self.is_visible}"
+
+
+class DepartmentFeatureAccess(models.Model):
+    """Controls which application features a Department's users can access."""
+
+    FEATURE_KEY_CHOICES = [
+        ('general_creditors', 'General Creditors'),
+        ('representative_creditors', 'Representative Creditors'),
+        ('global_rules', 'Global Rules'),
+        ('councils', 'Councils'),
+        ('dividends', 'Dividends'),
+        ('sfs_guidelines', 'SFS Guidelines'),
+        ('run_assessment', 'Run Assessment'),
+        ('decisions', 'Decisions'),
+        ('evidence', 'Evidence'),
+        ('user_management', 'User Management'),
+    ]
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='feature_accesses',
+    )
+    feature_key = models.CharField(max_length=50, choices=FEATURE_KEY_CHOICES)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Department Feature Access'
+        verbose_name_plural = 'Department Feature Accesses'
+        unique_together = [('department', 'feature_key')]
+
+    def __str__(self):
+        return f"{self.department} — {self.feature_key}: {self.is_enabled}"
+
+
+class DepartmentFeaturePermission(models.Model):
+    """
+    Controls read/write permission levels for departments per feature.
+    
+    For rule management and SFS features, departments can have:
+    - READ: View-only access
+    - WRITE: Full access including edit, delete, add operations
+    
+    Features: General Creditors, Rep Creditors, Global Rules, Councils, Dividends, SFS
+    """
+
+    PERMISSION_LEVEL_CHOICES = [
+        ('READ', 'Read Only'),
+        ('WRITE', 'Read & Write'),
+    ]
+
+    FEATURES_WITH_PERMISSIONS = [
+        ('general_creditors', 'General Creditors'),
+        ('representative_creditors', 'Representative Creditors'),
+        ('global_rules', 'Global Rules'),
+        ('councils', 'Councils'),
+        ('dividends', 'Dividends'),
+        ('sfs_guidelines', 'SFS Guidelines'),
+    ]
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='feature_permissions',
+    )
+    feature_key = models.CharField(
+        max_length=50,
+        choices=FEATURES_WITH_PERMISSIONS,
+        help_text="Feature to which this permission applies"
+    )
+    permission_level = models.CharField(
+        max_length=10,
+        choices=PERMISSION_LEVEL_CHOICES,
+        default='READ',
+        help_text="READ: View-only, WRITE: Full access (edit, delete, add)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Department Feature Permission'
+        verbose_name_plural = 'Department Feature Permissions'
+        unique_together = [('department', 'feature_key')]
+        ordering = ['department', 'feature_key']
+
+    def __str__(self):
+        return f"{self.department} — {self.feature_key}: {self.permission_level}"
+
+    def has_write_permission(self):
+        """Check if this department has write access for this feature."""
+        return self.permission_level == 'WRITE'
+
+    def has_read_permission(self):
+        """Check if this department has read access for this feature."""
+        return self.permission_level in ['READ', 'WRITE']

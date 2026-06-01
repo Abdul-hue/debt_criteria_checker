@@ -24,8 +24,14 @@ from debt_app.recommendation_engine import get_recommendation
 from debt_app.helpers import (
     GlobalCriteria, CreditorCriteria, CriteriaDecision, CouncilRule,
     Application, EvidenceLedger, Voter,
+    get_user_department, filter_by_department,
 )
-from debt_app.models import GuidelineCategory, ExpenditureGuideline, CreditReport
+from debt_app.permissions import HasFeatureAccess, HasWritePermission, HasReadPermission
+from debt_app.models import (
+    GuidelineCategory, ExpenditureGuideline, CreditReport,
+    DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
+    DepartmentSFSVisibility,
+)
 from debt_app.credit_report_extractor import extract_credit_report
 
 logger = logging.getLogger(__name__)
@@ -257,8 +263,9 @@ def build_uploaded_docs(aryza_reference: str) -> dict:
 
 class AssessCaseView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasFeatureAccess]
     throttle_classes = [AssessRateThrottle]
+    required_feature = 'run_assessment'
 
     def _prepare_engine_payload(self, case_data_obj):
         """
@@ -677,7 +684,8 @@ class AssessCaseView(APIView):
 
 class AssessHistoryView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated, HasFeatureAccess]
+    required_feature = 'decisions'
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -829,7 +837,12 @@ _CREDITOR_WRITABLE_FIELDS = [
 
 class CreditorListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'general_creditors'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def get(self, request):
         search = request.query_params.get('search', '')
@@ -847,6 +860,11 @@ class CreditorListView(APIView):
 
         if representative:
             queryset = queryset.filter(representative=representative)
+
+        queryset = filter_by_department(
+            queryset, CreditorCriteria, request.user,
+            DepartmentCreditorVisibility, 'creditor',
+        )
 
         from django.core.paginator import Paginator
         paginator = Paginator(queryset, page_size)
@@ -886,7 +904,12 @@ class CreditorListView(APIView):
 
 class CreditorDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'general_creditors'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def _get_object(self, id):
         try:
@@ -970,7 +993,12 @@ def _rule_obj_to_dict(rule, include_full=False):
 
 class RulesListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -979,33 +1007,38 @@ class RulesListView(APIView):
 
         # Apply filters
         queryset = GlobalCriteria.objects.all()
-        
+
         # Filter by criteria_set
         criteria_set = request.query_params.get('criteria_set')
         if criteria_set:
             queryset = queryset.filter(criteria_set=criteria_set)
-        
+
         # Filter by severity
         severity = request.query_params.get('severity')
         if severity:
             queryset = queryset.filter(severity=severity)
-        
+
         # Filter by category
         category = request.query_params.get('category')
         if category:
             queryset = queryset.filter(category=category)
-        
+
         # Filter by is_active
         is_active = request.query_params.get('is_active')
         if is_active:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
-        
+
         # Search by rule_key or rule_name
         search = request.query_params.get('search')
         if search:
             queryset = queryset.filter(
                 Q(rule_key__icontains=search) | Q(rule_name__icontains=search)
             )
+
+        queryset = filter_by_department(
+            queryset, GlobalCriteria, request.user,
+            DepartmentRuleVisibility, 'rule_key',
+        )
 
         queryset = queryset.order_by('criteria_set', 'rule_key')
 
@@ -1065,7 +1098,12 @@ class RulesListView(APIView):
 
 class RulesDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def _get_object(self, rule_key):
         try:
@@ -1185,7 +1223,12 @@ _COUNCIL_WRITABLE_FIELDS = [
 
 class CouncilRuleListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'councils'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -1195,6 +1238,11 @@ class CouncilRuleListView(APIView):
         queryset = CouncilRule.objects.all().order_by('council_name')
         if search:
             queryset = queryset.filter(council_name__icontains=search)
+
+        queryset = filter_by_department(
+            queryset, CouncilRule, request.user,
+            DepartmentCouncilVisibility, 'council',
+        )
 
         from django.core.paginator import Paginator
         paginator = Paginator(queryset, page_size)
@@ -1231,7 +1279,12 @@ class CouncilRuleListView(APIView):
 
 class CouncilRuleDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'councils'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def _get_object(self, pk):
         try:
@@ -1389,7 +1442,8 @@ def _evidence_to_dict(e):
 
 class EvidenceLedgerListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated, HasFeatureAccess]
+    required_feature = 'evidence'
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -1600,6 +1654,13 @@ class VoterDetailView(APIView):
 # ---------------------------------------------------------------------------
 
 def _user_to_dict(user):
+    dept = None
+    try:
+        profile = user.profile
+        if profile.department_id:
+            dept = {'id': profile.department.id, 'name': profile.department.name}
+    except Exception:
+        pass
     return {
         "id": user.id,
         "username": user.username,
@@ -1607,8 +1668,10 @@ def _user_to_dict(user):
         "first_name": user.first_name,
         "last_name": user.last_name,
         "is_staff": user.is_staff,
+        "role": 'admin' if user.is_staff else 'assessor',
         "is_active": user.is_active,
         "date_joined": user.date_joined.isoformat(),
+        "department": dept,
     }
 
 
@@ -1621,7 +1684,7 @@ class UserListView(APIView):
         page_size = min(int(request.query_params.get('page_size', 100)), 500)
         search = request.query_params.get('search', '')
 
-        queryset = User.objects.all().order_by('username')
+        queryset = User.objects.select_related('profile__department').all().order_by('username')
         if search:
             queryset = queryset.filter(
                 Q(username__icontains=search) |
@@ -1836,10 +1899,31 @@ def _guideline_category_to_dict(cat, include_guidelines=False) -> dict:
 
 class ExpenditureGuidelineCategoryListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'sfs_guidelines'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasFeatureAccess()]
+        return [IsAdminUser()]
 
     def get(self, request):
         qs = GuidelineCategory.objects.prefetch_related('guidelines').order_by('sort_order', 'name')
+
+        # For non-admins, filter nested guidelines by department visibility
+        if not request.user.is_staff:
+            from debt_app.helpers import get_user_department
+            dept = get_user_department(request.user)
+            results = []
+            for cat in qs:
+                guidelines_qs = filter_by_department(
+                    cat.guidelines.all(), ExpenditureGuideline, request.user,
+                    DepartmentSFSVisibility, 'guideline',
+                )
+                cat_dict = _guideline_category_to_dict(cat)
+                cat_dict['guidelines'] = [_guideline_to_dict(g) for g in guidelines_qs]
+                results.append(cat_dict)
+            return Response({"count": len(results), "results": results}, status=status.HTTP_200_OK)
+
         return Response({
             "count": qs.count(),
             "results": [_guideline_category_to_dict(c, include_guidelines=True) for c in qs],
@@ -1898,7 +1982,12 @@ class ExpenditureGuidelineCategoryDetailView(APIView):
 
 class ExpenditureGuidelineListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'sfs_guidelines'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def get(self, request):
         qs = ExpenditureGuideline.objects.select_related('category_group').order_by(
@@ -1907,6 +1996,12 @@ class ExpenditureGuidelineListView(APIView):
         category_filter = request.query_params.get('category')
         if category_filter:
             qs = qs.filter(category=category_filter)
+
+        qs = filter_by_department(
+            qs, ExpenditureGuideline, request.user,
+            DepartmentSFSVisibility, 'guideline',
+        )
+
         return Response({
             "count": qs.count(),
             "results": [_guideline_to_dict(g) for g in qs],
@@ -1961,7 +2056,12 @@ class ExpenditureGuidelineListView(APIView):
 
 class ExpenditureGuidelineDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAdminUser]
+    required_feature = 'sfs_guidelines'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
 
     def _get_object(self, pk):
         try:
@@ -2121,3 +2221,25 @@ class CreditReportUploadView(APIView):
                 "unmatched_accounts": [],
                 "message": "Credit report uploaded but extraction failed",
             })
+
+
+# ---------------------------------------------------------------------------
+# My Department
+# ---------------------------------------------------------------------------
+
+class MyDepartmentView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        dept = get_user_department(request.user)
+        if dept is None:
+            return Response({"department": None}, status=status.HTTP_200_OK)
+        return Response({
+            "department": {
+                "id": dept.id,
+                "name": dept.name,
+                "slug": dept.slug,
+                "description": dept.description,
+            }
+        }, status=status.HTTP_200_OK)

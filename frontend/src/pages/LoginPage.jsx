@@ -20,7 +20,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (token) {
-      navigate(isAdmin ? '/admin' : '/assess', { replace: true })
+      navigate(isAdmin ? '/admin' : '/dashboard', { replace: true })
     }
   }, [token, isAdmin, navigate])
 
@@ -38,7 +38,7 @@ export default function LoginPage() {
     try {
       const decoded = await login(data.email, data.password)
       const role = decoded?.role || (decoded?.is_admin || decoded?.is_staff ? 'admin' : 'assessor')
-      navigate(role === 'admin' ? '/admin' : '/assess', { replace: true })
+      navigate(role === 'admin' ? '/admin' : '/dashboard', { replace: true })
     } catch (err) {
       setError('Invalid credentials. Please try again.')
       console.error('Login failed:', err)

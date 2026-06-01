@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useCouncils, useDeleteCouncil } from '../../hooks/useCouncils'
 import { useAuth } from '../../context/AuthContext'
+import { useMyPermissions } from '../../hooks/useFeatureAccess'
 import { useToast } from '../../hooks/useToast'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import ConfirmDialog from '../shared/ConfirmDialog'
@@ -67,6 +68,8 @@ function NotesCell({ text }) {
 
 export default function CouncilsList() {
   const { isAdmin } = useAuth()
+  const { hasWritePermission } = useMyPermissions()
+  const canEdit = isAdmin || hasWritePermission('councils')
   const toast = useToast()
   const { data: councils, isLoading, error } = useCouncils()
   const { mutateAsync: deleteCouncil, isPending: isDeleting } = useDeleteCouncil()
@@ -292,7 +295,7 @@ export default function CouncilsList() {
         <CouncilEditDrawer
           council={editTarget}
           onClose={() => setEditTarget(null)}
-          readOnly={!isAdmin}
+          readOnly={!canEdit}
         />
       )}
     </div>

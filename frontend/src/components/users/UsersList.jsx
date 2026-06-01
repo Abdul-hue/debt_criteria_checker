@@ -8,7 +8,7 @@ import EmptyState from '../shared/EmptyState'
 import ConfirmDialog from '../shared/ConfirmDialog'
 import UserCreateDrawer from './UserCreateDrawer'
 import UserEditDrawer from './UserEditDrawer'
-import { Users, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Users, Plus, Pencil, Trash2, Building2 } from 'lucide-react'
 
 function RoleBadge({ role }) {
   if (role === 'admin') {
@@ -129,6 +129,9 @@ export default function UsersList() {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Department
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -147,6 +150,16 @@ export default function UsersList() {
                     <td className="px-6 py-4 text-sm text-slate-600">{u.email}</td>
                     <td className="px-6 py-4">
                       <RoleBadge role={u.role} />
+                    </td>
+                    <td className="px-6 py-4">
+                      {u.department ? (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                          <Building2 size={13} className="text-slate-400" />
+                          {u.department.name}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <StatusDot isActive={u.is_active} />

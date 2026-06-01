@@ -2,6 +2,9 @@ from django.contrib import admin
 from .models import (
     CreditorCriteria, GlobalCriteria, Voter, Application, EvidenceLedger,
     CriteriaDecision, GuidelineCategory, ExpenditureGuideline, CreditReport,
+    Department, UserProfile,
+    DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
+    DepartmentSFSVisibility, DepartmentFeatureAccess, DepartmentFeaturePermission,
 )
 
 
@@ -73,3 +76,77 @@ class CreditReportAdmin(admin.ModelAdmin):
             return len(obj.extracted_data["accounts"])
         return 0
     accounts_found_display.short_description = "Accounts Found"
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ['name', 'slug', 'is_active', 'created_at']
+    list_filter = ['is_active']
+    search_fields = ['name', 'slug']
+    prepopulated_fields = {'slug': ('name',)}
+    readonly_fields = ['created_at', 'updated_at']
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ['user', 'department']
+    list_filter = ['department']
+    search_fields = ['user__username', 'user__email']
+    raw_id_fields = ['user']
+
+
+@admin.register(DepartmentRuleVisibility)
+class DepartmentRuleVisibilityAdmin(admin.ModelAdmin):
+    list_display = ['department', 'rule_key', 'is_visible']
+    list_filter = ['department', 'is_visible']
+    search_fields = ['rule_key__rule_key', 'rule_key__rule_name']
+
+
+@admin.register(DepartmentCreditorVisibility)
+class DepartmentCreditorVisibilityAdmin(admin.ModelAdmin):
+    list_display = ['department', 'creditor', 'is_visible']
+    list_filter = ['department', 'is_visible']
+    search_fields = ['creditor__creditor_name']
+
+
+@admin.register(DepartmentCouncilVisibility)
+class DepartmentCouncilVisibilityAdmin(admin.ModelAdmin):
+    list_display = ['department', 'council', 'is_visible']
+    list_filter = ['department', 'is_visible']
+    search_fields = ['council__council_name']
+
+
+@admin.register(DepartmentSFSVisibility)
+class DepartmentSFSVisibilityAdmin(admin.ModelAdmin):
+    list_display = ['department', 'guideline', 'is_visible']
+    list_filter = ['department', 'is_visible']
+    search_fields = ['guideline__label', 'guideline__category']
+
+
+@admin.register(DepartmentFeatureAccess)
+class DepartmentFeatureAccessAdmin(admin.ModelAdmin):
+    list_display = ['department', 'feature_key', 'is_enabled']
+    list_filter = ['department', 'feature_key', 'is_enabled']
+    search_fields = ['department__name', 'feature_key']
+
+
+@admin.register(DepartmentFeaturePermission)
+class DepartmentFeaturePermissionAdmin(admin.ModelAdmin):
+    list_display = ['department', 'feature_key', 'permission_level', 'updated_at']
+    list_filter = ['department', 'feature_key', 'permission_level']
+    search_fields = ['department__name', 'feature_key']
+    readonly_fields = ['created_at', 'updated_at']
+    fieldsets = (
+        ('Department & Feature', {
+            'fields': ('department', 'feature_key'),
+            'description': 'Select which department and feature to configure permissions for.'
+        }),
+        ('Permission Level', {
+            'fields': ('permission_level',),
+            'description': 'READ: View-only access. WRITE: Full access including edit, delete, and add operations.'
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )

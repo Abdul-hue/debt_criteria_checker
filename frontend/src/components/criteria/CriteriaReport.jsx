@@ -148,9 +148,11 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{c.canonical_name || c.name}</div>
-                    {c.canonical_name && (
-                      <div className="text-xs text-gray-400">{c.name}</div>
+                    <div className="font-medium text-gray-900">{c.creditor_name || c.name}</div>
+                    {(c.original_aryza_name || c.credit_report_name) && (
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {c.original_aryza_name || c.credit_report_name}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -486,9 +488,11 @@ export default function CriteriaReport({ result }) {
                 {(result?.creditor_positions || []).map((creditor, idx) => (
                   <tr key={idx}>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-gray-800">{creditor.display_name || creditor.creditor_name}</div>
-                      {creditor.original_aryza_name && (
-                        <div className="text-xs text-gray-400">{creditor.original_aryza_name}</div>
+                      <div className="text-sm font-medium text-gray-900">{creditor.creditor_name || creditor.display_name || creditor.name}</div>
+                      {(creditor.original_aryza_name || (creditor.name && creditor.name !== (creditor.creditor_name || creditor.display_name))) && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {creditor.original_aryza_name || creditor.name}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -519,6 +523,9 @@ export default function CriteriaReport({ result }) {
                           'REJECT': 'bg-red-100 text-red-700',
                           'UNKNOWN': 'bg-gray-100 text-gray-500',
                           'REVIEW': 'bg-amber-100 text-amber-700',
+                          'WILL_CONSIDER': 'bg-amber-100 text-amber-700',
+                          'DO_NOT_VOTE': 'bg-gray-100 text-gray-600',
+                          'CONDITIONAL_VOTER': 'bg-blue-100 text-blue-700',
                         }
                         const statusKey = (creditor.effective_status || '').toUpperCase().trim()
                         const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'

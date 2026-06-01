@@ -346,8 +346,8 @@ def _parse_case(case_json: dict) -> dict:
                 pass
 
         creditors.append({
-            "name": c.get("creditor_name", ""),
-            "original_name": c.get("original_name", ""),
+            "name": c.get("creditor_name") or c.get("name", ""),
+            "original_name": c.get("original_name") or c.get("original_aryza_name") or c.get("name", ""),
             "balance": balance,
             "crm_balance": Decimal(str(balance)),
             "creditor_type": raw_type,
@@ -926,13 +926,21 @@ def _tig_10(c: dict) -> RuleResult:
             is_verified = True
 
         name = creditor.get("name", "Unknown Creditor")
-        # Resolve raw Aryza name → canonical DB name via alias map before lookup
-        canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(name)) or name
-        _rep, _cstatus = _criteria_map.get(canonical) or _criteria_map.get(name, ('NONE', None))
+        original_name = creditor.get("original_name") or name
+
+        # Resolve raw Aryza name → canonical DB name exactly like _check_creditor_individual
+        try:
+            from debt_app.helpers import get_creditor_by_trading_name
+            criteria = get_creditor_by_trading_name(original_name)
+            canonical = criteria.creditor_name
+        except Exception:
+            canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(original_name)) or original_name
+
+        _rep, _cstatus = _criteria_map.get(canonical) or _criteria_map.get(original_name, ('NONE', None))
 
         creditors_detail.append({
-            "name": name,
-            "canonical_name": canonical if canonical != name else None,
+            "creditor_name": canonical,
+            "original_aryza_name": original_name if original_name != canonical else None,
             "balance": balance,
             "is_verified": is_verified,
             "evidence_status": "verified" if is_verified else ("missing" if not ref else "unverified"),
@@ -2193,7 +2201,8 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         if cr["debt_type_normalised"] in _COUNCIL_TYPES:
             continue
 
-        name = cr["name"]
+        name = cr.get("name", "Unknown Creditor")
+        original_name = cr.get("original_name") or name
         balance = cr["crm_balance"]
 
         # Resolve via alias map first
@@ -2216,12 +2225,11 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             except Exception as e:
                 logger.error(f"Failed to log CreditorResolutionMiss for {name}: {e}")
 
-            original_name = cr.get("original_name") or ""
             positions.append({
-                "creditor_name": name,
+                "creditor_name": original_name,
                 "display_name": None,
-                "original_aryza_name": original_name if original_name and original_name != name else None,
-                "resolved_canonical_name": resolved_name,
+                "original_aryza_name": None,
+                "resolved_canonical_name": original_name,
                 "representative": "NONE",
                 "effective_status": "UNKNOWN",
                 "findings": [{"code": "CREDITOR-UNKNOWN", "reason": "No criteria row for this creditor"}],
@@ -2331,14 +2339,17 @@ def _check_creditor_individual(case: dict) -> list[dict]:
 
         effective_status = "REJECT" if reject_level else _STATUS_NORMALISE.get(criteria.status, criteria.status)
 
-        original_name = cr.get("original_name") or ""
         canonical = criteria.creditor_name
+
+        # Ensure consistent naming for UI:
+        # creditor_name should be the canonical/resolved name
+        # original_aryza_name should be the raw name from Aryza
         positions.append({
-            "creditor_name": name,
-            "display_name": canonical if canonical != name else None,
-            "original_aryza_name": original_name if original_name and original_name != name else None,
+            "creditor_name": canonical,
+            "display_name": None,  # UI will fallback to creditor_name (canonical)
+            "original_aryza_name": original_name if original_name != canonical else None,
             "resolved_canonical_name": canonical,
-            "representative": criteria.representative,
+            "representative": criteria.representative or "NONE",
             "effective_status": effective_status,
             "findings": findings,
             "reason": findings[0]["reason"] if findings else (criteria.dividend_notes or ""),
@@ -2875,18 +2886,45 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         return False
 
     if all_positions:
-        # Build a set of names that count as yes votes, then sum ALL creditor rows
-        # with those names. Using a set avoids the stale-balance problem when
-        # multiple creditors share the same name (e.g. three Halifax entries).
+        # BUG FIX: After name-resolution commits, positions have canonical DB names,
+        # but creditors in case dict have normalized/raw names from payload.
+        # Build a mapping from position creditor_name → original_name to match them correctly.
+        # This ensures voting debt is computed using the actual case creditor rows.
+        
+        # Create reverse mapping: canonical name (from position) → creditor balances
+        # by matching against original_name field which should match the position lookup.
+        balance_by_canonical = {}
+        for c in creditors:
+            # The original_name field is set by _parse_case from the payload
+            canonical_key = c.get("original_name") or c.get("name", "")
+            if canonical_key:
+                if canonical_key not in balance_by_canonical:
+                    balance_by_canonical[canonical_key] = Decimal("0")
+                balance_by_canonical[canonical_key] += c["crm_balance"]
+        
+        # Build a set of canonical names that count as yes votes
         yes_names = {
             pos["creditor_name"]
             for pos in all_positions
             if _counts_as_yes(pos)
         }
+        
+        # Also map from position creditor_name to matching creditor rows
+        # If position creditor_name doesn't match directly, try original_name
+        yes_names_with_fallback = yes_names.copy()
+        for pos in all_positions:
+            if not _counts_as_yes(pos):
+                continue
+            pos_name = pos.get("creditor_name")
+            orig_aryza = pos.get("original_aryza_name")
+            if orig_aryza and orig_aryza not in yes_names:
+                yes_names_with_fallback.add(orig_aryza)
+        
         voting_debt = sum(
             c["crm_balance"]
             for c in creditors
-            if c["name"] in yes_names and c["name"] not in do_not_vote_names
+            if (c.get("original_name") or c["name"]) in yes_names_with_fallback
+            and c["name"] not in do_not_vote_names
         )
     else:
         voting_debt = total

@@ -3,6 +3,7 @@ import { Search, X, ChevronDown, ChevronRight, Save, RotateCcw } from 'lucide-re
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { useSFSCategories, useUpdateSFSGuideline, useUpdateSFSCategory } from '../../hooks/useSFSGuidelines'
 import { useToast } from '../../hooks/useToast'
+import { useAuth } from '../../context/AuthContext'
 
 // ── Y-axis row groups (fixed, not from API) ────────────────────────────────
 const ROW_GROUPS = [
@@ -108,6 +109,7 @@ function BoolDot({ value }) {
 }
 
 export default function SFSGuidelinesPage() {
+  const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [collapsedCats, setCollapsedCats] = useState({})
   const [editingColId, setEditingColId] = useState(null)
@@ -312,7 +314,7 @@ export default function SFSGuidelinesPage() {
                           </span>
 
                           {/* Group cap */}
-                          {!isCollapsed && (
+                          {!isCollapsed && isAdmin && (
                             <div className="flex items-center gap-1 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
                               {isEditingCap ? (
                                 <>
@@ -403,7 +405,7 @@ export default function SFSGuidelinesPage() {
                             gi === (cat.guidelines.length - 1) ? 'border-r border-slate-200' : '',
                           ].join(' ')}
                         >
-                          {isEditing ? (
+                          {isAdmin && (isEditing ? (
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={() => saveCol(g.id)}
@@ -425,7 +427,7 @@ export default function SFSGuidelinesPage() {
                             >
                               Edit
                             </button>
-                          )}
+                          ))}
                         </th>
                       )
                     })

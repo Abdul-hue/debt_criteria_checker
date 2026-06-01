@@ -95,9 +95,13 @@ class EvaluateCaseView(APIView):
             "evaluated_at": timezone.now().isoformat(),
             "creditors": [
                 {
-                    "name": c.get("name", "Unknown Creditor"),
-                    "balance": float(c.get("balance", 0))
-                } for c in case_data.get("creditors", [])
+                    "name": c.get("original_aryza_name") or c.get("creditor_name", c.get("name", "Unknown Creditor")),
+                    "canonical_name": c.get("creditor_name"),
+                    "original_aryza_name": c.get("original_aryza_name"),
+                    "balance": float(c.get("balance", 0)),
+                    "effective_status": c.get("effective_status", "UNKNOWN"),
+                    "representative": c.get("representative", "NONE"),
+                } for c in engine_output.get("creditor_positions", [])
             ],
             "total_unsecured_debt": float(case_data.get("total_unsecured_debt", 0)),
             "disposable_income": float(case_data.get("disposable_income", 0))

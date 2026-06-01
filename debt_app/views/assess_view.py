@@ -59,10 +59,20 @@ class DirectAssessView(View):
 
             # STEP 7 — Add back ACCEPT creditors filtered out by engine
             engine_positions = result.get("creditor_positions", [])
+            # Match by canonical name OR by Aryza raw name to prevent duplicate
+            # positions when the engine resolved an abbreviated name to its full
+            # DB canonical (e.g. "Lowell" → "Lowell Financial").
             positioned_names = {
                 p.get("creditor_name", "").strip().lower()
                 for p in engine_positions
+            } | {
+                p.get("original_aryza_name", "").strip().lower()
+                for p in engine_positions
+                if p.get("original_aryza_name")
             }
+
+            from debt_app.helpers import get_creditor_by_trading_name
+            from debt_app.models import CreditorCriteria as _CC
 
             accept_positions = []
             for c in creditors:
@@ -70,11 +80,19 @@ class DirectAssessView(View):
                 original = (c.get("name") or c.get("original_name") or cname).strip()
                 if not cname:
                     continue
-                if cname.lower() not in positioned_names:
+                if cname.lower() not in positioned_names and original.lower() not in positioned_names:
+                    # Look up representative so it doesn't default to NONE
+                    rep = "NONE"
+                    try:
+                        _crit = get_creditor_by_trading_name(cname)
+                        rep = _crit.representative or "NONE"
+                    except _CC.DoesNotExist:
+                        pass
                     accept_positions.append({
                         "creditor_name": cname,
                         "resolved_canonical_name": cname,
-                        "original_aryza_name": original,
+                        "original_aryza_name": original if original != cname else None,
+                        "representative": rep,
                         "effective_status": "ACCEPT",
                         "findings": [],
                         "reason": "Creditor accepted — no conditions apply",
@@ -139,6 +157,8 @@ class DirectAssessView(View):
                 "creditor_positions": [
                     {
                         "creditor_name":          c.get("creditor_name", ""),
+                        "display_name":           c.get("display_name"),
+                        "original_aryza_name":    c.get("original_aryza_name"),
                         "resolved_canonical_name": c.get("resolved_canonical_name", ""),
                         "representative":         c.get("representative", "NONE"),
                         "effective_status":        c.get("effective_status", "UNKNOWN"),

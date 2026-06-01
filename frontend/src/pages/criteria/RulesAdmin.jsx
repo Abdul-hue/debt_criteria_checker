@@ -3,7 +3,8 @@ import * as Switch from '@radix-ui/react-switch'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as Accordion from '@radix-ui/react-accordion'
 import * as Dialog from '@radix-ui/react-dialog'
-import { getRulesByCriteriaSet, updateRule, createRule } from '../../services/criteriaService.js'
+import { createRule } from '../../services/criteriaService.js'
+import { useRules, usePatchRule } from '../../hooks/useRules.js'
 import ErrorCard from '../../components/shared/ErrorCard.jsx'
 import Spinner from '../../components/shared/Spinner.jsx'
 import { ChevronDownIcon, MagnifyingGlassIcon, PlusIcon, Cross2Icon } from '@radix-ui/react-icons'
@@ -11,8 +12,9 @@ import { ChevronDownIcon, MagnifyingGlassIcon, PlusIcon, Cross2Icon } from '@rad
 const CRITERIA_SETS = ['TIG', 'WATCH', 'TIX', 'EVOLVE']
 
 export default function RulesAdmin() {
+  const { data: allRules = [], isLoading: rulesLoading, refetch: refetchRules } = useRules()
+  const patchRuleMutation = usePatchRule()
   const [rules, setRules] = useState([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [activeSet, setActiveSet] = useState('TIG')
   
@@ -35,45 +37,37 @@ export default function RulesAdmin() {
     flag_message: ''
   })
 
-  const fetchRules = async (criteriaSet) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await getRulesByCriteriaSet(criteriaSet)
-      // If the API doesn't filter, we filter here just in case:
-      const filteredResponse = response.filter(r => r.criteria_set === criteriaSet)
-      setRules(filteredResponse.length > 0 ? filteredResponse : response)
-    } catch {
-      setError('Unable to load rule configuration. Please try again later.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    fetchRules(activeSet)
-  }, [activeSet])
+    const filteredRules = allRules.filter(r => r.criteria_set === activeSet)
+    setRules(filteredRules)
+  }, [activeSet, allRules])
 
   const handleToggle = async (ruleKey, isActive) => {
-    const updatedRules = rules.map((rule) => (rule.rule_key === ruleKey ? { ...rule, is_active: isActive } : rule))
-    setRules(updatedRules)
-    try {
-      await updateRule(ruleKey, { is_active: isActive })
-    } catch {
-      setError('Unable to update rule status. Please try again.')
-      fetchRules(activeSet)
-    }
+    patchRuleMutation.mutate(
+      { ruleKey, is_active: isActive },
+      {
+        onError: () => {
+          setError('Unable to update rule status. Please try again.')
+        },
+        onSuccess: () => {
+          setError(null)
+        },
+      }
+    )
   }
 
   const handleThreshold = async (ruleKey, threshold_value) => {
-    const updatedRules = rules.map((rule) => (rule.rule_key === ruleKey ? { ...rule, threshold_value } : rule))
-    setRules(updatedRules)
-    try {
-      await updateRule(ruleKey, { threshold_value })
-    } catch {
-      setError('Unable to update rule threshold. Please try again.')
-      fetchRules(activeSet)
-    }
+    patchRuleMutation.mutate(
+      { ruleKey, threshold_value: threshold_value ? Number(threshold_value) : null },
+      {
+        onError: () => {
+          setError('Unable to update rule threshold. Please try again.')
+        },
+        onSuccess: () => {
+          setError(null)
+        },
+      }
+    )
   }
 
   const handleCreateRule = async (e) => {
@@ -85,7 +79,8 @@ export default function RulesAdmin() {
       }
       await createRule(payload)
       setIsModalOpen(false)
-      fetchRules(activeSet)
+      await refetchRules()
+      setError(null)
       setNewRule({
         rule_key: '', rule_name: '', criteria_set: activeSet, category: '', severity: 'flag',
         is_active: true, threshold_value: '', description: '', rejection_message: '', flag_message: ''

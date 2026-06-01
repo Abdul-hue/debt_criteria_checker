@@ -56,3 +56,16 @@ export function useDeleteUser() {
     },
   })
 }
+
+export function useUpdateUserDepartment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ userId, department_id }) => {
+      const { data } = await api.put(`/api/v1/criteria/users/${userId}/department/`, { department_id })
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
+}
