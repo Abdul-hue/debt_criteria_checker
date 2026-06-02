@@ -587,11 +587,17 @@ class AssessCaseView(APIView):
         # STEP 7 — Add back ACCEPT creditors filtered out by engine
         engine_positions = result.get("creditor_positions", [])
 
-        # Collect names already in engine output
-        positioned_names = {
-            p.get("creditor_name", "").strip().lower()
-            for p in engine_positions
-        }
+        # Collect names already in engine output — include both canonical name and
+        # original Aryza name so alias-resolved creditors (e.g. "Zilch" → "NewDay")
+        # are not added as phantom duplicates.
+        positioned_names = set()
+        for p in engine_positions:
+            if p.get("creditor_name"):
+                positioned_names.add(p["creditor_name"].strip().lower())
+            if p.get("original_aryza_name"):
+                positioned_names.add(p["original_aryza_name"].strip().lower())
+
+        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name as _ncn
 
         # Add back creditors that engine filtered (ACCEPT, no findings)
         accept_positions = []
@@ -601,18 +607,23 @@ class AssessCaseView(APIView):
             original = (c.get("original_name") or cname).strip()
             if not cname:
                 continue
-            if cname.lower() not in positioned_names:
-                accept_positions.append({
-                    "creditor_name": cname,           # resolved canonical name
-                    "resolved_canonical_name": cname,
-                    "original_aryza_name": original,  # raw Aryza name for reference
-                    "effective_status": "ACCEPT",
-                    "findings": [],
-                    "reason": "Creditor accepted — no conditions apply",
-                    "rule_ids": [],
-                    "balance": float(c.get("crm_balance") or c.get("balance") or 0),
-                })
-                logger.warning(f"[ACCEPT RESTORED] '{cname}'")
+            # Also resolve through alias map — the engine may have stored the
+            # creditor under its canonical name (e.g. "NewDay" for input "Zilch").
+            alias_resolved = CREDITOR_ALIAS_MAP.get(_ncn(cname), cname).strip().lower()
+            if cname.lower() in positioned_names or alias_resolved in positioned_names:
+                continue  # Already represented in engine output (possibly under alias)
+            accept_positions.append({
+                "creditor_name": cname,
+                "resolved_canonical_name": cname,
+                "original_aryza_name": original if original != cname else None,
+                "representative": c.get("representative") or "NONE",
+                "effective_status": "ACCEPT",
+                "findings": [],
+                "reason": "Creditor accepted — no conditions apply",
+                "rule_ids": [],
+                "balance": float(c.get("crm_balance") or c.get("balance") or 0),
+            })
+            logger.warning(f"[ACCEPT RESTORED] '{cname}'")
 
         all_creditor_positions = engine_positions + accept_positions
         logger.warning(
@@ -646,11 +657,17 @@ class AssessCaseView(APIView):
 
         serialized = build_phase7_response_fields(result)
 
+        # Attach financial summary fields that are NOT produced by build_phase7_response_fields
+        # but are required for correct display when the saved result is later reloaded.
+        # Without this, reloading from history always shows disposable_income = 0.
+        serialized["disposable_income"] = case_data.get("disposable_income")
+        serialized["total_unsecured_debt"] = case_data.get("total_unsecured_debt")
+
         # Step 4 — Save to CriteriaDecision
         try:
             # Clear previous history for this reference to satisfy "no history" requirement
             CriteriaDecision.objects.filter(application_id=aryza_reference).delete()
-            
+
             # recommended_solution field in DB expects a string (the code)
             db_recommended_solution = result["recommended_solution"].get("code", "UNCLEAR") if isinstance(result["recommended_solution"], dict) else (result["recommended_solution"] or "UNCLEAR")
 

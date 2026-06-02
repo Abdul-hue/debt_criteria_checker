@@ -502,10 +502,12 @@ export default function CriteriaReport({ result }) {
                           'TIX': 'bg-indigo-50 text-indigo-600 border-indigo-100',
                           'EVOLVE': 'bg-teal-50 text-teal-600 border-teal-100',
                           'EVERYDAY_LOANS': 'bg-orange-50 text-orange-600 border-orange-100',
-                          'NONE': 'bg-gray-50 text-gray-500 border-gray-100',
                         }
                         const rep = (creditor.representative || 'NONE').toUpperCase().trim()
-                        const chipClass = REP_CHIP[rep] || 'bg-gray-50 text-gray-500 border-gray-100'
+                        if (rep === 'NONE' || !REP_CHIP[rep]) {
+                          return <span className="text-gray-300 text-sm">—</span>
+                        }
+                        const chipClass = REP_CHIP[rep]
                         return (
                           <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${chipClass}`}>
                             {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}

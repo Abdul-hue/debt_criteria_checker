@@ -106,7 +106,18 @@ _LINK_NAMES = frozenset({
     "link financial outsourcing",
     "link financial outsourcing limited",
     "link financial ltd",
+    "link financial - iva",
+    "link financial - td",
 })
+
+def _is_link_financial_name(name: str) -> bool:
+    """Return True for any 'Link Financial …' variant regardless of suffix/qualifier.
+
+    Aryza and the CRM append qualifiers like '- IVA', '(LBG)', '- TD' that the
+    old frozenset check missed.  Normalising to alphanumeric-only and testing a
+    prefix avoids maintaining an ever-growing list of variants.
+    """
+    return _norm(name).startswith("linkfinancial")
 
 _HMRC_NAMES = frozenset({
     "hmrc",
@@ -527,7 +538,7 @@ def _parse_case(case_json: dict) -> dict:
     council_is_majority = (council_balance / total_debt > 0.25) if total_debt > 0 else False
 
     # --- Link Financial ---
-    link_creditors = [c for c in creditors if _in_set(c["name"], _LINK_NAMES)]
+    link_creditors = [c for c in creditors if _is_link_financial_name(c["name"])]
     link_balance = sum(c["balance"] for c in link_creditors)
     link_is_creditor = len(link_creditors) > 0
 
