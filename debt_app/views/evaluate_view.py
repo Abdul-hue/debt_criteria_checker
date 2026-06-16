@@ -104,7 +104,7 @@ class EvaluateCaseView(APIView):
                 } for c in engine_output.get("creditor_positions", [])
             ],
             "total_unsecured_debt": float(case_data.get("total_unsecured_debt", 0)),
-            "disposable_income": float(case_data.get("disposable_income", 0))
+            "disposable_income": float(case_data.get("monthly_di", case_data.get("disposable_income", 0)))
         }
 
         # 8. Persist the result to CriteriaDecision model
@@ -148,17 +148,26 @@ class EvaluateCaseView(APIView):
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
         Converts pence (int) to pounds (float).
         """
-        # Convert pence to pounds for all financial fields
-        di_pounds = case_data_obj.disposable_income / 100.0
-        
+        # Convert pence to pounds for all financial fields.
+        # DI is only reliable when Aryza has expenditure data (income - expenses).
+        # If expenditure is 0 but income > 0, Aryza returned no SFS expense rows,
+        # so the computed DI equals gross income — which is wrong for dividend calc.
+        # In that case pass monthly_di=0 so the engine shows 0p (honest) rather
+        # than an inflated dividend based on gross income.
+        income_pence = case_data_obj.income.get("total", 0)
+        expenditure_pence = case_data_obj.expenditure.get("total", 0)
+        has_expense_data = expenditure_pence > 0
+        di_pounds = case_data_obj.disposable_income / 100.0 if has_expense_data else 0.0
+        gross_income_pounds = income_pence / 100.0
+
         # Calculate unsecured debt excluding HP/secured debts
-        unsecured_debt_pounds = sum( 
-            c["balance"] / 100.0 
-            for c in case_data_obj.creditors 
-            if "hp" not in c["name"].lower() 
-            and c.get("creditor_type", "unsecured").lower() not in ("hp", "hire_purchase", "secured") 
+        unsecured_debt_pounds = sum(
+            c["balance"] / 100.0
+            for c in case_data_obj.creditors
+            if "hp" not in c["name"].lower()
+            and c.get("creditor_type", "unsecured").lower() not in ("hp", "hire_purchase", "secured")
         )
-        
+
         # Build the engine payload matching CASE_ASSESSMENT_PAYLOAD.md
         payload = {
             "application_id": case_data_obj.aryza_reference,
@@ -166,10 +175,11 @@ class EvaluateCaseView(APIView):
             "client_name": case_data_obj.client_name,
             "employment_status": case_data_obj.employment_status,
             "disposable_income": di_pounds,
+            "monthly_di": di_pounds,
             "total_unsecured_debt": unsecured_debt_pounds,
             "financial_summary": {
                 "net_balance": di_pounds,
-                "total_income": case_data_obj.income["total"] / 100.0,
+                "total_income": gross_income_pounds,
                 "income_source": case_data_obj.employment_status,
             },
             "crm_data": {

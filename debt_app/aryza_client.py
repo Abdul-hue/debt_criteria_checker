@@ -975,8 +975,10 @@ class AryzaClient:
             case.income["third_party_contribution"]
         )
         
-        case.expenditure["total"] = case.expenditure["disability_expenses"]
-        
+        # disability_expenses is added on top of expenses already accumulated
+        # by the loop at line 590 — do NOT overwrite the accumulated total.
+        case.expenditure["total"] += case.expenditure["disability_expenses"]
+
         # Always recalculate — td_client contribution may be stale or zero
         if case.income["total"] > 0:
             case.disposable_income = max(0, case.income["total"] - case.expenditure["total"])

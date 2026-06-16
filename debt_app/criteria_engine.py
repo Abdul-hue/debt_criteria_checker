@@ -2371,6 +2371,46 @@ def _check_creditor_individual(case: dict) -> list[dict]:
     return positions
 
 
+def _ampersand_variants(name: str) -> list[str]:
+    """Return the name plus '&'<->'and' variants for tolerant council matching.
+
+    Aryza supplies names like 'Brighton & Hove City Council' while the
+    CouncilRule table stores 'Brighton and Hove city Council' — without this the
+    exact/icontains lookup misses and the council silently drops out of the vote.
+    """
+    variants = [name]
+    for v in (re.sub(r"\s*&\s*", " and ", name), re.sub(r"\s+and\s+", " & ", name)):
+        v = re.sub(r"\s+", " ", v).strip()
+        if v and v not in variants:
+            variants.append(v)
+    return variants
+
+
+def _match_council_rule(name: str):
+    """Resolve a council name to a CouncilRule — tolerant of '&'/'and', case and
+    common suffixes. Returns the rule or None."""
+    from debt_app.models import CouncilRule
+
+    candidates = _ampersand_variants(name)
+    for cand in candidates:
+        try:
+            return CouncilRule.objects.get(council_name__iexact=cand)
+        except CouncilRule.DoesNotExist:
+            continue
+    # Fuzzy fallback: strip common council suffixes then icontains search.
+    for cand in candidates:
+        name_part = re.sub(
+            r"\s+(District|Borough|City|County)\s+Council$", "", cand, flags=re.IGNORECASE
+        ).strip()
+        name_part = re.sub(r"\s+(DC|BC|CC|MBC|RBC)$", "", name_part, flags=re.IGNORECASE).strip()
+        if not name_part:
+            continue
+        rule = CouncilRule.objects.filter(council_name__icontains=name_part).first()
+        if rule is not None:
+            return rule
+    return None
+
+
 def _check_council_rules(case: dict) -> list[dict]:
     """
     Evaluate each council-type creditor against its CouncilRule DB row.
@@ -2395,17 +2435,9 @@ def _check_council_rules(case: dict) -> list[dict]:
             continue
 
         name = cr["name"]
-        try:
-            rule = CouncilRule.objects.get(council_name__iexact=name)
-        except CouncilRule.DoesNotExist:
-            # Fuzzy fallback: strip common council suffixes then icontains search
-            name_part = re.sub(
-                r"\s+(District|Borough|City|County)\s+Council$", "", name, flags=re.IGNORECASE
-            ).strip()
-            name_part = re.sub(r"\s+(DC|BC|CC|MBC|RBC)$", "", name_part, flags=re.IGNORECASE).strip()
-            rule = CouncilRule.objects.filter(council_name__icontains=name_part).first()
-            if rule is None:
-                continue
+        rule = _match_council_rule(name)
+        if rule is None:
+            continue
 
         dtcv_key = _DTCV_MAP.get(cr["debt_type_normalised"])
         base_status = rule.status
@@ -2520,9 +2552,15 @@ def _check_council_rules(case: dict) -> list[dict]:
         else:
             effective_status = base_status
 
+        # Carry the RAW Aryza name (from original_name, falling back to name) so the
+        # majority calc can match this council's balance to the case creditor (whose
+        # original_name is the raw '&' form) and the UI can show the real name. Must
+        # use original_name because cr["name"] may already be the resolved canonical.
+        _raw_name = cr.get("original_name") or name
         positions.append({
             "council_name": rule.council_name,
             "creditor_name": rule.council_name,
+            "original_aryza_name": _raw_name if _raw_name != rule.council_name else None,
             "effective_status": effective_status,
             "findings": findings,
         })
@@ -2830,6 +2868,136 @@ def _derive_recommended_solution(
     return "IVA_VIABLE"
 
 
+# ---------------------------------------------------------------------------
+# Representative-body vote mapping
+# ---------------------------------------------------------------------------
+# WATCH / TIX / EVOLVE creditors do not have an independent per-creditor vote:
+# their vote is the OUTCOME of their representative body's rules for this case.
+# We derive that outcome from the triggered rule results and stamp it onto each
+# governed creditor's effective_status, so the payload (and the microservice UI)
+# show the true conditional vote instead of the stored base status (ACCEPT).
+#
+# This mirrors case-assessment's CriteriaCheckService._rep_body_outcomes
+# (criteria_check_service.py) so both systems speak the same vocabulary, plus
+# abstain handling (WATCH, client 80+) which that implementation omits.
+
+_REP_BODY_PREFIXES = (
+    ("WATCH-", "WATCH"),
+    ("TIX-", "TIX"),
+    ("EVOLVE-", "EVOLVE"),
+)
+
+# effective_status values representing an explicit non-vote — a representative
+# body outcome must never override these (the creditor isn't casting a ballot).
+_REP_NON_VOTING_STATUSES = frozenset({"DO_NOT_VOTE", "POD_ONLY"})
+
+
+def _rep_body_for_rule(rule_id: str):
+    """Return the representative body a rule_id belongs to, or None."""
+    rid = (rule_id or "").upper()
+    for prefix, body in _REP_BODY_PREFIXES:
+        if rid.startswith(prefix):
+            return body
+    return None
+
+
+def _derive_representative_outcomes(case: dict, hard_blocks: list, flags: list) -> dict:
+    """
+    Collapse each representative body's triggered rules into a single vote.
+
+    Precedence (most severe wins):
+        REJECT        — any WATCH/TIX/EVOLVE hard block triggered
+        ABSTAIN       — WATCH only, client aged 80+ (Watch_Criteria.md / WATCH-22.8)
+        WILL_CONSIDER — a WATCH/TIX/EVOLVE flag triggered (modification/condition)
+        ACCEPT        — body criteria fully satisfied
+
+    NOTE: this faithfully reflects each rule's engine severity. If a rule's
+    severity does not match the truth-source sheet (e.g. a sheet "reject" coded
+    as a flag), that classification flows through here — fix the rule, not this.
+
+    Returns {body: {"status": str, "rule_id": str|None, "message": str|None}}.
+    `hard_blocks`/`flags` already contain only triggered rules (see _run).
+    """
+    # Capture the first triggering rule per body, per severity, for explainability.
+    reject_rule: dict = {}
+    flag_rule: dict = {}
+    for r in hard_blocks:
+        body = _rep_body_for_rule(getattr(r, "rule_id", ""))
+        if body and body not in reject_rule:
+            reject_rule[body] = (r.rule_id, r.message)
+    for r in flags:
+        body = _rep_body_for_rule(getattr(r, "rule_id", ""))
+        if body and body not in flag_rule:
+            flag_rule[body] = (r.rule_id, r.message)
+
+    # WATCH-22.8: client aged 80+ — WATCH abstains rather than votes.
+    watch_abstains = (case.get("client_age") or 0) >= 80
+
+    outcomes = {}
+    for body in ("WATCH", "TIX", "EVOLVE"):
+        if body in reject_rule:
+            rid, msg = reject_rule[body]
+            outcomes[body] = {"status": "REJECT", "rule_id": rid, "message": msg}
+        elif body == "WATCH" and watch_abstains:
+            outcomes[body] = {
+                "status": "ABSTAIN", "rule_id": "WATCH-22.8",
+                "message": "Client aged 80+ — WATCH abstains rather than votes.",
+            }
+        elif body in flag_rule:
+            rid, msg = flag_rule[body]
+            outcomes[body] = {"status": "WILL_CONSIDER", "rule_id": rid, "message": msg}
+        else:
+            outcomes[body] = {"status": "ACCEPT", "rule_id": None, "message": None}
+    return outcomes
+
+
+def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
+    """
+    Stamp each representative creditor's effective_status with its body outcome.
+
+    A per-creditor REJECT (e.g. blocked-until-cleared) and explicit non-voting
+    statuses are never softened or overridden. Abstain is emitted on the wire as
+    DO_NOT_VOTE — a non-vote, excluded from the majority denominator exactly like
+    an abstention — so existing consumers and the UI render it consistently.
+
+    The reason is ALWAYS rewritten on override (the rep body now governs the
+    vote, so a stale per-creditor reason would be misleading) and names the
+    triggering rule. Tolerant of both the rich dict outcome and a bare status
+    string. Idempotent. Detailed per-creditor findings remain in `findings`.
+    """
+    for pos in positions:
+        rep = (pos.get("representative") or "NONE").upper()
+        outcome = outcomes.get(rep)
+        if not outcome:
+            continue
+        if isinstance(outcome, dict):
+            status = outcome.get("status")
+            rule_id = outcome.get("rule_id")
+            message = outcome.get("message")
+        else:  # bare string fallback
+            status, rule_id, message = outcome, None, None
+        if not status or status == "ACCEPT":
+            continue
+
+        current = (pos.get("effective_status") or "").upper()
+        if current in _REP_NON_VOTING_STATUSES or current == "REJECT":
+            continue
+
+        if status == "ABSTAIN":
+            pos["effective_status"] = "DO_NOT_VOTE"
+            pos["reason"] = f"{rep} abstains — client aged 80+ (WATCH-22.8)."
+        else:
+            pos["effective_status"] = status
+            detail = f"{rule_id}: {message}" if (rule_id and message) else f"{rep} {status}"
+            pos["reason"] = f"Vote set by {rep} representative body — {detail}"
+
+        rule_ids = pos.setdefault("rule_ids", [])
+        for tag in (f"REP-{rep}-{status}", rule_id):
+            if tag and tag not in rule_ids:
+                rule_ids.append(tag)
+    return positions
+
+
 def _compute_majority_analysis(case: dict, positions: list, council_positions: list = None, estimated_dividend_pence: int = 0) -> dict:  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
     """Compute whether a 75%-by-value creditor majority is achievable."""
     from debt_app.models import CreditorCriteria
@@ -2844,6 +3012,9 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     for cp in (council_positions or []):  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
         all_positions.append({
             "creditor_name": cp.get("creditor_name") or cp.get("council_name", ""),  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
+            # Preserve the raw Aryza name so the yes-vote fallback can match the
+            # case creditor when the council canonical name differs (e.g. '&'/'and').
+            "original_aryza_name": cp.get("original_aryza_name"),
             "effective_status": cp.get("effective_status", "DO_NOT_VOTE"),
         })
 
@@ -2931,10 +3102,20 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
             if orig_aryza and orig_aryza not in yes_names:
                 yes_names_with_fallback.add(orig_aryza)
         
+        # Match a case creditor to a yes-vote by ANY of its names — the resolved
+        # canonical (creditor_name), the raw original_name, or name. Matching only
+        # the raw name silently dropped councils whose canonical differs from the
+        # raw form (e.g. 'Brighton & Hove' vs 'Brighton and Hove').
+        def _creditor_counts_yes(c):
+            return any(
+                key and key in yes_names_with_fallback
+                for key in (c.get("creditor_name"), c.get("original_name"), c.get("name"))
+            )
+
         voting_debt = sum(
             c["crm_balance"]
             for c in creditors
-            if (c.get("original_name") or c["name"]) in yes_names_with_fallback
+            if _creditor_counts_yes(c)
             and c["name"] not in do_not_vote_names
         )
     else:
@@ -3506,6 +3687,13 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     else:
         overall = "pass"
 
+    # --- Representative-body vote mapping ---
+    # WATCH/TIX/EVOLVE creditors inherit their representative body's vote for this
+    # case (derived from the triggered rules) rather than their stored base status.
+    # Applied before majority/dividend so the voting pool reflects the true votes.
+    representative_outcomes = _derive_representative_outcomes(c, hard_blocks, flags)
+    _apply_representative_outcomes(_all_creditor_positions, representative_outcomes)
+
     # Full list drives majority/dividend analysis (ACCEPT creditors must be counted).
     # Dividend is computed first so estimated_pence can gate CONDITIONAL_VOTER majority votes.
     dividend_analysis = _compute_dividend_analysis(c, _all_creditor_positions)
@@ -3600,6 +3788,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "majority_analysis": majority_analysis,
         "dividend_analysis": dividend_analysis,
         "representatives_detected": detected_representatives,
+        "representative_outcomes": representative_outcomes,
         "sfs_guideline_results": sfs_results,
         "sfs_household_key": hh_key,
         "credit_report_status": credit_report_status,

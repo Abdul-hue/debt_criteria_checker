@@ -148,12 +148,12 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{c.creditor_name || c.name}</div>
-                    {(c.original_aryza_name || c.credit_report_name) && (
-                      <div className="text-xs text-gray-400 mt-0.5">
-                        {c.original_aryza_name || c.credit_report_name}
-                      </div>
-                    )}
+                    <div className="font-medium text-gray-900">{c.original_aryza_name || c.creditor_name || c.name}</div>
+                    {(c.original_aryza_name && c.creditor_name && c.creditor_name !== c.original_aryza_name) ? (
+                      <div className="text-xs text-gray-400 mt-0.5">Matched: {c.creditor_name}</div>
+                    ) : (c.credit_report_name && (
+                      <div className="text-xs text-gray-400 mt-0.5">{c.credit_report_name}</div>
+                    ))}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${repChipClass}`}>
@@ -488,10 +488,10 @@ export default function CriteriaReport({ result }) {
                 {(result?.creditor_positions || []).map((creditor, idx) => (
                   <tr key={idx}>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{creditor.creditor_name || creditor.display_name || creditor.name}</div>
-                      {(creditor.original_aryza_name || (creditor.name && creditor.name !== (creditor.creditor_name || creditor.display_name))) && (
+                      <div className="text-sm font-medium text-gray-900">{creditor.original_aryza_name || creditor.creditor_name || creditor.display_name || creditor.name}</div>
+                      {(creditor.original_aryza_name && creditor.creditor_name && creditor.creditor_name !== creditor.original_aryza_name) && (
                         <div className="text-xs text-gray-400 mt-0.5">
-                          {creditor.original_aryza_name || creditor.name}
+                          Matched: {creditor.creditor_name}
                         </div>
                       )}
                     </td>

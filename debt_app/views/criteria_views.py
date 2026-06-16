@@ -339,18 +339,19 @@ class AssessCaseView(APIView):
             resolved_name = raw_name
             debt_type_override = None
 
-            # CHECK 1 — CouncilRule fuzzy match (partial_ratio ≥ 85)
-            _cr = rfprocess.extractOne(
-                raw_name, council_names, scorer=fuzz.partial_ratio, score_cutoff=85
-            )
-            if _cr:
-                _matched, _score, _ = _cr
+            # CHECK 1 — CouncilRule match (exact + '&'/'and' + suffix-strip).
+            # NB: the old fuzz.partial_ratio>=85 matched on the shared
+            # 'City Council' substring and mis-mapped e.g.
+            # 'Brighton & Hove City Council' -> 'Derby City Council'. Use the same
+            # robust resolver the engine uses at assessment so both agree.
+            from debt_app.criteria_engine import _match_council_rule
+            _council_rule = _match_council_rule(raw_name)
+            if _council_rule is not None:
                 logger.info(
-                    "[COUNCIL MATCH] '%s' → '%s' score=%d — "
-                    "reclassified from type='%s' to council",
-                    raw_name, _matched, _score, debt_type,
+                    "[COUNCIL MATCH] '%s' → '%s' — reclassified from type='%s' to council",
+                    raw_name, _council_rule.council_name, debt_type,
                 )
-                resolved_name = _matched
+                resolved_name = _council_rule.council_name
                 debt_type_override = 'council_tax'
             else:
                 # CHECK 2 — CountyCouncilRouting fuzzy match (partial_ratio ≥ 85)
@@ -626,6 +627,16 @@ class AssessCaseView(APIView):
             logger.warning(f"[ACCEPT RESTORED] '{cname}'")
 
         all_creditor_positions = engine_positions + accept_positions
+
+        # Re-apply representative-body vote mapping over the combined list so any
+        # backfilled (engine-missed) WATCH/TIX/EVOLVE creditor reflects its body's
+        # outcome. Idempotent for engine positions already mapped in assess_case().
+        from debt_app.criteria_engine import _apply_representative_outcomes
+        _apply_representative_outcomes(
+            all_creditor_positions,
+            result.get("representative_outcomes") or {},
+        )
+
         logger.warning(
             f"[POSITIONS TOTAL] {len(engine_positions)} engine + "
             f"{len(accept_positions)} restored = "

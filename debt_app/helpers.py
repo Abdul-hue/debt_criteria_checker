@@ -144,6 +144,11 @@ def get_secured_debt_total(creditors: list) -> float:
 # ---------------------------------------------------------------------------
 
 _RAW_CREDITOR_ALIAS_MAP = {
+    # 'Salaryfinance' is one word in Aryza, so the substring match against the
+    # DB row 'Salary Finance' (two words) misses — alias it explicitly.
+    'salaryfinance': 'Salary Finance',
+    'salaryfinance loan': 'Salary Finance',
+    'salary finance loan': 'Salary Finance',
     'natwest group plc': 'NatWest',
     'natwest plc': 'NatWest',
     'natwest': 'NatWest',
@@ -183,10 +188,10 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'the very group limited (wpm)': 'Very',
     'capital one': 'Capital One',
     'capital one bank (europe) plc': 'Capital One',
-    '118 118 money': '118 118 Money',
+    '118 118 money': '118 Money',
     '118118 money': '118 Money',
     '118 money': '118 Money',
-    'madison cf uk ltd t/a 118 118 money': '118 118 Money',
+    'madison cf uk ltd t/a 118 118 money': '118 Money',
     'creation': 'Creation',
     'creation consumer finance': 'Creation',
     'creation consumer finance ltd': 'Creation Consumer Finance',

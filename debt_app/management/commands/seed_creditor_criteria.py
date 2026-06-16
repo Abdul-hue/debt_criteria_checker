@@ -10,6 +10,7 @@ import re
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from debt_app.models import CreditorCriteria
+from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
 
 # ---------------------------------------------------------------------------
 # Banking group mappings (manual enrichment not in the MD file)
@@ -74,6 +75,32 @@ def _parse_pence(s):
     return None
 
 
+def _parse_status(s):
+    """Maps General_Creditors.md 'Accept / Reject' column to CreditorCriteria.STATUS_CHOICES."""
+    if not s:
+        return None
+    s_lower = s.lower().strip()
+    if any(kw in s_lower for kw in ["do not vote", "pod only", "no voting", "non voter", "not sure how they vote", "unaware how they vote"]):
+        return "DO_NOT_VOTE"
+    elif "will consider" in s_lower:
+        return "WILL_CONSIDER"
+    elif "reject" in s_lower:
+        return "REJECT"
+    elif "accept" in s_lower:
+        return "ACCEPT"
+    elif "conditional" in s_lower:
+        return "CONDITIONAL_VOTER"
+    return None
+
+
+def _resolve_creditor_name(raw_name: str) -> str:
+    """Resolve a raw creditor name to its canonical form using CREDITOR_ALIAS_MAP."""
+    if not raw_name:
+        return raw_name
+    normalised = normalise_creditor_name(raw_name)
+    return CREDITOR_ALIAS_MAP.get(normalised, raw_name.strip())
+
+
 def _parse_strict_sources():
     """Parses Which_Representative_Criteria.md, General_Creditors.md, and Dividends_Criteria.md."""
     criteria_dir = os.path.join(settings.BASE_DIR, "Excel Criteria")
@@ -129,8 +156,30 @@ def _parse_strict_sources():
                     if len(parts) > 1:
                         name = parts[1]
                         if name and name not in ["Creditor", "Group Name", "Entity", "#", "Council"] and not re.match(r"^[- :|]+$", name):
+                            # Extract fields
+                            status = parts[2] if len(parts) > 2 else None
+                            notes = parts[3] if len(parts) > 3 else None
+                            updated_criteria = parts[4] if len(parts) > 4 else None
+                            phone = parts[5] if len(parts) > 5 else None
+                            email = parts[6] if len(parts) > 6 else None
+                            contact = parts[7] if len(parts) > 7 else None
+                            
+                            parsed_status = _parse_status(status)
+                            
                             if name in valid_creditors:
                                 valid_creditors[name]["source"] = "GENERAL_CREDITOR"
+                                if parsed_status:
+                                    valid_creditors[name]["status"] = parsed_status
+                                if notes:
+                                    valid_creditors[name]["criteria_notes"] = notes
+                                if phone:
+                                    valid_creditors[name]["contact_phone"] = phone
+                                if email:
+                                    valid_creditors[name]["contact_email"] = email
+                                if contact:
+                                    valid_creditors[name]["contact_name"] = contact
+                                if updated_criteria:
+                                    valid_creditors[name]["raw_updated_criteria"] = updated_criteria
                             else:
                                 valid_creditors[name] = {
                                     "representative": "NONE",
@@ -138,7 +187,13 @@ def _parse_strict_sources():
                                     "trading_names": [],
                                     "parent_group": None,
                                     "min_dividend_pence": None,
-                                    "dividend_notes": None
+                                    "dividend_notes": None,
+                                    "status": parsed_status,
+                                    "criteria_notes": notes,
+                                    "contact_phone": phone,
+                                    "contact_email": email,
+                                    "contact_name": contact,
+                                    "raw_updated_criteria": updated_criteria
                                 }
 
     # 3. Parse Dividends_Criteria.md
@@ -223,6 +278,18 @@ class Command(BaseCommand):
             }
             if data["parent_group"]:
                 defaults["parent_group"] = data["parent_group"]
+            if "status" in data and data["status"]:
+                defaults["status"] = data["status"]
+            if "criteria_notes" in data and data["criteria_notes"]:
+                defaults["criteria_notes"] = data["criteria_notes"]
+            if "contact_phone" in data and data["contact_phone"]:
+                defaults["contact_phone"] = data["contact_phone"]
+            if "contact_email" in data and data["contact_email"]:
+                defaults["contact_email"] = data["contact_email"]
+            if "contact_name" in data and data["contact_name"]:
+                defaults["contact_name"] = data["contact_name"]
+            if "raw_updated_criteria" in data and data["raw_updated_criteria"]:
+                defaults["raw_updated_criteria"] = data["raw_updated_criteria"]
 
             if dry_run:
                 continue

@@ -81,11 +81,29 @@ class DirectAssessView(View):
                 if not cname:
                     continue
                 if cname.lower() not in positioned_names and original.lower() not in positioned_names:
-                    # Look up representative so it doesn't default to NONE
+                    # Look up representative and CreditorCriteria status so
+                    # engine-missed creditors get the correct vote (e.g. DO_NOT_VOTE
+                    # councils should not default to ACCEPT and inflate voting debt).
                     rep = "NONE"
+                    effective_status = "ACCEPT"
+                    reason = "Creditor accepted — no conditions apply"
                     try:
                         _crit = get_creditor_by_trading_name(cname)
                         rep = _crit.representative or "NONE"
+                        if _crit.status:
+                            _s = (_crit.status or "").upper()
+                            if "DO NOT VOTE" in _s or "DO_NOT_VOTE" in _s:
+                                effective_status = "DO_NOT_VOTE"
+                            elif "POD" in _s:
+                                effective_status = "POD_ONLY"
+                            elif "REJECT" in _s:
+                                effective_status = "REJECT"
+                            elif "WILL_CONSIDER" in _s or "CONSIDER" in _s:
+                                effective_status = "WILL_CONSIDER"
+                            elif "ACCEPT" in _s:
+                                effective_status = "ACCEPT"
+                            if effective_status != "ACCEPT":
+                                reason = _crit.notes or reason
                     except _CC.DoesNotExist:
                         pass
                     accept_positions.append({
@@ -93,14 +111,24 @@ class DirectAssessView(View):
                         "resolved_canonical_name": cname,
                         "original_aryza_name": original if original != cname else None,
                         "representative": rep,
-                        "effective_status": "ACCEPT",
+                        "effective_status": effective_status,
                         "findings": [],
-                        "reason": "Creditor accepted — no conditions apply",
+                        "reason": reason,
                         "rule_ids": [],
                         "balance": float(c.get("balance") or 0),
                     })
             
             result["creditor_positions"] = engine_positions + accept_positions
+
+            # Re-apply representative-body vote mapping over the combined list so
+            # any backfilled (engine-missed) creditor that resolves to a WATCH/TIX/
+            # EVOLVE body also reflects its body's outcome. Idempotent for the
+            # engine positions already mapped inside assess_case().
+            from debt_app.criteria_engine import _apply_representative_outcomes
+            _apply_representative_outcomes(
+                result["creditor_positions"],
+                result.get("representative_outcomes") or {},
+            )
 
             # Determine decision and get recommendation
             hard_blocks = result.get("hard_blocks", [])
@@ -161,6 +189,13 @@ class DirectAssessView(View):
                         "original_aryza_name":    c.get("original_aryza_name"),
                         "resolved_canonical_name": c.get("resolved_canonical_name", ""),
                         "representative":         c.get("representative", "NONE"),
+                        # Rep-body booleans derived from `representative` so
+                        # consumers (CA Tool verification table) can label the
+                        # row without re-deriving against a local copy. Covers
+                        # engine positions and the ACCEPT backfill uniformly.
+                        "is_watch":               (c.get("representative") or "").upper() == "WATCH",
+                        "is_tix":                 (c.get("representative") or "").upper() == "TIX",
+                        "is_evolve":              (c.get("representative") or "").upper() == "EVOLVE",
                         "effective_status":        c.get("effective_status", "UNKNOWN"),
                         "balance":                 float(c.get("balance") or 0),
                         "reason":                  c.get("reason", ""),
