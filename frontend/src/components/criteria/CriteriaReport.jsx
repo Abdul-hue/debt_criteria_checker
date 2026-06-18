@@ -55,6 +55,35 @@ const REPRESENTATIVE_META = {
 const formatCurrency = (val) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(val || 0)
 const formatPence = (val) => `${(val || 0).toFixed(2)}p`
 
+const STATUS_CHIP = {
+  'ACCEPT':           'bg-emerald-100 text-emerald-700',
+  'REJECT':           'bg-red-100 text-red-700',
+  'UNKNOWN':          'bg-gray-100 text-gray-500',
+  'REVIEW':           'bg-amber-100 text-amber-700',
+  'WILL_CONSIDER':    'bg-amber-100 text-amber-700',
+  'DO_NOT_VOTE':      'bg-gray-100 text-gray-600',
+  'CONDITIONAL_VOTER':'bg-blue-100 text-blue-700',
+}
+
+const STATUS_LABEL = {
+  'ACCEPT':           'Accept',
+  'REJECT':           'Reject',
+  'UNKNOWN':          'Unknown',
+  'REVIEW':           'Needs Review',
+  'WILL_CONSIDER':    'Will Consider',
+  'DO_NOT_VOTE':      'Does Not Vote',
+  'CONDITIONAL_VOTER':'Case by Case',
+}
+
+const STATUS_DEFAULT_REASON = {
+  'ACCEPT':           'No conditions or restrictions apply — this creditor is expected to accept the proposal.',
+  'REJECT':           'This creditor has indicated it will reject this proposal based on the case criteria.',
+  'WILL_CONSIDER':    'This creditor will consider the proposal subject to conditions or modifications.',
+  'DO_NOT_VOTE':      'This creditor does not participate in the creditor vote.',
+  'CONDITIONAL_VOTER':'This creditor votes case by case — outcome depends on specific case factors.',
+  'UNKNOWN':          'No criteria record found for this creditor.',
+}
+
 const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
   const meta = { 
     title: rule.title || rule.rule_id, 
@@ -292,6 +321,7 @@ export default function CriteriaReport({ result }) {
   const passed = result?.passed || []
   const total = hard_blocks.length + flags.length + passed.length
 
+  const [statusPopup, setStatusPopup] = useState(null)
   const [activeTab, setActiveTab] = useState(hard_blocks.length > 0 ? 'failed' : 'all')
   const [expandedRules, setExpandedRules] = useState(() => {
     const expanded = {}
@@ -520,21 +550,16 @@ export default function CriteriaReport({ result }) {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {(() => {
-                        const STATUS_CHIP = {
-                          'ACCEPT': 'bg-emerald-100 text-emerald-700',
-                          'REJECT': 'bg-red-100 text-red-700',
-                          'UNKNOWN': 'bg-gray-100 text-gray-500',
-                          'REVIEW': 'bg-amber-100 text-amber-700',
-                          'WILL_CONSIDER': 'bg-amber-100 text-amber-700',
-                          'DO_NOT_VOTE': 'bg-gray-100 text-gray-600',
-                          'CONDITIONAL_VOTER': 'bg-blue-100 text-blue-700',
-                        }
                         const statusKey = (creditor.effective_status || '').toUpperCase().trim()
                         const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
                         return (
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${chipClass}`}>
-                            {statusKey || 'UNKNOWN'}
-                          </span>
+                          <button
+                            onClick={() => setStatusPopup({ creditor, idx })}
+                            className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:opacity-80 transition-opacity ${chipClass}`}
+                            title="Click for details"
+                          >
+                            {STATUS_LABEL[statusKey] || statusKey || 'UNKNOWN'}
+                          </button>
                         )
                       })()}
                     </td>
@@ -595,9 +620,9 @@ export default function CriteriaReport({ result }) {
       {/* SECTION D — RULE CARDS */}
       <div className="space-y-4">
         {filteredResults.map((rule, idx) => (
-          <RuleCard 
-            key={`${rule.rule_id}-${idx}`} 
-            rule={rule} 
+          <RuleCard
+            key={`${rule.rule_id}-${idx}`}
+            rule={rule}
             isExpanded={expandedRules[rule.rule_id]}
             onToggle={() => toggleRule(rule.rule_id)}
             creditorPositions={result?.creditor_positions || []}
@@ -609,6 +634,84 @@ export default function CriteriaReport({ result }) {
           </div>
         )}
       </div>
+
+      {/* STATUS REASON POPUP */}
+      {statusPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setStatusPopup(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-6 max-w-md w-full mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <div className="text-base font-bold text-gray-900">
+                  {statusPopup.creditor.original_aryza_name || statusPopup.creditor.creditor_name}
+                </div>
+                {statusPopup.creditor.original_aryza_name && statusPopup.creditor.creditor_name &&
+                  statusPopup.creditor.creditor_name !== statusPopup.creditor.original_aryza_name && (
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      Matched: {statusPopup.creditor.creditor_name}
+                    </div>
+                  )}
+              </div>
+              <button
+                onClick={() => setStatusPopup(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors ml-4 flex-shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Status badge + rep */}
+            <div className="flex items-center gap-2 mb-4">
+              {(() => {
+                const statusKey = (statusPopup.creditor.effective_status || '').toUpperCase().trim()
+                const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
+                return (
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${chipClass}`}>
+                    {STATUS_LABEL[statusKey] || statusKey || 'UNKNOWN'}
+                  </span>
+                )
+              })()}
+              {statusPopup.creditor.representative && statusPopup.creditor.representative !== 'NONE' && (
+                <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight bg-blue-50 text-blue-600 border border-blue-100">
+                  {statusPopup.creditor.representative}
+                </span>
+              )}
+            </div>
+
+            {/* Reason */}
+            <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 leading-relaxed">
+              {statusPopup.creditor.reason ||
+                STATUS_DEFAULT_REASON[(statusPopup.creditor.effective_status || '').toUpperCase()] ||
+                'No additional information available.'}
+            </div>
+
+            {/* Findings */}
+            {statusPopup.creditor.findings?.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Conditions / Flags</div>
+                {statusPopup.creditor.findings.map((f, i) => (
+                  <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    <span className="font-semibold text-amber-600 mr-1.5">{f.code}:</span>
+                    {f.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Balance */}
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+              <span>Balance</span>
+              <span className="font-semibold text-gray-800">{formatCurrency(statusPopup.creditor.balance)}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

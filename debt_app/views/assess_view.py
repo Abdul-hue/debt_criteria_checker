@@ -13,6 +13,16 @@ from debt_app.recommendation_engine import get_recommendation
 logger = logging.getLogger(__name__)
 
 
+def _council_default_reason(name: str, status: str) -> str:
+    if status == "ACCEPT":
+        return f"{name} — council tax debt accepted into the IVA under standard terms"
+    if status == "REJECT":
+        return f"{name} — council creditor rejects inclusion in this IVA proposal"
+    if status == "DO_NOT_VOTE":
+        return f"{name} — council creditor does not participate in the creditor vote"
+    return f"{name} — council creditor status calculated by council rules engine"
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class DirectAssessView(View):
     """
@@ -57,11 +67,14 @@ class DirectAssessView(View):
             detected_reps = detect_representatives(creditors)
             result = assess_case(case_json, detected_reps)
 
-            # STEP 7 — Add back ACCEPT creditors filtered out by engine
+            # STEP 7 — Surface any creditors the engine did not position.
+            # Voter status is always a calculated output from the engine — never defaulted.
+            # Council creditors are handled by _check_council_rules and appear in
+            # council_positions, not creditor_positions — look them up there first.
+            # Anything genuinely unrecognised is marked UNKNOWN for manual review.
             engine_positions = result.get("creditor_positions", [])
-            # Match by canonical name OR by Aryza raw name to prevent duplicate
-            # positions when the engine resolved an abbreviated name to its full
-            # DB canonical (e.g. "Lowell" → "Lowell Financial").
+            council_positions = result.get("council_positions", [])
+
             positioned_names = {
                 p.get("creditor_name", "").strip().lower()
                 for p in engine_positions
@@ -71,54 +84,54 @@ class DirectAssessView(View):
                 if p.get("original_aryza_name")
             }
 
-            from debt_app.helpers import get_creditor_by_trading_name
-            from debt_app.models import CreditorCriteria as _CC
+            # Build a lookup from council_positions by council_name / creditor_name
+            council_by_name = {}
+            for cp in council_positions:
+                for key in (cp.get("creditor_name"), cp.get("council_name")):
+                    if key:
+                        council_by_name[key.strip().lower()] = cp
 
-            accept_positions = []
+            missed_positions = []
             for c in creditors:
                 cname = (c.get("creditor_name") or "").strip()
                 original = (c.get("name") or c.get("original_name") or cname).strip()
                 if not cname:
                     continue
-                if cname.lower() not in positioned_names and original.lower() not in positioned_names:
-                    # Look up representative and CreditorCriteria status so
-                    # engine-missed creditors get the correct vote (e.g. DO_NOT_VOTE
-                    # councils should not default to ACCEPT and inflate voting debt).
-                    rep = "NONE"
-                    effective_status = "ACCEPT"
-                    reason = "Creditor accepted — no conditions apply"
-                    try:
-                        _crit = get_creditor_by_trading_name(cname)
-                        rep = _crit.representative or "NONE"
-                        if _crit.status:
-                            _s = (_crit.status or "").upper()
-                            if "DO NOT VOTE" in _s or "DO_NOT_VOTE" in _s:
-                                effective_status = "DO_NOT_VOTE"
-                            elif "POD" in _s:
-                                effective_status = "POD_ONLY"
-                            elif "REJECT" in _s:
-                                effective_status = "REJECT"
-                            elif "WILL_CONSIDER" in _s or "CONSIDER" in _s:
-                                effective_status = "WILL_CONSIDER"
-                            elif "ACCEPT" in _s:
-                                effective_status = "ACCEPT"
-                            if effective_status != "ACCEPT":
-                                reason = _crit.notes or reason
-                    except _CC.DoesNotExist:
-                        pass
-                    accept_positions.append({
+                if cname.lower() in positioned_names or original.lower() in positioned_names:
+                    continue
+
+                # Check if the council engine already calculated a status for this creditor
+                council_pos = council_by_name.get(cname.lower()) or council_by_name.get(original.lower())
+                if council_pos:
+                    missed_positions.append({
+                        "creditor_name": cname,
+                        "resolved_canonical_name": council_pos.get("council_name") or cname,
+                        "original_aryza_name": original if original != cname else None,
+                        "representative": "NONE",
+                        "effective_status": council_pos.get("effective_status", "UNKNOWN"),
+                        "findings": council_pos.get("findings", []),
+                        "reason": (
+                            council_pos.get("findings", [{}])[0].get("reason", "")
+                            if council_pos.get("findings")
+                            else _council_default_reason(cname, council_pos.get("effective_status", "UNKNOWN"))
+                        ),
+                        "rule_ids": [f.get("code", "") for f in council_pos.get("findings", [])],
+                        "balance": float(c.get("balance") or 0),
+                    })
+                else:
+                    missed_positions.append({
                         "creditor_name": cname,
                         "resolved_canonical_name": cname,
                         "original_aryza_name": original if original != cname else None,
-                        "representative": rep,
-                        "effective_status": effective_status,
+                        "representative": "NONE",
+                        "effective_status": "UNKNOWN",
                         "findings": [],
-                        "reason": reason,
-                        "rule_ids": [],
+                        "reason": "Creditor was not assessed by the engine — manual review required",
+                        "rule_ids": ["CREDITOR-NOT-ASSESSED"],
                         "balance": float(c.get("balance") or 0),
                     })
-            
-            result["creditor_positions"] = engine_positions + accept_positions
+
+            result["creditor_positions"] = engine_positions + missed_positions
 
             # Re-apply representative-body vote mapping over the combined list so
             # any backfilled (engine-missed) creditor that resolves to a WATCH/TIX/

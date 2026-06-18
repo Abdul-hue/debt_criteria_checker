@@ -2348,13 +2348,50 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                 "reason": f"{name}: fraud claim risk noted — caseworker review required before proposing",
             })
 
-        effective_status = "REJECT" if reject_level else _STATUS_NORMALISE.get(criteria.status, criteria.status)
+        # For representative-body creditors (WATCH/TIX/EVOLVE) the voter status is
+        # determined entirely by _apply_representative_outcomes from the rules that
+        # fired — criteria.status is an invisible DB default (always ACCEPT) and must
+        # not be used. For non-representative creditors (NONE) criteria.status IS the
+        # explicit position set by the seeding team (e.g. WILL_CONSIDER, DO_NOT_VOTE).
+        _rep = (criteria.representative or "NONE").upper()
+        if reject_level:
+            effective_status = "REJECT"
+        elif _rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS"):
+            effective_status = "PENDING_REP_OUTCOME"  # overwritten by _apply_representative_outcomes
+        else:
+            effective_status = _STATUS_NORMALISE.get(criteria.status, criteria.status)
 
         canonical = criteria.creditor_name
 
         # Ensure consistent naming for UI:
         # creditor_name should be the canonical/resolved name
         # original_aryza_name should be the raw name from Aryza
+        rep = criteria.representative or "NONE"
+        if not findings:
+            if effective_status == "PENDING_REP_OUTCOME":
+                _default_reason = ""  # will be set by _apply_representative_outcomes
+            elif effective_status == "ACCEPT":
+                _default_reason = f"{canonical} — no rejection conditions apply for this case"
+            elif effective_status == "WILL_CONSIDER":
+                _default_reason = (
+                    criteria.dividend_notes or
+                    f"{canonical} reviews each IVA proposal individually — no automatic accept or reject position"
+                )
+            elif effective_status == "DO_NOT_VOTE":
+                _default_reason = (
+                    criteria.dividend_notes or
+                    f"{canonical} does not participate in the creditor vote"
+                )
+            elif effective_status == "CONDITIONAL_VOTER":
+                _default_reason = (
+                    criteria.dividend_notes or
+                    f"{canonical} votes conditionally — outcome depends on dividend and case-specific factors"
+                )
+            else:
+                _default_reason = criteria.dividend_notes or ""
+        else:
+            _default_reason = criteria.dividend_notes or ""
+
         positions.append({
             "creditor_name": canonical,
             "display_name": None,  # UI will fallback to creditor_name (canonical)
@@ -2363,7 +2400,7 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             "representative": criteria.representative or "NONE",
             "effective_status": effective_status,
             "findings": findings,
-            "reason": findings[0]["reason"] if findings else (criteria.dividend_notes or ""),
+            "reason": findings[0]["reason"] if findings else _default_reason,
             "rule_ids": [f["code"] for f in findings],
             "balance": balance,
         })
@@ -2976,11 +3013,25 @@ def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
             message = outcome.get("message")
         else:  # bare string fallback
             status, rule_id, message = outcome, None, None
-        if not status or status == "ACCEPT":
+        current = (pos.get("effective_status") or "").upper()
+
+        # Never soften a per-creditor hard reject or non-voting status.
+        if current in _REP_NON_VOTING_STATUSES or current == "REJECT":
             continue
 
-        current = (pos.get("effective_status") or "").upper()
-        if current in _REP_NON_VOTING_STATUSES or current == "REJECT":
+        # PENDING_REP_OUTCOME means the engine deferred to the rep body — always overwrite.
+        # For a genuine ACCEPT outcome (no rules fired) also always write the reason.
+        if status == "ACCEPT" or current == "PENDING_REP_OUTCOME":
+            if status == "ABSTAIN":
+                pos["effective_status"] = "DO_NOT_VOTE"
+                pos["reason"] = f"{rep} abstains — client aged 80+ (WATCH-22.8)."
+            elif status == "ACCEPT":
+                pos["effective_status"] = "ACCEPT"
+                pos["reason"] = f"Accepted by {rep} representative — no blocks or conditions triggered for this case"
+            else:
+                pos["effective_status"] = status
+                detail = f"{rule_id}: {message}" if (rule_id and message) else f"{rep} {status}"
+                pos["reason"] = f"Vote set by {rep} representative body — {detail}"
             continue
 
         if status == "ABSTAIN":
@@ -3525,6 +3576,15 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
             assessment_date=c["assessment_date"],
         )
 
+    # Load disabled rule_keys once — single DB query for the whole assessment.
+    try:
+        from debt_app.models import GlobalCriteria as _GC
+        _disabled_rules: frozenset = frozenset(
+            _GC.objects.filter(is_active=False).values_list("rule_key", flat=True)
+        )
+    except Exception:
+        _disabled_rules = frozenset()
+
     hard_blocks: list[RuleResult] = []
     flags: list[RuleResult] = []
     info: list[RuleResult] = []
@@ -3541,6 +3601,9 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 triggered=True,
                 message=f"Rule evaluation error: {exc}",
             )
+        # Silently discard results for rules disabled in the DB (is_active=False).
+        if r.rule_id in _disabled_rules:
+            return
         if r.severity == "hard_block" and r.triggered:
             hard_blocks.append(r)
         elif r.severity == "flag" and r.triggered:
@@ -3671,13 +3734,14 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         _route(r)
 
     # Add any credit report required flags emitted by _enrich_from_credit_report
-    for _cr_flag in c.get("credit_report_flags", []):
-        flags.append(RuleResult(
-            rule_id="CREDIT-REPORT-REQUIRED",
-            severity="flag",
-            triggered=True,
-            message=_cr_flag["message"],
-        ))
+    if "CREDIT-REPORT-REQUIRED" not in _disabled_rules:
+        for _cr_flag in c.get("credit_report_flags", []):
+            flags.append(RuleResult(
+                rule_id="CREDIT-REPORT-REQUIRED",
+                severity="flag",
+                triggered=True,
+                message=_cr_flag["message"],
+            ))
 
     # --- Overall result ---
     if hard_blocks:

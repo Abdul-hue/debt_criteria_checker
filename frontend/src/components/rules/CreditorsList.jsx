@@ -107,19 +107,16 @@ export default function CreditorsList() {
 
   const [search, setSearch] = useState('')
   const [repFilter, setRepFilter] = useState([])
-  const [statusFilter, setStatusFilter] = useState([])
   const [editTarget, setEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
 
-  const toggleRep    = (val) => setRepFilter(prev    => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
-  const toggleStatus = (val) => setStatusFilter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
+  const toggleRep = (val) => setRepFilter(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
 
   const filtered = (creditors ?? [])
     .filter(c => c.representative !== 'NONE') // Only show creditors with a representative
     .filter(c => !search || c.creditor_name.toLowerCase().includes(search.toLowerCase()) ||
       (c.trading_names ?? []).some(n => n.toLowerCase().includes(search.toLowerCase())))
-    .filter(c => repFilter.length    === 0 || repFilter.includes(c.representative))
-    .filter(c => statusFilter.length === 0 || statusFilter.includes(c.status))
+    .filter(c => repFilter.length === 0 || repFilter.includes(c.representative))
 
   // Stats
   const repCounts = (creditors ?? []).reduce((acc, c) => {
@@ -192,21 +189,12 @@ export default function CreditorsList() {
               <button onClick={() => setRepFilter([])} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">Clear</button>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-gray-400 font-medium">Voting behaviour:</span>
-            {Object.keys(STATUS_CONFIG).map(s => (
-              <StatusChip key={s} status={s} active={statusFilter.includes(s)} onClick={() => toggleStatus(s)} />
-            ))}
-            {statusFilter.length > 0 && (
-              <button onClick={() => setStatusFilter([])} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">Clear</button>
-            )}
-          </div>
         </div>
       </div>
 
       {/* ── Help text ─────────────────────────────────────────────────────── */}
       <p className="text-xs text-gray-400">
-        Click any row to view or edit that creditor's criteria. The coloured bar on the left shows their voting behaviour.
+        Click any row to view or edit that creditor's criteria.
       </p>
 
       {/* ── Table ─────────────────────────────────────────────────────────── */}
@@ -216,7 +204,6 @@ export default function CreditorsList() {
             <tr className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <th className="pl-4 pr-3 py-3 min-w-[200px]">Creditor Name</th>
               <th className="px-3 py-3 w-[160px]">Which Representative</th>
-              <th className="px-3 py-3 w-[150px]">Voting Behaviour</th>
               <th className="px-3 py-3 min-w-[160px]">Trading Names</th>
               <th className="px-3 py-3 w-[100px]">Min Dividend</th>
               <th className="px-3 py-3 min-w-[180px]">Notes</th>
@@ -256,11 +243,6 @@ export default function CreditorsList() {
                       <RepBadge rep={creditor.representative} />
                     </td>
 
-                    {/* Voting behaviour */}
-                    <td className="px-3 py-3">
-                      <StatusBadge status={creditor.status} />
-                    </td>
-
                     {/* Trading names */}
                     <td className="px-3 py-3 max-w-[180px]" onClick={e => e.stopPropagation()}>
                       {creditor.trading_names?.length > 0
@@ -297,7 +279,7 @@ export default function CreditorsList() {
               })
             ) : (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center">
+                <td colSpan={6} className="px-4 py-12 text-center">
                   <p className="text-sm text-gray-500 font-medium">No creditors found</p>
                   <p className="text-xs text-gray-400 mt-1">
                     {search ? `No creditors match "${search}"` : 'Try clearing your filters'}

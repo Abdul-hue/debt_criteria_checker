@@ -1,17 +1,18 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useRules } from '../../hooks/useRules'
+import { useRules, usePatchRule } from '../../hooks/useRules'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import RuleEditDrawer from './RuleEditDrawer'
 import RuleDetailDrawer from './RuleDetailDrawer'
-import { 
-  Search, 
-  ChevronDown, 
-  ChevronUp, 
-  Pencil, 
-  Eye, 
-  ExternalLink 
+import {
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Eye,
+  ExternalLink,
+  Power
 } from 'lucide-react'
 
 const RULE_META = { 
@@ -75,6 +76,17 @@ export default function RulesList() {
   const navigate = useNavigate()
   const { token } = useAuth()
   const { data: rules, isLoading, error } = useRules()
+  const { mutate: patchRule, isPending: isToggling } = usePatchRule()
+  const [togglingKey, setTogglingKey] = useState(null)
+
+  function handleToggle(e, rule) {
+    e.stopPropagation()
+    setTogglingKey(rule.rule_key)
+    patchRule(
+      { ruleKey: rule.rule_key, is_active: !rule.is_active },
+      { onSettled: () => setTogglingKey(null) }
+    )
+  }
   
   const [search, setSearch] = useState('')
   const [criteriaFilter, setCriteriaFilter] = useState([])
@@ -222,11 +234,12 @@ export default function RulesList() {
       {/* RULE TABLE */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Table Header */}
-        <div className="grid grid-cols-[1fr_120px_140px_120px_40px] gap-4 px-6 py-3 border-b border-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+        <div className="grid grid-cols-[1fr_120px_140px_120px_90px_40px] gap-4 px-6 py-3 border-b border-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
           <div>Rule Name</div>
           <div>Criteria Set</div>
           <div>Severity</div>
           <div>Category</div>
+          <div>Status</div>
           <div></div>
         </div>
 
@@ -249,15 +262,12 @@ export default function RulesList() {
                       fetchRuleHistory(rule.rule_key);
                     }
                   }}
-                  className="grid grid-cols-[1fr_120px_140px_120px_40px] gap-4 px-6 py-4 items-center cursor-pointer hover:bg-gray-50/50 transition-colors group"
+                  className="grid grid-cols-[1fr_120px_140px_120px_90px_40px] gap-4 px-6 py-4 items-center cursor-pointer hover:bg-gray-50/50 transition-colors group"
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-[3px] h-6 rounded-full ${sev.bar}`} />
                     <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">{rule.name}</span>
-                        {!isActive && <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-1.5 py-0.5 rounded">INACTIVE</span>}
-                      </div>
+                      <span className="text-sm font-semibold text-gray-900">{rule.name}</span>
                       <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded w-fit mt-1">{rule.rule_key}</span>
                     </div>
                   </div>
@@ -273,6 +283,21 @@ export default function RulesList() {
                   </div>
                   <div className="text-xs text-gray-600 font-medium">
                     {rule.category || 'Other'}
+                  </div>
+                  {/* Status toggle */}
+                  <div onClick={e => handleToggle(e, rule)}>
+                    <button
+                      disabled={togglingKey === rule.rule_key}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border transition-all
+                        ${togglingKey === rule.rule_key ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
+                        ${isActive
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'
+                        }`}
+                    >
+                      <Power className="w-3 h-3" />
+                      {isActive ? 'Active' : 'Disabled'}
+                    </button>
                   </div>
                   <div className="flex justify-end">
                     {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />}
