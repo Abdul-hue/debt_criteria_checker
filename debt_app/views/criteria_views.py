@@ -6,7 +6,8 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.conf import settings as django_settings
+from rest_framework.permissions import BasePermission, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
@@ -2142,8 +2143,21 @@ class ExpenditureGuidelineDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class _InternalKeyOrAuthenticated(BasePermission):
+    """
+    Grants access when a valid X-Internal-Key header is present (service-to-service),
+    or when the request carries a valid JWT (human user via browser/API).
+    """
+    def has_permission(self, request, view):
+        internal_key = request.headers.get("X-Internal-Key", "")
+        expected = getattr(django_settings, "DEBT_CRITERIA_INTERNAL_KEY", "")
+        if internal_key and expected and internal_key == expected:
+            return True
+        return bool(request.user and request.user.is_authenticated)
+
+
 class CreditReportUploadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [_InternalKeyOrAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -2182,11 +2196,13 @@ class CreditReportUploadView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        # uploaded_by is nullable — None when the request comes from the internal service key
+        uploader = request.user if (request.user and request.user.is_authenticated) else None
         record = CreditReport.objects.create(
             aryza_reference=aryza_reference,
             uploaded_file=uploaded_file,
             extraction_status="pending",
-            uploaded_by=request.user,
+            uploaded_by=uploader,
         )
 
         try:
@@ -2231,6 +2247,7 @@ class CreditReportUploadView(APIView):
                 "accounts_found": len(result.get("accounts", [])),
                 "client_name_on_report": record.client_name_on_report,
                 "unmatched_accounts": result.get("unmatched_accounts", []),
+                "accounts": result.get("accounts", []),
                 "message": "Credit report uploaded and extracted successfully",
             })
 

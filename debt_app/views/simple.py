@@ -29,11 +29,14 @@ class AssessView(View):
             )
 
         # Ensure name -> creditor_name mapping for engine (non-destructive)
-        # Apply alias map for better representative detection
-        from debt_app.helpers import CREDITOR_ALIAS_MAP
+        # Apply alias map for better representative detection.
+        # CREDITOR_ALIAS_MAP keys are pre-normalised via normalise_creditor_name()
+        # (legal suffixes stripped), so we must normalise before lookup or names
+        # like "MBNA Limited" would miss the "mbna" key and go unresolved.
+        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
         for c in body.get("creditors") or []:
             raw_name = c.get("name") or c.get("creditor_name") or ""
-            normalized = raw_name.strip().lower()
+            normalized = normalise_creditor_name(raw_name)
             resolved = CREDITOR_ALIAS_MAP.get(normalized, raw_name)
             
             c["creditor_name"] = resolved

@@ -9,6 +9,10 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-key')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
+# Shared secret for internal service-to-service calls from case assessment.
+# Set via DEBT_CRITERIA_INTERNAL_KEY in .env — must match the key in the main project.
+DEBT_CRITERIA_INTERNAL_KEY = os.environ.get('DEBT_CRITERIA_INTERNAL_KEY', '')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
