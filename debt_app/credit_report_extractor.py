@@ -150,12 +150,15 @@ def _parse_amount(text: str) -> int | None:
     """
     Parse a sterling amount string → pence integer.
     Handles: "£8,039", "£8039", "8039", "-£30"
+    Also handles inline fields like "£106098 Last Update: 2025-12-31" by
+    taking only the first whitespace-delimited token.
     Returns None for "N/A", "-", empty, or unparseable.
     """
     if not text:
         return None
-    t = text.strip().replace(",", "").replace("£", "").replace(" ", "")
-    if t in ("N/A", "-", "n/a", ""):
+    first_token = text.strip().split()[0] if text.strip() else ""
+    t = first_token.replace(",", "").replace("£", "")
+    if t.upper() in ("N/A", "-", ""):
         return None
     try:
         return int(round(float(t) * 100))
