@@ -320,6 +320,40 @@ def _determine_account_status(lines: list[str], default_balance: int | None) -> 
     return "open"
 
 
+def _extract_monthly_payment_pence(lines: list[str]) -> int | None:
+    """
+    Extract the most recent monthly payment from the Payment Amount section (in pence).
+    Returns None if the section is absent or all values are dashes.
+    """
+    in_payment_section = False
+    year_re = re.compile(r"^(\d{4})\s+(.+)$")
+    most_recent_payments: list[str] = []
+    best_year = 0
+
+    for line in lines:
+        if "Payment Amount" in line:
+            in_payment_section = True
+            continue
+        if not in_payment_section:
+            continue
+        if re.match(r"^[A-Z][a-z]+ [A-Z]", line) and "£" not in line:
+            break
+        m = year_re.match(line.strip())
+        if m:
+            yr = int(m.group(1))
+            if yr > best_year:
+                best_year = yr
+                most_recent_payments = m.group(2).split()
+
+    for val in reversed(most_recent_payments):
+        if val == "-":
+            continue
+        amt = _parse_amount(val)
+        if amt and amt > 0:
+            return amt
+    return None
+
+
 def _has_recent_spending(lines: list[str]) -> bool:
     """
     Detect recent spending (last 3 months) from the Payment Amount grid.
@@ -412,13 +446,6 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     raw_name = m.group(1).strip()
     type_code = m.group(2).strip()
 
-    # Always skip mortgages — secured debt, never in IVA
-    if type_code == "MG":
-        logger.debug(
-            f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='' — excluded from extraction"
-        )
-        return None
-
     lines = block_text.split("\n")
 
     # --- Core fields ---
@@ -452,11 +479,17 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     # --- Recent spending ---
     recent_spending = _has_recent_spending(lines)
 
+    # --- Monthly payment (from Payment Amount section) ---
+    monthly_payment = _extract_monthly_payment_pence(lines)
+
     # --- Name resolution ---
     normalised = raw_name.lower().strip()
     matched = CREDITOR_ALIAS_MAP.get(normalised, raw_name)
 
     # --- Conditional type code filtering ---
+
+    # MG: mortgage accounts are always included for asset reconciliation
+    # (not counted as unsecured IVA debt — separated by caller)
 
     # BD: include only if balance > 0
     if type_code == "BD":
@@ -492,6 +525,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
         "payment_history_months": payment_history_months,
+        "monthly_payment": monthly_payment,
     }
 
 
@@ -527,24 +561,30 @@ def extract_credit_report(pdf_path: str) -> dict:
         blocks = _split_into_account_blocks(full_text)
 
         accounts: list[dict] = []
+        mortgage_accounts: list[dict] = []
         unmatched: list[str] = []
 
         for header, block_text in blocks:
             parsed = _parse_account_block(header, block_text)
             if parsed is None:
-                continue  # skipped type (mortgage, current account, utility)
+                continue  # skipped type (current account up-to-date, utility, BD zero-balance)
 
-            accounts.append(parsed)
-
-            # Track unmatched: where matched_creditor == raw_name (no alias hit)
-            if parsed["matched_creditor"] == parsed["raw_name"]:
-                unmatched.append(parsed["raw_name"])
+            if parsed["type_code"] == "MG":
+                # Mortgages are secured — excluded from IVA criteria but
+                # included separately so the case assessment app can compare
+                # them against CRM property data in the Assets & Property section.
+                mortgage_accounts.append(parsed)
+            else:
+                accounts.append(parsed)
+                if parsed["matched_creditor"] == parsed["raw_name"]:
+                    unmatched.append(parsed["raw_name"])
 
         return {
             "agency": agency,
             "client_name": client_name,
             "report_date": report_date,
             "accounts": accounts,
+            "mortgage_accounts": mortgage_accounts,
             "unmatched_accounts": unmatched,
         }
 

@@ -2248,6 +2248,7 @@ class CreditReportUploadView(APIView):
                 "client_name_on_report": record.client_name_on_report,
                 "unmatched_accounts": result.get("unmatched_accounts", []),
                 "accounts": result.get("accounts", []),
+                "mortgage_accounts": result.get("mortgage_accounts", []),
                 "message": "Credit report uploaded and extracted successfully",
             })
 
