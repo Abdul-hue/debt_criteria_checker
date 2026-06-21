@@ -3742,6 +3742,97 @@ def detect_representatives(creditors: list, assessment_date: Optional[date] = No
 # Credit report enrichment
 # ---------------------------------------------------------------------------
 
+def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) -> list:
+    """
+    Cross-checks Aryza property data against credit report mortgage accounts.
+    Mutates c in place; returns a list of RuleResult flags for caseworker review.
+
+    Three cases (Theresa Topp gap fix, case 324991):
+      Case 1 – Aryza property tables empty + credit report has mortgage account(s):
+               populate mortgage_balance as fallback, flag for caseworker.
+               property_value is NOT set (credit reports show debt, not market value)
+               — available_equity is left as None, triggering [RULE-CANNOT-EVALUATE]
+               in all equity rules rather than silently passing.
+      Case 2 – Aryza has property data: no action, Aryza wins.
+      Case 3 – Both sources present and disagree by > £50: use higher balance
+               conservatively, flag with both values for caseworker verification.
+    """
+    findings = []
+
+    cr_mortgage_accounts = credit_report_data.get("mortgage_accounts") or []
+    if not cr_mortgage_accounts:
+        return findings
+
+    # current_balance from extractor is in pence — convert to pounds
+    cr_mortgage_balance = sum(
+        (acct.get("current_balance") or 0) for acct in cr_mortgage_accounts
+    ) / 100.0
+
+    aryza_has_property = bool(c.get("has_property"))
+    aryza_mortgage_balance = float(c.get("mortgage_balance") or 0.0)
+    aryza_has_data = aryza_has_property or aryza_mortgage_balance > 0
+
+    if not aryza_has_data:
+        # Case 1 — Aryza property tables empty, credit report has mortgage account(s).
+        # type_code "MG" in Experian/Aryza Advize reports always means a mortgage
+        # secured against property — inferring has_property=True is safe.
+        c["has_property"] = True
+        c["mortgage_balance"] = cr_mortgage_balance
+        # No property valuation signal exists in credit report data — only the debt
+        # balance is present. Leave property_value as None so the existing
+        # [RULE-CANNOT-EVALUATE] path in every equity rule fires correctly rather
+        # than computing a spurious equity figure from a 0-valued property.
+        c["available_equity"] = None
+        c["property_data_source"] = "credit_report_fallback"
+
+        acct_names = ", ".join(
+            (acct.get("raw_name") or acct.get("matched_creditor") or "unknown lender")
+            for acct in cr_mortgage_accounts
+        )
+        findings.append(RuleResult(
+            rule_id="PROPERTY-DATA-FROM-CREDIT-REPORT",
+            severity="flag",
+            triggered=True,
+            message=(
+                f"Credit report shows mortgage account(s) ({acct_names}) with total balance "
+                f"£{cr_mortgage_balance:,.2f}, but Aryza property tables were empty for this "
+                "case. Using credit report mortgage balance as fallback; property value is "
+                "unknown. Caseworker must verify actual property ownership and obtain current "
+                "valuation before equity rules can be evaluated."
+            ),
+        ))
+
+    elif cr_mortgage_balance > 0:
+        # Case 3 — both sources have mortgage data: check for significant disagreement.
+        diff = abs(aryza_mortgage_balance - cr_mortgage_balance)
+        if diff > 50.0:
+            higher = max(aryza_mortgage_balance, cr_mortgage_balance)
+            higher_source = (
+                "Aryza" if aryza_mortgage_balance >= cr_mortgage_balance else "credit report"
+            )
+            c["mortgage_balance"] = higher
+            # Recompute available_equity with the corrected balance where property
+            # value is known; leave None if property_value is absent.
+            pv = c.get("property_value")
+            if pv is not None:
+                c["available_equity"] = _parse_amount(pv) - higher
+            findings.append(RuleResult(
+                rule_id="PROPERTY-DATA-CONFLICT",
+                severity="flag",
+                triggered=True,
+                message=(
+                    f"Mortgage balance conflict: Aryza mortgage_balance=£{aryza_mortgage_balance:,.2f}, "
+                    f"credit report mortgage_balance=£{cr_mortgage_balance:,.2f} "
+                    f"(difference £{diff:,.2f}). "
+                    f"Using higher value conservatively (£{higher:,.2f} from {higher_source}). "
+                    "Caseworker must verify actual balance."
+                ),
+            ))
+    # Case 2 — Aryza has data and credit report agrees or has no mortgage: no action.
+
+    return findings
+
+
 def _enrich_from_credit_report(case_data: dict) -> str:
     """
     Looks up CreditReport by aryza_reference from case_data and enriches
@@ -3786,6 +3877,15 @@ def _enrich_from_credit_report(case_data: dict) -> str:
             case_data["credit_report_public_information"] = (
                 _ccj_report.extracted_data.get("public_information") or {}
             )
+
+        # Cross-check Aryza property data against credit report mortgage accounts.
+        # Uses same fallback pattern as has_ccj above — works on any available report,
+        # not just fully-extracted ones, since mortgage_accounts may be present even
+        # when unsecured account extraction partially failed.
+        _prop_cr_data = (_ccj_report.extracted_data or {}) if _ccj_report else {}
+        _prop_findings = _cross_check_property_from_credit_report(case_data, _prop_cr_data)
+        if _prop_findings:
+            case_data["property_report_findings"] = _prop_findings
 
         if status == "present":
             accounts = report.extracted_data["accounts"]
@@ -4174,6 +4274,31 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         _route(_r)  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
     council_positions.extend(_county_positions)  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
 
+    # TIG-17 propagation: when a council will reject due to active income/benefit
+    # deductions, override effective_status to REJECT so majority analysis reflects
+    # the true NO vote rather than the council's stored base status.
+    #
+    # Uses flags (not the raw condition) so GlobalCriteria.is_active=False for TIG-17
+    # suppresses this override automatically.
+    #
+    # Limitation: income_deductions_active is case-level — it does not identify which
+    # specific council holds the deduction order. All non-REJECT/DO_NOT_VOTE council
+    # positions are overridden conservatively. Per-creditor deduction tracking is a
+    # separate follow-up; without it this is the correct conservative behaviour.
+    _tig17_fired = any(r.rule_id == "TIG-17" for r in flags)
+    if _tig17_fired:
+        for _cp in council_positions:
+            if (_cp.get("effective_status") or "").upper() not in ("REJECT", "DO_NOT_VOTE"):
+                _cp["effective_status"] = "REJECT"
+                _cp.setdefault("findings", []).append({
+                    "code": "COUNCIL-TIG17-INCOME-DEDUCTION",
+                    "reason": "Income/benefit deduction active — council will reject IVA (TIG-17)",
+                })
+                _cp["reason"] = (
+                    "Income/benefit deduction in place — council will reject this IVA (TIG-17). "
+                    + (_cp.get("reason") or "")
+                ).strip()
+
     for r in _check_special_employer(c):
         _route(r)
     for r in _check_ie_match(c):
@@ -4194,6 +4319,11 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 triggered=True,
                 message=_cr_flag["message"],
             ))
+
+    # Property data cross-check findings from _enrich_from_credit_report
+    for _pf in c.get("property_report_findings", []):
+        if _pf.rule_id not in _disabled_rules:
+            _route(_pf)
 
     # --- Overall result ---
     if hard_blocks:
