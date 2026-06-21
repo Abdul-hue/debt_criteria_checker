@@ -196,26 +196,6 @@ def enrich_rules_with_meta(rule_list):
     return enriched
 
 
-def build_rules_config() -> dict:
-    """
-    Load all active GlobalCriteria records and convert to
-    the rules_config dict format expected by assess_case().
-    Keyed by rule_key. Inactive rules are included with
-    is_active=False so the engine can skip them.
-    """
-    rules_config = {}
-    for rule in GlobalCriteria.objects.all():
-        rules_config[rule.rule_key] = {
-            "rule_key":        rule.rule_key,
-            "rule_name":       rule.rule_name,
-            "criteria_set":    rule.criteria_set,
-            "severity":        rule.severity,
-            "is_active":       rule.is_active,
-            "threshold_value": rule.threshold_value or 0,
-        }
-    return rules_config
-
-
 def build_creditor_list() -> list:
     """
     Load all active CreditorCriteria records and convert to
@@ -586,48 +566,14 @@ class AssessCaseView(APIView):
 
         result = assess_case(case_data)
         
-        # STEP 7 — Add back ACCEPT creditors filtered out by engine
+        # STEP 7 — Reconcile creditors the engine routed elsewhere (councils) or
+        # could not assess. Uses the shared helper so the displayed status is always
+        # the engine's CALCULATED value — councils reuse their real council_positions
+        # status (e.g. Rother District Council = REJECT), and genuinely unidentified
+        # creditors become UNKNOWN. NEVER a hardcoded ACCEPT.
+        from debt_app.criteria_engine import reconcile_creditor_positions
         engine_positions = result.get("creditor_positions", [])
-
-        # Collect names already in engine output — include both canonical name and
-        # original Aryza name so alias-resolved creditors (e.g. "Zilch" → "NewDay")
-        # are not added as phantom duplicates.
-        positioned_names = set()
-        for p in engine_positions:
-            if p.get("creditor_name"):
-                positioned_names.add(p["creditor_name"].strip().lower())
-            if p.get("original_aryza_name"):
-                positioned_names.add(p["original_aryza_name"].strip().lower())
-
-        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name as _ncn
-
-        # Add back creditors that engine filtered (ACCEPT, no findings)
-        accept_positions = []
-        for c in prepared_creditors:
-            # Use resolved name (creditor_name field) not raw name
-            cname = (c.get("creditor_name") or "").strip()
-            original = (c.get("original_name") or cname).strip()
-            if not cname:
-                continue
-            # Also resolve through alias map — the engine may have stored the
-            # creditor under its canonical name (e.g. "NewDay" for input "Zilch").
-            alias_resolved = CREDITOR_ALIAS_MAP.get(_ncn(cname), cname).strip().lower()
-            if cname.lower() in positioned_names or alias_resolved in positioned_names:
-                continue  # Already represented in engine output (possibly under alias)
-            accept_positions.append({
-                "creditor_name": cname,
-                "resolved_canonical_name": cname,
-                "original_aryza_name": original if original != cname else None,
-                "representative": c.get("representative") or "NONE",
-                "effective_status": "ACCEPT",
-                "findings": [],
-                "reason": "Creditor accepted — no conditions apply",
-                "rule_ids": [],
-                "balance": float(c.get("crm_balance") or c.get("balance") or 0),
-            })
-            logger.warning(f"[ACCEPT RESTORED] '{cname}'")
-
-        all_creditor_positions = engine_positions + accept_positions
+        all_creditor_positions = reconcile_creditor_positions(result, prepared_creditors)
 
         # Re-apply representative-body vote mapping over the combined list so any
         # backfilled (engine-missed) WATCH/TIX/EVOLVE creditor reflects its body's
@@ -638,9 +584,10 @@ class AssessCaseView(APIView):
             result.get("representative_outcomes") or {},
         )
 
+        restored_count = len(all_creditor_positions) - len(engine_positions)
         logger.warning(
             f"[POSITIONS TOTAL] {len(engine_positions)} engine + "
-            f"{len(accept_positions)} restored = "
+            f"{restored_count} restored = "
             f"{len(all_creditor_positions)} total"
         )
 
@@ -830,6 +777,8 @@ def _creditor_to_dict(creditor):
         "reject_if_second_iva": creditor.reject_if_second_iva,
         "reject_if_police_employed": creditor.reject_if_police_employed,
         "reject_if_equity_exceeds_debt": creditor.reject_if_equity_exceeds_debt,
+        "reject_if_ccj": creditor.reject_if_ccj,
+        "reject_if_aoe": creditor.reject_if_aoe,
         "requires_pg_called_up": creditor.requires_pg_called_up,
         "requires_arrangement_call_before_proposing": creditor.requires_arrangement_call_before_proposing,
         "requires_grant_overpayment_only": creditor.requires_grant_overpayment_only,
@@ -855,6 +804,7 @@ _CREDITOR_WRITABLE_FIELDS = [
     'reject_if_ie_doesnt_match_application', 'reject_if_debt_repayable_within_months',
     'reject_if_client_still_has_asset', 'reject_if_majority_share_exceeds_pct',
     'reject_if_second_iva', 'reject_if_police_employed', 'reject_if_equity_exceeds_debt',
+    'reject_if_ccj', 'reject_if_aoe',
     'requires_pg_called_up', 'requires_arrangement_call_before_proposing',
     'requires_grant_overpayment_only', 'vehicle_arrears_repossession_months',
     'fees_cap_percentage', 'min_di_for_fees_pence',
@@ -998,6 +948,11 @@ def _rule_obj_to_dict(rule, include_full=False):
         "description": rule.description,
         "action": rule.action,
         "last_updated": rule.last_updated.isoformat(),
+        # threshold_value and severity mirror the literals hardcoded in each rule
+        # function — the engine does NOT read these columns (verified 2026-06-21).
+        # They are reference/documentation only; the UI should render them
+        # read-only. Only is_active actually drives the engine (disable toggle).
+        "code_managed_fields": ["threshold_value", "severity"],
     }
     
     if include_full:
@@ -1151,18 +1106,35 @@ class RulesDetailView(APIView):
         if rule is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Update basic fields
+        # is_active is the ONLY field that drives the engine (disable toggle).
         if 'is_active' in request.data:
             rule.is_active = request.data['is_active']
+
+        # threshold_value and severity are CODE-MANAGED: the engine uses the
+        # literals hardcoded in each rule function, not these columns (verified
+        # 2026-06-21). Editing them here used to silently no-op. We now allow an
+        # unchanged value (so the edit form can still save is_active/docs) but
+        # reject an actual change rather than pretend it took effect.
         if 'threshold_value' in request.data:
-            threshold = request.data['threshold_value']
-            if threshold is not None and threshold < 0:
-                return Response({"detail": "threshold_value must be >= 0"}, status=status.HTTP_400_BAD_REQUEST)
-            rule.threshold_value = threshold
+            incoming = request.data['threshold_value']
+            current = float(rule.threshold_value) if rule.threshold_value is not None else None
+            incoming_f = float(incoming) if incoming is not None else None
+            if incoming_f != current:
+                return Response(
+                    {"detail": "threshold_value is code-managed and cannot be edited here. "
+                               "It mirrors the literal used by the rule engine; change it in "
+                               "the rule function (and re-verify)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if 'severity' in request.data and request.data['severity'] != rule.severity:
+            return Response(
+                {"detail": "severity is code-managed and cannot be edited here. "
+                           "It mirrors the rule engine's behaviour for this rule."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if 'rule_name' in request.data:
             rule.rule_name = request.data['rule_name']
-        if 'severity' in request.data:
-            rule.severity = request.data['severity']
         if 'criteria_set' in request.data:
             rule.criteria_set = request.data['criteria_set']
 
@@ -1230,6 +1202,9 @@ def _council_to_dict(c):
         "reject_if_previous_iva": c.reject_if_previous_iva,
         "reject_if_dro_criteria_met": c.reject_if_dro_criteria_met,
         "reject_if_aoe_in_place": c.reject_if_aoe_in_place,
+        "reject_if_joint_one_party_only": c.reject_if_joint_one_party_only,
+        "reject_if_joint_both_parties": c.reject_if_joint_both_parties,
+        "reject_if_joint_one_employed": c.reject_if_joint_one_employed,
         "reject_if_sole": c.reject_if_sole,
         "blocked_reason": c.blocked_reason,
         "criteria_changed_from_rej_date": c.criteria_changed_from_rej_date,
