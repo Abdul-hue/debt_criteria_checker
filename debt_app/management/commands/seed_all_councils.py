@@ -252,3 +252,13 @@ class Command(BaseCommand):
             f"\nDone. Created: {created}  Updated: {updated}  "
             f"Skipped: {skipped}  Non-council: {non_council}"
         ))
+
+        # Phase 4: pin the 4 missing counties' routing now that CouncilRule rows
+        # exist. Idempotent and strict (raises on a missing/ambiguous/drifted
+        # pin) — councils were just seeded above, so a 0-match is a real error.
+        if not dry_run:
+            from debt_app.county_routing_seed import seed_county_routing, apply_alias_pins
+            from debt_app.models import CountyCouncilRouting
+            _log = lambda m: self.stdout.write(self.style.SUCCESS("  " + m))
+            seed_county_routing(CouncilRule, CountyCouncilRouting, strict=True, log=_log)
+            apply_alias_pins(CouncilRule, CountyCouncilRouting, strict=True, log=_log)

@@ -13,6 +13,87 @@ from debt_app.models import CreditorCriteria
 from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
 
 # ---------------------------------------------------------------------------
+# Structured conditional criteria (manual translation of the free-text
+# "Notes/Criteria" column in Excel Criteria/General_Creditors.md into the
+# structured fields the engine actually evaluates).
+#
+# WHY THIS LIVES HERE (not in a migration): the seed command is the "truth
+# import". Keeping these here means every reseed re-applies them and they are
+# never clobbered. Applied case-insensitively after the main upsert. Only fields
+# the engine CONSUMES are listed; each carries its source quote. Keyed by the
+# canonical DB creditor_name (verified to resolve via iexact).
+#
+# Engine-consumption verified 2026-06-21. Excluded on purpose:
+#   - account_age_months on already-blanket-REJECT creditors (redundant)
+#   - reject_if_second_iva (engine can't tell "failed" from "any prior IVA")
+#   - reject_if_never_made_payment / requires_grant_overpayment_only
+#     (reject-everyone trap until the payload signal is confirmed)
+# ---------------------------------------------------------------------------
+
+STRUCTURED_CRITERIA = {
+    # --- min loan age (account_age_months): credit-report Start Date < N → reject ---
+    "Acorn Banking": {"account_age_months": 6},                       # "reject if less than 6 months old"
+    "Admiral Loans": {"account_age_months": 3,                        # "running cases: 3 months or older"
+                      "reject_if_ccj": True, "reject_if_aoe": True},  # "no CCJ, no AOE"
+    "CAMBRIAN credit union": {"account_age_months": 6,                # "REJECT IF LOAN LESS THAN 6 MONTHS OLD"
+                              "reject_if_in_dmp": True},              # "CLIENT IS ALREADY IN A DMP"
+    "Clockwise Credit Union": {"account_age_months": 2},             # "loan taken out in last 8 weeks" (8wk≈2mo)
+    "Everyday Loans": {"account_age_months": 6,                      # "Loan must be 6 months old"
+                       "reject_if_debt_repayable_within_months": 120},  # "cannot be debt repayment in 10 years"
+    "Fair for you Enterprise": {"account_age_months": 1},            # "NO LESS THAN 30 DAYS OLD"
+    "Hitachi Capital/Credit / Novuna": {"account_age_months": 1},    # "reject if taken out in less than 1 month"
+    "Ikano Finance": {"account_age_months": 12},                     # "if under a year old"
+    "Loans at home": {"account_age_months": 1},                      # "if loan taken out in last 1 months"
+    "Loans by Mal": {"account_age_months": 3,                        # "REJECT IF LESS THAN 3 MONTHS"
+                     "reject_if_debt_repayable_within_months": 84},  # "REPAID IN 84 MONTHS"
+    "Loans 2 Go": {"account_age_months": 1,                          # "if loan less than 1 month old"
+                   "fraud_claim_risk": True},                        # "reject and claim fraud"
+    "Mutual Clothing": {"account_age_months": 6},                    # "IF TAKEN OUT RECENTLY WILL REJECT (6 MONTHS)"
+    "One Stop Money Shop": {"account_age_months": 3},                # "LESS THAN 3 MONTHS OLD"
+    "Savvy (TICK TOCK LOANS)": {"account_age_months": 6,             # "IF LOAN IS LESS THAN 6 MONTHS OLD"
+                                "fraud_claim_risk": True},           # "CALL OUT FRAUD"
+    "Transave UK Credit Union": {"account_age_months": 3},           # "needs to be at least 3 months old"
+    "UK Credit Ltd": {"account_age_months": 6},                      # "WILL REJECT IF LOAN IS UNDER 6 MONTHS"
+    "Wiltshire and Swindon Credit Union": {"account_age_months": 6}, # "reject if less than 6 months old"
+
+    # --- debt repayable within N months (balance/DI < N → reject) ---
+    "Lifestyle Loans": {"reject_if_debt_repayable_within_months": 80},   # "repaid in 80 months"
+    "Hastings Direct Loans": {"reject_if_debt_repayable_within_months": 120},  # "repayed in 10 years"
+
+    # --- equity > debt (homeowner, 85% LTV) → reject ---
+    "American Express Service": {"reject_if_equity_exceeds_debt": True},   # "REJECT IF MORE EQUITY THAN THEIR DEBT"
+    "HM Revenue & Customs": {"reject_if_equity_exceeds_debt": True},       # "WILL REJECT if more equity than their debt"
+    "Shawbrook": {"reject_if_equity_exceeds_debt": True},                  # "MORE EQUTIY THEN THERE DEBT WILL REJECT"
+    "The Funding Corporation": {"reject_if_equity_exceeds_debt": True},    # "reject if more equity than their debt"
+    "Funding Circle": {"reject_if_equity_exceeds_debt": True},             # "WILL REJECT IF EQUITY IN PROPERTY"
+    "IWOCA / IWOKA LOANS": {"reject_if_equity_exceeds_debt": True,         # "cannot be more equity than their debt"
+                            "requires_pg_called_up": True},                # "PG must have been called up"
+
+    # --- majority share % → reject ---
+    "Commsave Credit Union": {"reject_if_majority_share_exceeds_pct": 50,  # "Reject if they own over 50%"
+                              "reject_if_in_dmp": True,                    # "REJECT IF CLIENT IS IN DMP"
+                              "min_dividend_pence": 50},                   # "looks like will accept around 50p"
+    "Plata Loans (BAMBOO)": {"reject_if_majority_share_exceeds_pct": 85},  # "more then 85% then they will reject"
+
+    # --- financed asset must be returned → reject (dormant unless payload signal) ---
+    "Advantage Finance": {"reject_if_client_still_has_asset": True,        # "Car needs to have gone back"
+                          "reject_if_ccj": True, "reject_if_aoe": True},   # "REJECT IF ... AOE OR CCJ"
+    "First Response Finance": {"reject_if_client_still_has_asset": True},  # "car needs to have gone back"
+    "Marsh Finance": {"reject_if_client_still_has_asset": True},           # "car had to have gone back"
+    "Oodle Finance": {"reject_if_client_still_has_asset": True},           # "MUST HAVE THE VEHICLE IN THEIR POSSESSION"
+    "Snap on Tools": {"reject_if_client_still_has_asset": True},           # "REJECT IF CUSTOMER STILL HAS TOOLS"
+    "Moneybarn": {"reject_if_client_still_has_asset": True,                # "CAR MUST HAVE BEEN RETURNED ... OTHERWISE REJECT"
+                  "fees_cap_percentage": 25},                             # "fees capped at 25% of TR"
+
+    # --- flags ---
+    "South Yorkshire Credit Union": {"fraud_claim_risk": True},           # "reject if taken out fraudulently"
+    "Unify Credit Union Limited": {"fraud_claim_risk": True},             # "THEY ALSO CLAIM FRAUD"
+    "No1 Copperpot Credit Union": {"reject_if_police_employed": True},    # "CANNOT INCLUDE IF STILL EMLOYED BY THE POLICE"
+    "Volkswagen Financial Services": {"termination_risk_if_vehicle_on_finance": True},  # "will terminate ... if car is on finance"
+}
+
+
+# ---------------------------------------------------------------------------
 # Banking group mappings (manual enrichment not in the MD file)
 # ---------------------------------------------------------------------------
 
@@ -311,6 +392,24 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"Strict Sync complete. Deleted: {deleted_count}  Created: {created_count}  Updated: {updated_count}"
+        ))
+
+        # 3. Apply structured conditional criteria (engine-consumed fields).
+        # Runs after the prose import so it is authoritative and reseed-safe.
+        # Case-insensitive match; warns (does not fail) on any unmatched name so a
+        # renamed/removed creditor is surfaced rather than silently skipped.
+        applied = 0
+        for crit_name, fields in STRUCTURED_CRITERIA.items():
+            matched = CreditorCriteria.objects.filter(creditor_name__iexact=crit_name).update(**fields)
+            if matched:
+                applied += matched
+            else:
+                self.stdout.write(self.style.WARNING(
+                    f"  [STRUCTURED] no creditor matched '{crit_name}' — criteria not applied"
+                ))
+        self.stdout.write(self.style.SUCCESS(
+            f"Structured criteria applied to {applied} creditor row(s) "
+            f"across {len(STRUCTURED_CRITERIA)} mappings."
         ))
 
         for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS", "NONE"):

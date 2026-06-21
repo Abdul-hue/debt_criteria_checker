@@ -118,6 +118,54 @@ CREDITOR_ALIAS_MAP = {
     "amigo loans": "Amigo Loans",
     "amigo": "Amigo Loans",
     "brighthouse": "BrightHouse",
+    # ---------------------------------------------------------------------------
+    # Experian CAIS format — full legal names as they appear in Experian reports
+    # ---------------------------------------------------------------------------
+    # Water / utilities
+    "anglian water": "Anglian Water",
+    "anglian water services": "Anglian Water",
+    "severn trent water": "Severn Trent Water",
+    "severn trent": "Severn Trent Water",
+    "thames water": "Thames Water",
+    "united utilities": "United Utilities",
+    "yorkshire water": "Yorkshire Water",
+    "southern water": "Southern Water",
+    "wessex water": "Wessex Water",
+    "south west water": "South West Water",
+    "affinity water": "Affinity Water",
+    # Telecoms / communications
+    "ee": "EE",
+    "ee limited": "EE",
+    "bt": "BT",
+    "bt group": "BT",
+    "sky": "Sky",
+    "sky uk limited": "Sky",
+    "virgin media": "Virgin Media",
+    "vodafone": "Vodafone",
+    "vodafone limited": "Vodafone",
+    "o2": "O2",
+    "telefonica uk limited": "O2",
+    "three": "Three",
+    "hutchison 3g uk limited": "Three",
+    # Insurance / financial
+    "premium credit limited": "Premium Credit Limited",
+    "premium credit": "Premium Credit Limited",
+    # Debt purchasers / other
+    "lowell portfolio i ltd": "Lowell",
+    "lowell portfolio 1 ltd": "Lowell",
+    "lowell portfolio ltd": "Lowell",
+    "monzo bank ltd": "Monzo Bank",
+    "monzo bank": "Monzo Bank",
+    "ovo energy": "OVO Energy",
+    "jc international acquisition llc": "JC International Acquisition LLC",
+    "mutual": "Mutual",
+    "novuna personal finance": "Novuna",
+    "novuna consumer finance": "Novuna",
+    "barclays bank uk plc": "Barclays",
+    "hsbc uk bank plc": "HSBC",
+    "lloyds bank plc": "Lloyds Bank",
+    "nationwide building society": "Nationwide",
+    "Yorkshire bank": "Yorkshire Bank",
 }
 
 # ---------------------------------------------------------------------------
@@ -400,6 +448,362 @@ def _has_recent_spending(lines: list[str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Experian CAIS format — constants and helpers
+# ---------------------------------------------------------------------------
+
+# Maps Experian account category text → internal Aryza-style type codes.
+# These type codes feed into the same SKIP / CONDITIONAL filtering logic
+# already used for Aryza Advize reports.
+_EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
+    "water": "UT",
+    "electricity": "UT",
+    "gas": "UT",
+    "communications": "UT",
+    "telecoms": "UT",
+    "telecommunications": "UT",
+    "current accounts": "CA",
+    "current account": "CA",
+    "savings accounts": "CA",
+    "savings account": "CA",
+    "credit cards": "CC",
+    "credit card": "CC",
+    "store cards": "CC",
+    "store card": "CC",
+    "personal loans": "PL",
+    "personal loan": "PL",
+    "unsecured loan (personal loan)": "PL",
+    "unsecured loans (personal loan)": "PL",
+    "unsecured loan": "UL",
+    "unsecured loans": "UL",
+    "secured loan": "MG",
+    "secured loans": "MG",
+    "running account credit": "CC",
+    "revolving credit": "CC",
+    "charge card": "CC",
+    "hire purchase / conditional sale": "HP",
+    "hire purchase": "HP",
+    "conditional sale": "HP",
+    "mortgages": "MG",
+    "mortgage": "MG",
+    "home credit": "UL",
+    "mail order": "MO",
+    "student loans": "UL",
+    "student loan": "UL",
+    "motor insurance": "OT",
+    "insurance": "OT",
+}
+
+# Matches Experian CAIS account header lines: "{CREDITOR NAME} - {Category}"
+# The " - " separator (space-dash-space) distinguishes headers from inline dashes.
+_EXPERIAN_HEADER_RE = re.compile(
+    r"^(.+?)\s+-\s+("
+    # Utilities
+    r"Water|Electricity|Gas|"
+    # Telecoms
+    r"Communications?|Telecoms?|Telecommunications|"
+    # Bank accounts
+    r"Current Accounts?|Savings Accounts?|"
+    # Credit / revolving
+    r"Credit Cards?|Store Cards?|Charge Cards?|Running Account Credit|Revolving Credit|"
+    # Loans — includes Experian's "Unsecured Loan (Personal Loan)" parenthetical form
+    r"Personal Loans?|Unsecured Loans?\s*(?:\([^)]*\))?|Secured Loans?|"
+    # HP / conditional sale
+    r"Hire Purchase.*?|Conditional Sale|"
+    # Property
+    r"Mortgages?|"
+    # Other consumer
+    r"Home Credit|Mail Order|Student Loans?|Motor Insurance|Insurance"
+    r")$",
+    re.IGNORECASE,
+)
+
+# Fallback for any Experian CAIS header whose category isn't in the strict list above.
+# Catches lines of the form "{CREDITOR NAME} - {Title Case Category}" that the
+# primary regex missed. Safety constraints that prevent false positives on inner
+# account-block lines:
+#   - Group 1 starts with [A-Z] (excludes bullet chars like •)
+#   - Group 1 must NOT contain ':' (excludes field labels like "Status: Active - Default")
+#   - Group 2 starts with [A-Z] and is 2–40 chars
+# Accounts matched only by this fallback receive type_code "OT" (Other) because
+# their category won't be in _EXPERIAN_CATEGORY_TO_TYPE — they pass all existing
+# inclusion/exclusion filters unchanged, so they always surface for caseworker review.
+_EXPERIAN_HEADER_FALLBACK_RE = re.compile(
+    r"^([A-Z][^:\n]{1,59}?)\s+-\s+([A-Z][A-Za-z0-9 /()\-]{1,39})$"
+)
+
+
+def _months_since_dmy(date_str: str) -> int | None:
+    """Parse a DD-MM-YYYY date string (Experian format) and return months since today."""
+    if not date_str:
+        return None
+    try:
+        start = datetime.strptime(date_str.strip(), "%d-%m-%Y").date()
+        today = date.today()
+        return (today.year - start.year) * 12 + (today.month - start.month)
+    except ValueError:
+        return None
+
+
+def _extract_experian_report_date(text: str) -> str:
+    """
+    Extract the report date from an Experian consumer credit report.
+    Looks for "Issue Date and Time DD/MM/YYYY" on page 1.
+    Falls back to the most recent "CAIS Last Updated: DD-MM-YYYY" date.
+    Returns ISO YYYY-MM-DD string, or empty string if not found.
+    """
+    m = re.search(r"Issue Date and Time\s+(\d{2}/\d{2}/\d{4})", text)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    dates = re.findall(r"CAIS Last Updated:\s*(\d{2}-\d{2}-\d{4})", text)
+    if dates:
+        parsed = []
+        for d in dates:
+            try:
+                parsed.append(datetime.strptime(d, "%d-%m-%Y"))
+            except ValueError:
+                pass
+        if parsed:
+            return max(parsed).strftime("%Y-%m-%d")
+    return ""
+
+
+def _parse_experian_status(lines: list[str]) -> str:
+    """
+    Derive internal status string from Experian "Status:" and "Worst Status:" fields.
+    Experian status values: Default, Active, Settled, Satisfied, Delinquent, etc.
+    """
+    worst = _extract_field(lines, "Worst Status").lower()
+    status = _extract_field(lines, "Status").lower()
+    combined = worst + " " + status
+    if "default" in combined:
+        return "defaulted"
+    if "delinquent" in combined:
+        return "late"
+    if "arrangement" in combined or "dmp" in combined:
+        return "arrangement"
+    if ("settled" in status or "satisfied" in status or "closed" in status) \
+            and "default" not in worst:
+        return "closed"
+    return "open"
+
+
+def _split_experian_accounts(full_text: str) -> list[tuple[str, str]]:
+    """
+    Split Experian CAIS report text into (header_line, block_text) tuples.
+    Headers match the pattern "{CREDITOR NAME} - {Category}".
+    """
+    lines = full_text.split("\n")
+    blocks: list[tuple[str, str]] = []
+    current_header: str | None = None
+    current_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if _EXPERIAN_HEADER_RE.match(stripped) or _EXPERIAN_HEADER_FALLBACK_RE.match(stripped):
+            if current_header is not None:
+                blocks.append((current_header, "\n".join(current_lines)))
+            current_header = stripped
+            current_lines = []
+        elif current_header is not None:
+            current_lines.append(line)
+
+    if current_header is not None:
+        blocks.append((current_header, "\n".join(current_lines)))
+
+    return blocks
+
+
+def _parse_experian_account(header: str, block_text: str) -> dict | None:
+    """
+    Parse one Experian CAIS account block into the same structured dict shape
+    that _parse_account_block() produces for Aryza Advize reports.
+    Returns None when the account should be excluded by type/status rules.
+    """
+    m = _EXPERIAN_HEADER_RE.match(header)
+    if not m:
+        m = _EXPERIAN_HEADER_FALLBACK_RE.match(header)
+    if not m:
+        return None
+
+    raw_name = m.group(1).strip()
+    category = m.group(2).strip()
+    type_code = _EXPERIAN_CATEGORY_TO_TYPE.get(category.lower(), "OT")
+
+    lines = block_text.split("\n")
+
+    # Start date is DD-MM-YYYY in Experian (not YYYY-MM-DD like Aryza)
+    start_date_str = _extract_field(lines, "Start Date")
+    account_age_months = _months_since_dmy(start_date_str)
+
+    raw_balance = _extract_field(lines, "Current Balance")
+    current_balance = _parse_amount(raw_balance)
+
+    # Experian does not provide a credit limit field; utilisation not applicable
+    credit_limit = None
+    utilisation_pct = None
+
+    account_status = _parse_experian_status(lines)
+
+    # Apply the same conditional exclusion rules as the Aryza path
+
+    # BD: include only if balance > 0 (Experian rarely uses BD, but guard anyway)
+    if type_code == "BD":
+        if not current_balance or current_balance <= 0:
+            logger.debug(
+                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} — zero balance BD"
+            )
+            return None
+
+    # CA / UT: include only if the account is derogatory (defaulted/late/arrangement)
+    if type_code in {"CA", "UT"}:
+        if account_status not in {"defaulted", "late", "arrangement"}:
+            logger.debug(
+                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} status='{account_status}' — clean account excluded"
+            )
+            return None
+
+    # Name resolution via shared alias map
+    normalised = raw_name.lower().strip()
+    matched = CREDITOR_ALIAS_MAP.get(normalised, raw_name)
+
+    # Reuse the existing missed-payments parser — grid format is the same
+    missed_payments_last_3_months = _parse_missed_payments_last_3_months(lines)
+
+    balance_display = round(current_balance / 100) if current_balance else 0
+    logger.debug(
+        f"[EXPERIAN INCLUDE] '{raw_name}' type={type_code} balance=£{balance_display} status='{account_status}'"
+    )
+
+    return {
+        "raw_name": raw_name,
+        "type_code": type_code,
+        "normalised_name": normalised,
+        "matched_creditor": matched,
+        "account_age_months": account_age_months,
+        "missed_payments_last_3_months": missed_payments_last_3_months,
+        "recent_spending": False,   # Payment Amount section absent in Experian format
+        "current_balance": current_balance,
+        "credit_limit": credit_limit,
+        "utilisation_pct": utilisation_pct,
+        "account_status": account_status,
+        "payment_history_months": 0,
+        "monthly_payment": None,    # Experian does not expose a monthly payment field
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public Information — CCJ / judgment extraction (both Aryza & Experian formats)
+# ---------------------------------------------------------------------------
+
+def _ccj_amount_to_pence(text: str) -> int | None:
+    """Parse a CCJ amount string into pence. Tolerant of the '£' mojibake
+    that pdfplumber sometimes produces (e.g. '�557.0')."""
+    if not text:
+        return None
+    m = re.search(r"(\d[\d,]*\.?\d*)", text)
+    if not m:
+        return None
+    try:
+        return int(round(float(m.group(1).replace(",", "")) * 100))
+    except ValueError:
+        return None
+
+
+def extract_public_information(full_text: str) -> dict:
+    """
+    Extract Public Information (CCJ / judgment, insolvency, debt-management)
+    signals from a credit report, supporting both report formats:
+
+      - Experian: a "Public Information" summary block plus per-record detail
+        lines ("Type: Judgement - Judgement", "Amount: £…", "Settled: N",
+        "Date: DD-MM-YYYY"). The detail records are CCJ-specific and are the
+        primary signal.
+      - Aryza Advize: an inline "CCJs and Insolvencies: N" combined count
+        (no per-record breakdown is exposed in this format).
+
+    Returns:
+        {
+            "has_ccj": bool,
+            "ccj_count": int,
+            "ccj_total_pence": int | None,
+            "ccjs": [ {"amount_pence", "settled", "date"}, ... ],
+            "iva_or_bankruptcy": bool,
+            "debt_management": bool,
+        }
+    Never raises.
+    """
+    info = {
+        "has_ccj": False,
+        "ccj_count": 0,
+        "ccj_total_pence": None,
+        "ccjs": [],
+        "iva_or_bankruptcy": False,
+        "debt_management": False,
+    }
+    if not full_text:
+        return info
+
+    lines = full_text.split("\n")
+
+    def _field_in(window: list[str], label: str) -> str:
+        prefix = label.lower() + ":"
+        for ln in window:
+            low = ln.lower()
+            idx = low.find(prefix)
+            if idx != -1:
+                return ln[idx + len(prefix):].strip()
+        return ""
+
+    # --- Experian: per-record judgment detail blocks ---
+    # Each record is anchored on a "Type: Judgement …" line; the Date/Amount/
+    # Settled fields sit within a few lines either side of it.
+    records = []
+    for i, ln in enumerate(lines):
+        if re.search(r"type:\s*judg", ln, re.IGNORECASE):
+            window = lines[max(0, i - 4): i + 6]
+            settled_raw = _field_in(window, "Settled")
+            records.append({
+                "amount_pence": _ccj_amount_to_pence(_field_in(window, "Amount")),
+                "settled": settled_raw.upper().startswith("Y") if settled_raw else None,
+                "date": _field_in(window, "Date") or None,
+            })
+
+    # --- Aryza Advize: combined "CCJs and Insolvencies: N" summary ---
+    aryza_m = re.search(r"CCJ['s]*\s+and\s+Insolvencies:\s*(\d+)", full_text, re.IGNORECASE)
+    aryza_count = int(aryza_m.group(1)) if aryza_m else None
+
+    # --- Experian summary fallback: "Public Information … Number: N" ---
+    exp_num_m = re.search(
+        r"Public Information\b[\s\S]{0,80}?Number:\s*(\d+)", full_text, re.IGNORECASE
+    )
+    exp_num = int(exp_num_m.group(1)) if exp_num_m else None
+
+    if records:
+        info["ccjs"] = records
+        info["ccj_count"] = len(records)
+        info["has_ccj"] = True
+        amounts = [r["amount_pence"] for r in records if r["amount_pence"]]
+        info["ccj_total_pence"] = sum(amounts) if amounts else None
+    elif aryza_count is not None and aryza_count > 0:
+        # Aryza exposes only a combined CCJ+insolvency count with no detail.
+        info["ccj_count"] = aryza_count
+        info["has_ccj"] = True
+    elif exp_num is not None and exp_num > 0:
+        info["ccj_count"] = exp_num
+        info["has_ccj"] = True
+
+    iva_m = re.search(r"IVA or Bankruptcy Detected:\s*(\w)", full_text, re.IGNORECASE)
+    info["iva_or_bankruptcy"] = bool(iva_m and iva_m.group(1).upper() == "Y")
+    dm_m = re.search(r"Debt Management:\s*(\w)", full_text, re.IGNORECASE)
+    info["debt_management"] = bool(dm_m and dm_m.group(1).upper() == "Y")
+
+    return info
+
+
+# ---------------------------------------------------------------------------
 # Account block splitter
 # ---------------------------------------------------------------------------
 
@@ -559,28 +963,51 @@ def extract_credit_report(pdf_path: str) -> dict:
 
         agency = _detect_agency(full_text)
         client_name = _extract_client_name(full_text)
-        report_date = _extract_report_date(full_text)
-
-        blocks = _split_into_account_blocks(full_text)
+        public_info = extract_public_information(full_text)
 
         accounts: list[dict] = []
         mortgage_accounts: list[dict] = []
         unmatched: list[str] = []
 
-        for header, block_text in blocks:
-            parsed = _parse_account_block(header, block_text)
-            if parsed is None:
-                continue  # skipped type (current account up-to-date, utility, BD zero-balance)
-
-            if parsed["type_code"] == "MG":
-                # Mortgages are secured — excluded from IVA criteria but
-                # included separately so the case assessment app can compare
-                # them against CRM property data in the Assets & Property section.
-                mortgage_accounts.append(parsed)
-            else:
-                accounts.append(parsed)
-                if parsed["matched_creditor"] == parsed["raw_name"]:
-                    unmatched.append(parsed["raw_name"])
+        if agency == "Experian":
+            # ----------------------------------------------------------------
+            # Experian Consumer Credit Report (CAIS format)
+            # Headers: "{CREDITOR NAME} - {Category}"
+            # Date format: DD-MM-YYYY
+            # ----------------------------------------------------------------
+            report_date = _extract_experian_report_date(full_text)
+            blocks = _split_experian_accounts(full_text)
+            for header, block_text in blocks:
+                parsed = _parse_experian_account(header, block_text)
+                if parsed is None:
+                    continue
+                if parsed["type_code"] == "MG":
+                    mortgage_accounts.append(parsed)
+                else:
+                    accounts.append(parsed)
+                    if parsed["matched_creditor"] == parsed["raw_name"]:
+                        unmatched.append(parsed["raw_name"])
+        else:
+            # ----------------------------------------------------------------
+            # Aryza Advize format (original path — unchanged)
+            # Headers: "{Creditor Name} {TYPE_CODE}"
+            # Date format: YYYY-MM-DD
+            # ----------------------------------------------------------------
+            report_date = _extract_report_date(full_text)
+            blocks = _split_into_account_blocks(full_text)
+            for header, block_text in blocks:
+                parsed = _parse_account_block(header, block_text)
+                if parsed is None:
+                    continue  # skipped type (current account up-to-date, utility, BD zero-balance)
+                if parsed["type_code"] == "MG":
+                    # Mortgages are secured — excluded from IVA criteria but
+                    # included separately so the case assessment app can compare
+                    # them against CRM property data in the Assets & Property section.
+                    mortgage_accounts.append(parsed)
+                else:
+                    accounts.append(parsed)
+                    if parsed["matched_creditor"] == parsed["raw_name"]:
+                        unmatched.append(parsed["raw_name"])
 
         return {
             "agency": agency,
@@ -589,6 +1016,8 @@ def extract_credit_report(pdf_path: str) -> dict:
             "accounts": accounts,
             "mortgage_accounts": mortgage_accounts,
             "unmatched_accounts": unmatched,
+            "public_information": public_info,
+            "has_ccj": public_info["has_ccj"],
         }
 
     except Exception as e:

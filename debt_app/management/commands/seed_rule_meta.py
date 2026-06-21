@@ -173,9 +173,15 @@ class Command(BaseCommand):
                 'rule_key': 'TIG-14',
                 'rule_name': 'Verbal debt proof',
                 'severity': 'info',
-                'is_active': True,
+                'is_active': False,
                 'threshold_value': Decimal('1000.00'),
-                'description': 'Debts under £1,000 can be verbal if written proof unavailable.',
+                'description': 'RETIRED (2026-06-21): duplicate of TIG-10. The verbal-debt '
+                               'exception (debts under £1,000 may be verbal if no POD is '
+                               'available) is implemented inside TIG-10, including the Excel '
+                               '"unless it is a debt level issue" caveat — a sub-£1,000 debt '
+                               'cannot be verbal when it is load-bearing for the £6,000 '
+                               'minimum (TIG-01), in which case TIG-10 hard-blocks. No separate '
+                               'TIG-14 engine rule exists; this row is kept inactive for history.',
             },
             {
                 'criteria_set': 'TIG',

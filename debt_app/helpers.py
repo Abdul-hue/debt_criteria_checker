@@ -390,20 +390,6 @@ def is_vw_finance(name: str) -> bool:
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def get_rule_threshold(rule_key: str) -> Decimal:
-    """Retrieve a rule's threshold value by key."""
-    try:
-        rule = GlobalCriteria.objects.get(rule_key=rule_key, is_active=True)
-        return rule.threshold_value
-    except GlobalCriteria.DoesNotExist:
-        raise ValueError(f"Rule '{rule_key}' not found or is inactive")
-
-
-def get_majority_threshold() -> Decimal:
-    """Get the majority creditor threshold (75% by default)."""
-    return get_rule_threshold('majority_threshold')
-
-
 def log_criteria_decision(application_id: str, client_name: str,
                           input_data: dict, output_data: dict,
                           recommendation: str, passes_hard_blocks: bool,
@@ -450,6 +436,12 @@ def get_creditor_by_trading_name(name: str, all_names=None):
             )
         except CreditorCriteria.DoesNotExist:
             pass
+        except CreditorCriteria.MultipleObjectsReturned:
+            # Guard against duplicate active rows — return a deterministic match
+            # rather than crashing the whole assessment.
+            return CreditorCriteria.objects.filter(
+                creditor_name__iexact=alias, is_active=True
+            ).order_by("id").first()
 
     # 2. Exact creditor_name match
     try:
@@ -459,6 +451,10 @@ def get_creditor_by_trading_name(name: str, all_names=None):
         )
     except CreditorCriteria.DoesNotExist:
         pass
+    except CreditorCriteria.MultipleObjectsReturned:
+        return CreditorCriteria.objects.filter(
+            creditor_name__iexact=cleaned, is_active=True
+        ).order_by("id").first()
 
     # 3. Trading names search
     row = CreditorCriteria.objects.filter(

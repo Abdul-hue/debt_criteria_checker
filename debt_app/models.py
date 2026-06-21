@@ -98,6 +98,14 @@ class CreditorCriteria(models.Model):
     reject_if_second_iva = models.BooleanField(default=False)
     reject_if_police_employed = models.BooleanField(default=False)
     reject_if_equity_exceeds_debt = models.BooleanField(default=False)
+    reject_if_ccj = models.BooleanField(
+        default=False,
+        help_text="Reject if the client has a County Court Judgment on their credit report",
+    )
+    reject_if_aoe = models.BooleanField(
+        default=False,
+        help_text="Reject if an Attachment of Earnings order is already in place",
+    )
 
     # --- Requirements ---
     requires_pg_called_up = models.BooleanField(default=False)
