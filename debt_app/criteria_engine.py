@@ -1504,12 +1504,23 @@ def _tig_16(c: dict) -> RuleResult:
 
 
 def _tig_17(c: dict) -> RuleResult:
-    """TIG-17: Council majority creditor with active income/benefit deductions — flag."""
+    """TIG-17: Council majority creditor with active income/benefit deductions — flag.
+
+    Excel: "Council Majority — MUST NOT have a deduction from income or benefits
+    (will reject). Case by case — check council list."
+    Only fires when both conditions are true.
+    """
     if not c["council_is_majority"]:
         return _pass("TIG-17", "Council is not the majority creditor.")
+    if not c["income_deductions_active"]:
+        return _pass("TIG-17", "Council is majority creditor but no income/benefit deductions active.")
     return RuleResult(
         rule_id="TIG-17", severity="flag", triggered=True,
-        message="Council creditor holds >25% of debt by value — a blocking minority under the 75% rule. Confirm whether income or benefit deductions are being taken. Case-by-case review required.",
+        message=(
+            "Council creditor holds >25% of debt by value — income/benefit deductions are "
+            "active. Council will reject IVA while deductions are in place. "
+            "Case-by-case review required — check council list."
+        ),
     )
 
 
