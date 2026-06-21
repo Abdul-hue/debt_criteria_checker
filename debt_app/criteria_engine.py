@@ -2460,6 +2460,16 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                 "reason": f"{name} rejects clients with a County Court Judgment on their credit file",
             })
             reject_level = True
+        elif criteria.reject_if_ccj and case.get("credit_report_status", "absent") != "present":
+            # No confirmed credit report — cannot verify CCJ status; flag for upload.
+            findings.append({
+                "code": "CREDITOR-CCJ-REPORT-REQUIRED",
+                "reason": (
+                    f"{name} rejects if CCJ present — upload a credit report to verify "
+                    "CCJ status before proceeding"
+                ),
+                "severity": "flag",
+            })
 
         # General Creditor: Attachment of Earnings reject
         if criteria.reject_if_aoe and case.get("aoe_in_place", False):
@@ -3761,6 +3771,10 @@ def _enrich_from_credit_report(case_data: dict) -> str:
             status = "extraction_failed"
         else:
             status = "present"
+
+        # Surface credit report status into case dict so per-creditor checks
+        # can flag when a ccj/aoe-sensitive creditor has no report uploaded.
+        case_data["credit_report_status"] = status
 
         # Surface the Public Information CCJ signal from the credit report
         # regardless of per-account matching status — a report can carry a CCJ
