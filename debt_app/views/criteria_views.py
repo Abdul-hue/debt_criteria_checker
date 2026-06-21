@@ -20,7 +20,7 @@ from debt_app.aryza_client import (
     AryaTimeoutError,
     AryzaDataError,
 )
-from debt_app.criteria_engine import assess_case
+from debt_app.criteria_engine import assess_case, detect_representatives
 from debt_app.recommendation_engine import get_recommendation
 from debt_app.helpers import (
     GlobalCriteria, CreditorCriteria, CriteriaDecision, CouncilRule,
@@ -564,8 +564,10 @@ class AssessCaseView(APIView):
         elif not isinstance(_ev, list): 
             case_data["evidence_ledger"] = [] 
 
-        result = assess_case(case_data)
-        
+        case_creditors = case_data.get("creditors") or []
+        detected_reps = detect_representatives(case_creditors)
+        result = assess_case(case_data, detected_reps)
+
         # STEP 7 — Reconcile creditors the engine routed elsewhere (councils) or
         # could not assess. Uses the shared helper so the displayed status is always
         # the engine's CALCULATED value — councils reuse their real council_positions
