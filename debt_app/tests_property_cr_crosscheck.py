@@ -72,6 +72,29 @@ def _cr_data_empty():
     return {"mortgage_accounts": []}
 
 
+def _closed_mortgage_account(balance_pence=0):
+    """Fully repaid/settled mortgage as the extractor would emit it."""
+    return {
+        "raw_name": "Nationwide Building Society",
+        "type_code": "MG",
+        "normalised_name": "nationwide building society",
+        "matched_creditor": "Nationwide Building Society",
+        "account_status": "closed",
+        "current_balance": balance_pence,
+        "missed_payments_last_3_months": 0,
+        "monthly_payment": None,
+        "account_age_months": 240,
+        "payment_history_months": 240,
+        "recent_spending": False,
+        "credit_limit": None,
+        "utilisation_pct": None,
+    }
+
+
+def _cr_data_closed_only(balance_pence=0):
+    return {"mortgage_accounts": [_closed_mortgage_account(balance_pence)]}
+
+
 # ---------------------------------------------------------------------------
 # Case 1: Aryza empty, credit report has mortgage
 # ---------------------------------------------------------------------------
@@ -264,3 +287,53 @@ class Case3ConflictTests(SimpleTestCase):
         findings = _cross_check_property_from_credit_report(c, _cr_data(10_609_800))
         conflict = [f for f in findings if f.rule_id == "PROPERTY-DATA-CONFLICT"]
         self.assertEqual(conflict, [])
+
+
+# ---------------------------------------------------------------------------
+# Closed / settled mortgage — must NOT produce a false has_property=True
+# ---------------------------------------------------------------------------
+
+class ClosedMortgageTests(SimpleTestCase):
+    """
+    A closed (fully repaid) mortgage means the debt is gone. The client may
+    have sold the property or fully repaid. We cannot safely infer has_property.
+    Pre-fix, any non-empty mortgage_accounts[] list would trigger Case 1 and
+    emit a spurious has_property=True with mortgage_balance=£0.00.
+    """
+
+    def test_closed_zero_balance_produces_no_findings(self):
+        c = _base_case_no_property()
+        findings = _cross_check_property_from_credit_report(c, _cr_data_closed_only(0))
+        self.assertEqual(findings, [])
+
+    def test_closed_zero_balance_leaves_has_property_false(self):
+        c = _base_case_no_property()
+        _cross_check_property_from_credit_report(c, _cr_data_closed_only(0))
+        self.assertFalse(c["has_property"])
+
+    def test_closed_with_residual_pence_produces_no_findings(self):
+        # Extraction artefact: status="closed" but tiny residual in balance field
+        c = _base_case_no_property()
+        findings = _cross_check_property_from_credit_report(c, _cr_data_closed_only(50))
+        self.assertEqual(findings, [])
+
+    def test_closed_leaves_mortgage_balance_at_zero(self):
+        c = _base_case_no_property()
+        _cross_check_property_from_credit_report(c, _cr_data_closed_only(0))
+        self.assertEqual(c["mortgage_balance"], 0.0)
+
+    def test_active_plus_closed_only_counts_active(self):
+        # One active Lloyds (£106,098) + one closed Nationwide (£0)
+        # Only the active one should count; closed is ignored.
+        cr_data = {
+            "mortgage_accounts": [
+                _lloyds_mortgage_account(10_609_800),    # active, late
+                _closed_mortgage_account(0),              # closed, zero
+            ]
+        }
+        c = _base_case_no_property()
+        findings = _cross_check_property_from_credit_report(c, cr_data)
+        rule_ids = [f.rule_id for f in findings]
+        self.assertIn("PROPERTY-DATA-FROM-CREDIT-REPORT", rule_ids)
+        # Balance should reflect only the active account
+        self.assertAlmostEqual(c["mortgage_balance"], 106_098.0, places=0)

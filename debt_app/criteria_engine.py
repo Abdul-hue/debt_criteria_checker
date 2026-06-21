@@ -3760,12 +3760,25 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
     findings = []
 
     cr_mortgage_accounts = credit_report_data.get("mortgage_accounts") or []
-    if not cr_mortgage_accounts:
+
+    # Only active mortgages imply current property ownership. A closed or
+    # settled mortgage (status "closed") means the debt is repaid — the client
+    # may have sold the property or remortgaged, so we cannot infer has_property.
+    # Require both a live status AND a positive balance: a "late" account with
+    # zero balance is ambiguous, and a "closed" account with a residual pence
+    # balance is an extraction artefact. Both conditions together are unambiguous.
+    _ACTIVE_MORTGAGE_STATUSES = {"open", "late", "defaulted", "arrangement"}
+    cr_active_mortgages = [
+        acct for acct in cr_mortgage_accounts
+        if acct.get("account_status") in _ACTIVE_MORTGAGE_STATUSES
+        and (acct.get("current_balance") or 0) > 0
+    ]
+    if not cr_active_mortgages:
         return findings
 
     # current_balance from extractor is in pence — convert to pounds
     cr_mortgage_balance = sum(
-        (acct.get("current_balance") or 0) for acct in cr_mortgage_accounts
+        (acct.get("current_balance") or 0) for acct in cr_active_mortgages
     ) / 100.0
 
     aryza_has_property = bool(c.get("has_property"))
@@ -3773,9 +3786,9 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
     aryza_has_data = aryza_has_property or aryza_mortgage_balance > 0
 
     if not aryza_has_data:
-        # Case 1 — Aryza property tables empty, credit report has mortgage account(s).
-        # type_code "MG" in Experian/Aryza Advize reports always means a mortgage
-        # secured against property — inferring has_property=True is safe.
+        # Case 1 — Aryza property tables empty, credit report has active mortgage(s).
+        # type_code "MG" with a live status and positive balance means a mortgage
+        # still being serviced — inferring has_property=True is safe.
         c["has_property"] = True
         c["mortgage_balance"] = cr_mortgage_balance
         # No property valuation signal exists in credit report data — only the debt
@@ -3787,7 +3800,7 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
 
         acct_names = ", ".join(
             (acct.get("raw_name") or acct.get("matched_creditor") or "unknown lender")
-            for acct in cr_mortgage_accounts
+            for acct in cr_active_mortgages
         )
         findings.append(RuleResult(
             rule_id="PROPERTY-DATA-FROM-CREDIT-REPORT",
