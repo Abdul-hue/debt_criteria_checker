@@ -61,6 +61,11 @@ class RuleResult:
 
 WATCH_HP_MONTHLY_CAP = 400  # WATCH criteria: HP > £400/month is a flag (TIX uses £250)
 
+# A case with this share (or more) of total debt owed to UNIDENTIFIED creditors
+# is referred for manual review — the majority/assessment cannot be relied upon
+# until those creditors are identified.
+UNKNOWN_REFERRAL_PCT = 0.10
+
 # Status normalisation — DB values -> canonical engine output values
 _STATUS_NORMALISE = {
     "ACCEPTANCE":    "ACCEPT",
@@ -669,6 +674,9 @@ def _parse_case(case_json: dict) -> dict:
         "gamstop_registered": bool(case_json.get("gamstop_registered", False)),
         "benefit_income_amount": case_json.get("benefit_income_amount"),
         "aoe_in_place": bool(case_json.get("aoe_in_place", False)),
+        # has_ccj base value — overridden authoritatively by _enrich_from_credit_report
+        # when a credit report is present for this case.
+        "has_ccj": bool(case_json.get("has_ccj", False)),
         "dro_criteria_met": bool(case_json.get("dro_criteria_met", False)),
         "is_joint_case": bool(case_json.get("is_joint_case", False)),
         # HMRC-specific trading / PAYE / VAT flags — None means not supplied
@@ -854,19 +862,14 @@ def _tig_08(c: dict) -> RuleResult:
     has_tax_return = len(c["tax_return_docs"]) > 0
     has_business_bank_statement = len(c["bank_stmt_docs"]) >= 1
 
-    # EXCEL_CRITERIA_REFERENCE.md — TIG: self-employed requires BOTH tax return AND bank statement
-    if not (has_tax_return and has_business_bank_statement):
-        missing = []
-        if not has_tax_return:
-            missing.append("tax return")
-        if not has_business_bank_statement:
-            missing.append("business bank statement")
+    # Excel: only ONE of tax return OR business bank statement is required.
+    if not (has_tax_return or has_business_bank_statement):
         return RuleResult(
             rule_id="TIG-08", severity="flag", triggered=True,
-            message=f"Self-employed income evidence incomplete — missing: {', '.join(missing)}.",
+            message="Self-employed income evidence incomplete — neither a tax return nor a business bank statement has been uploaded.",
         )
 
-    return _pass("TIG-08", "Tax return and business bank statement both present.")
+    return _pass("TIG-08", "Self-employed income evidence present (tax return or business bank statement).")
 
 
 def _tig_09(c: dict) -> RuleResult:
@@ -904,6 +907,7 @@ def _tig_10(c: dict) -> RuleResult:
     flags = []
     verified_count = 0
     creditors_detail = []
+    subk_unverified_total = 0.0  # sum of sub-£1,000 unverified balances (debt-level-issue check)
 
     from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT, CREDITOR_ALIAS_MAP, normalise_creditor_name
     from debt_app.models import CreditorCriteria
@@ -944,7 +948,13 @@ def _tig_10(c: dict) -> RuleResult:
             from debt_app.helpers import get_creditor_by_trading_name
             criteria = get_creditor_by_trading_name(original_name)
             canonical = criteria.creditor_name
-        except Exception:
+        except CreditorCriteria.DoesNotExist:
+            canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(original_name)) or original_name
+        except Exception as _exc:
+            logger.warning(
+                "[TIG-10] Unexpected error resolving creditor '%s' → alias fallback: %s",
+                original_name, _exc,
+            )
             canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(original_name)) or original_name
 
         _rep, _cstatus = _criteria_map.get(canonical) or _criteria_map.get(original_name, ('NONE', None))
@@ -958,6 +968,10 @@ def _tig_10(c: dict) -> RuleResult:
             "debt_type": creditor.get("creditor_type") or creditor.get("debt_type_normalised") or "",
             "representative": _rep,
             "creditor_status": _cstatus,
+            # True when the raw Aryza name resolved to a real CreditorCriteria row.
+            # _cstatus is None only when no DB match was found (falls back to
+            # ('NONE', None)), so it is a reliable matched/unmatched signal for the UI.
+            "matched_in_db": _cstatus is not None,
         })
 
         if not is_verified:
@@ -966,6 +980,7 @@ def _tig_10(c: dict) -> RuleResult:
                 hard_blocks.append(f"{name} (£{balance:,.2f})")
             else:
                 flags.append(name)
+                subk_unverified_total += balance
         else:
             verified_count += 1
 
@@ -979,6 +994,28 @@ def _tig_10(c: dict) -> RuleResult:
         )
 
     if flags:
+        # "Debt level issue" caveat (Excel Proof of Debts / TIG-14): sub-£1,000
+        # debts may normally be taken verbally (flag), but NOT when they are
+        # load-bearing for the £6,000 minimum debt (TIG-01) — i.e. without these
+        # unproven debts the case would fall below the minimum. Then they require
+        # real proof → hard block. (Reachable only when there is no >=£1,000
+        # unverified debt above, so all unverified debts are the sub-£1,000 ones.)
+        MIN_DEBT = 6000.0  # mirrors TIG-01's hardcoded minimum (code-managed)
+        total_debt = c.get("total_debt") or 0
+        provable = total_debt - subk_unverified_total
+        if provable < MIN_DEBT:
+            return RuleResult(
+                rule_id="TIG-10",
+                severity="hard_block",
+                triggered=True,
+                message=(
+                    f"Hard block (debt level issue): sub-£1,000 debt(s) without verified "
+                    f"proof are needed to meet the £{MIN_DEBT:,.0f} minimum debt — provable "
+                    f"debt would be £{provable:,.2f}: {', '.join(flags)}. Verbal proof is not "
+                    f"acceptable when eligibility depends on these debts."
+                ),
+                creditors=creditors_detail,
+            )
         return RuleResult(
             rule_id="TIG-10",
             severity="flag",
@@ -1419,12 +1456,30 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
 
 
 def _tig_16(c: dict) -> RuleResult:
-    """TIG-16: Property equity > £5,000 — hard block."""
-    has_property = c.get("has_property", False)
-    pv = _parse_amount(c.get("property_value", 0))
+    """TIG-16: Property equity exceeds liabilities — flag (non-WPM cases only).
 
-    # Case 3: owns_property is True AND property_value is 0.0 or None
-    if has_property and pv <= 0:
+    Excel (General Rejection / Watch Flags): "Equity Exceeds Liabilities —
+    greater return in Bankruptcy (only for NON WPM or Eversheds cases). Reason
+    needed for why they aren't remortgaging to repay debts."
+
+    So this is: equity > total debt (liabilities), a FLAG requiring a reason —
+    NOT a flat £5,000 hard block (the old £5,000 figure had no Excel basis and
+    was hard-rejecting any homeowner with >£5k equity even when their debt far
+    exceeded it). WPM/WATCH cases are excluded here because WATCH-22.4 already
+    evaluates equity-vs-debt (at 85% LTV) for them; Eversheds and all other
+    non-WATCH cases are covered by this rule.
+    """
+    # WPM (WATCH) cases are handled by WATCH-22.4 — TIG-16 is for NON-WPM cases.
+    if "WATCH" in (c.get("detected_representatives") or set()):
+        return _pass("TIG-16", "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.")
+
+    has_property = c.get("has_property", False)
+    if not has_property:
+        return _pass("TIG-16", "Client does not own property.")
+
+    pv = _parse_amount(c.get("property_value", 0))
+    # Owns property but no valuation in the system — can't compute equity → flag.
+    if pv <= 0:
         return RuleResult(
             rule_id="TIG-16", severity="flag", triggered=True,
             message=(
@@ -1433,24 +1488,19 @@ def _tig_16(c: dict) -> RuleResult:
             )
         )
 
-    # Case 1: owns_property is False AND property_value is 0.0
-    if not has_property:
-        return _pass("TIG-16", "Client does not own property.")
-
-    # Case 2: owns_property is True AND property_value > 0.0
     equity = pv - c["mortgage_balance"]
-    threshold = 5000.0
-    if equity > threshold:
+    liabilities = c["total_debt"]
+    if equity > liabilities:
         return RuleResult(
-            rule_id="TIG-16", severity="hard_block", triggered=True,
+            rule_id="TIG-16", severity="flag", triggered=True,
             message=(
-                f"Equity £{equity:,.2f} exceeds threshold "
-                f"£{threshold:,.2f}. Client has sufficient equity to repay debts — "
-                "IVA is not appropriate. Remortgage or asset realisation should be explored."
+                f"Equity £{equity:,.2f} exceeds total liabilities £{liabilities:,.2f} — "
+                "greater return likely in bankruptcy. A reason is needed for why the "
+                "client is not remortgaging to repay their debts."
             ),
-            threshold=threshold, actual_value=equity,
+            threshold=liabilities, actual_value=equity,
         )
-    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed £{threshold:,.2f}.")
+    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed total liabilities £{liabilities:,.2f}.")
 
 
 def _tig_17(c: dict) -> RuleResult:
@@ -1635,8 +1685,10 @@ def _tig_21_5(c: dict) -> RuleResult:
     """
     TIG-21.5: Previous IVA failure evaluation for Link Financial.
     - Pass if no previous IVA or completed successfully.
-    - Flag if failed due to breach/arrears (requires discretion).
+    - Hard block if failed due to breach/arrears (Excel: "REJECT if previous IVA
+      failed due to arrears").
     - Hard block if terminated due to fraud/misrepresentation.
+    - Flag for other/unspecified failure reasons (review required).
     """
     if not c["link_is_creditor"]:
         return _pass("TIG-21.5", "Link Financial is not a creditor.")
@@ -1660,12 +1712,13 @@ def _tig_21_5(c: dict) -> RuleResult:
             message=f"Previous IVA terminated due to fraud or misrepresentation: '{reason}'. Link Financial will reject.",
         )
 
-    # 3. Flag if failed due to client breach or missed payments (arrears)
+    # 3. Hard block if failed due to client breach or missed payments (arrears) —
+    #    Excel (Link Financial): "REJECT if previous IVA failed due to arrears."
     breach_keywords = ["breach", "arrears", "missed", "payment", "contribution", "default"]
     if any(kw in reason for kw in breach_keywords):
         return RuleResult(
-            rule_id="TIG-21.5", severity="flag", triggered=True,
-            message=f"Previous IVA failed due to arrears/breach: '{reason}'. Link Financial requires creditor discretion.",
+            rule_id="TIG-21.5", severity="hard_block", triggered=True,
+            message=f"Previous IVA failed due to arrears/breach: '{reason}'. Link Financial will reject.",
         )
 
     # 4. Default to flag for other failures
@@ -1766,17 +1819,47 @@ def _watch_22_4(c: dict) -> RuleResult:
     return _pass("WATCH-22.4", f"Equity at 85% LTV £{equity_at_85:,.2f} does not exceed total debt.")
 
 
+def _count_qualifying_lenders(creditors: list, threshold: float) -> int:
+    """Count DISTINCT lenders whose TOTAL balance exceeds `threshold`.
+
+    Balances are SUMMED per lender BEFORE the threshold test. Brands of the same
+    banking group are collapsed to one lender via `parent_group` (attached to
+    each case creditor in assess_case from CreditorCriteria); when no
+    parent_group is known the creditor name is the grouping key, so multiple
+    debts to the same named creditor are also summed into one lender.
+
+    Source (Watch/Evolve criteria): "Client only has debt with 1 lender — need a
+    separate lender of more than £500"; the Evolve example treats a NatWest
+    loan + credit card + overdraft + bounceback as ONE lender. So the £500 test
+    is the client's TOTAL exposure to a lender, not any single debt row — two
+    £400 accounts with one lender (£800 total) qualify that lender.
+    """
+    totals = {}
+    for cr in creditors:
+        key = (cr.get("parent_group") or "").strip().lower() \
+            or (cr.get("name") or "").strip().lower()
+        if not key:
+            continue
+        try:
+            bal = float(cr.get("balance") or 0)
+        except (TypeError, ValueError):
+            bal = 0.0
+        totals[key] = totals.get(key, 0.0) + bal
+    return sum(1 for total in totals.values() if total > threshold)
+
+
 def _watch_22_5(c: dict) -> RuleResult:
-    """WATCH-22.5: Only 1 creditor, or second creditor balance <= £500 — hard block."""
+    """WATCH-22.5: Only 1 qualifying lender (balance > £500) — hard block.
+    Banking-group brands count as a single lender (see _count_qualifying_lenders)."""
     threshold = 500.0
-    qualifying = [cr for cr in c["creditors"] if cr["balance"] > threshold]
-    if len(qualifying) <= 1:
+    qualifying = _count_qualifying_lenders(c["creditors"], threshold)
+    if qualifying <= 1:
         return RuleResult(
             rule_id="WATCH-22.5", severity="hard_block", triggered=True,
-            message=f"Only {len(qualifying)} creditor(s) with balance > £{threshold:,.2f}. WATCH requires at least two qualifying creditors.",
-            threshold=threshold, actual_value=float(len(qualifying)),
+            message=f"Only {qualifying} qualifying lender(s) with balance > £{threshold:,.2f}. WATCH requires at least two separate lenders.",
+            threshold=threshold, actual_value=float(qualifying),
         )
-    return _pass("WATCH-22.5", f"{len(qualifying)} creditors with balance > £{threshold:,.2f}.")
+    return _pass("WATCH-22.5", f"{qualifying} qualifying lenders with balance > £{threshold:,.2f}.")
 
 
 def _watch_22_6(c: dict) -> RuleResult:
@@ -1823,17 +1906,28 @@ def _watch_22_6(c: dict) -> RuleResult:
 
 
 def _watch_22_7(c: dict) -> RuleResult:
-    """WATCH-22.7: Children aged 13+ with no sustainability paragraph — flag."""
+    """WATCH-22.7: Children OVER 13 (age > 13) with no sustainability paragraph —
+    hard block.
+
+    Excel (Watch Rejection Rules): "Client has children over 13 and no
+    sustainability paragraph (Drafter) → Reject". Boundary is strictly > 13 per
+    "over 13".
+
+    NOTE: this rule is currently is_active=False in GlobalCriteria, so the engine
+    discards its result (disabled). The code is kept Excel-correct so enabling the
+    rule (is_active=True) makes it hard-block immediately. (Decision 2026-06-21:
+    fix code, leave disabled pending the WATCH-config-drift review.)
+    """
     children = c["children"]
     if not children:
         return _pass("WATCH-22.7", "No children on record — rule not applicable.")
-    has_teen = any(_parse_amount(child.get("age", 0)) >= 13 for child in children)
+    has_teen = any(_parse_amount(child.get("age", 0)) > 13 for child in children)
     if not has_teen:
-        return _pass("WATCH-22.7", "No children aged 13 or above.")
+        return _pass("WATCH-22.7", "No children aged over 13.")
     if not c["sustainability_paragraph_present"]:
         return RuleResult(
-            rule_id="WATCH-22.7", severity="flag", triggered=True,
-            message="Client has child(ren) aged 13 or above. Sustainability paragraph required in IVA proposal.",
+            rule_id="WATCH-22.7", severity="hard_block", triggered=True,
+            message="Client has child(ren) aged over 13 and no sustainability paragraph in the IVA proposal.",
         )
     return _pass("WATCH-22.7", "Sustainability paragraph present.")
 
@@ -2036,18 +2130,17 @@ def _evolve_01(c: dict) -> RuleResult:
 
 
 def _evolve_02(c: dict) -> RuleResult:
-    """EVOLVE-02: Single creditor (NatWest group counts as one lender) — hard block."""
+    """EVOLVE-02: Single lender (NatWest group counts as one lender) — hard block.
+    Banking-group brands are grouped via parent_group (see _count_qualifying_lenders)."""
     threshold = 500.0
-    # Group creditors by parent_group — same parent = same lender
-    # Without parent_group data in the parsed case, count distinct creditor names
-    qualifying = [cr for cr in c["creditors"] if cr["balance"] > threshold]
-    if len(qualifying) <= 1:
+    qualifying = _count_qualifying_lenders(c["creditors"], threshold)
+    if qualifying <= 1:
         return RuleResult(
             rule_id="EVOLVE-02", severity="hard_block", triggered=True,
-            message=f"Only {len(qualifying)} creditor(s) with balance > £{threshold:,.2f}. EVOLVE requires at least two separate lenders.",
-            threshold=threshold, actual_value=float(len(qualifying)),
+            message=f"Only {qualifying} qualifying lender(s) with balance > £{threshold:,.2f}. EVOLVE requires at least two separate lenders.",
+            threshold=threshold, actual_value=float(qualifying),
         )
-    return _pass("EVOLVE-02", f"{len(qualifying)} creditors with balance > £{threshold:,.2f}.")
+    return _pass("EVOLVE-02", f"{qualifying} qualifying lenders with balance > £{threshold:,.2f}.")
 
 
 def _evolve_03(c: dict) -> RuleResult:
@@ -2138,21 +2231,26 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
         county_name = cr["name"]
         routings = list(
             CountyCouncilRouting.objects.filter(county_name__iexact=county_name)
-            .values_list("district_name", flat=True)
+            .select_related("council_rule")
         )
         if not routings:
             continue
 
         routing_messages.append(
             f"{county_name}: county council routing found — districts: "
-            + ", ".join(routings)
+            + ", ".join(r.district_name for r in routings)
             + "."
         )
 
-        for district_name in routings:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
-            try:
-                CouncilRule.objects.get(council_name__iexact=district_name)  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
-            except CouncilRule.DoesNotExist:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
+        for routing in routings:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
+            district_name = routing.district_name
+            # Prefer an explicit council_rule FK when set (pinned routing — no
+            # fuzzy-match risk; required for reorganised unitaries and composite
+            # rule names). Fall back to the tolerant name resolver otherwise:
+            # district names in routing use abbreviations ("Wycombe DC", "Swale BC")
+            # that rarely match CouncilRule.council_name exactly.
+            matched_rule = routing.council_rule or _match_council_rule(district_name)
+            if matched_rule is None:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
                 extra_results.append(RuleResult(  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
                     rule_id="COUNTY-COUNCIL-NO-DISTRICT-RULE",
                     severity="info",
@@ -2163,7 +2261,9 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
                     ),
                 ))
                 continue
-            synthetic_cr = {**cr, "name": district_name}  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
+            # Pass the canonical council name so _check_council_rules resolves the
+            # same rule and the resulting position carries the canonical name.
+            synthetic_cr = {**cr, "name": matched_rule.council_name}  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
             synthetic_case = {**c, "creditors": [synthetic_cr]}  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
             district_positions = _check_council_rules(synthetic_case)  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
             county_council_positions.extend(district_positions)  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
@@ -2201,6 +2301,17 @@ def _check_creditor_individual(case: dict) -> list[dict]:
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
 
+    # Resolve council name set — use pre-loaded value from assess_case() when available
+    # (one DB query for the whole assessment); fall back to loading here for standalone calls.
+    _council_names_lower = case.get("_council_rule_names_lower")
+    if _council_names_lower is None:
+        from debt_app.models import CouncilRule as _CR
+        _council_names_lower = frozenset(
+            v.lower()
+            for n in _CR.objects.values_list("council_name", flat=True)
+            for v in _ampersand_variants(n)
+        )
+
     # Pre-load all active creditor names once for fuzzy matching
     _all_creditor_names = list(
         CreditorCriteria.objects.filter(is_active=True)
@@ -2209,7 +2320,12 @@ def _check_creditor_individual(case: dict) -> list[dict]:
 
     positions = []
     for cr in case.get("creditors", []):
+        # Skip council-type debts — handled entirely by _check_council_rules().
+        # Also skip creditors whose name matches a CouncilRule entry even when Aryza
+        # has tagged them with a generic debt type (e.g. GENERAL instead of council_tax).
         if cr["debt_type_normalised"] in _COUNCIL_TYPES:
+            continue
+        if cr.get("name", "").lower() in _council_names_lower:
             continue
 
         name = cr.get("name", "Unknown Creditor")
@@ -2277,11 +2393,17 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                     f"(threshold: {arrears_threshold}) — repossession risk"
                 ),
             })
-        elif criteria.reject_if_client_still_has_asset and cr.get("client_still_has_asset_in_possession", False):
+
+        # General Creditor: financed asset must be returned before proposing —
+        # otherwise the creditor rejects (e.g. Advantage Finance "car needs to
+        # have gone back"). Own branch (not chained to the arrears flag above)
+        # and a REJECT, not just a flag.
+        if criteria.reject_if_client_still_has_asset and cr.get("client_still_has_asset_in_possession", False):
             findings.append({
-                "code": "CREDITOR-REPOSSESSION-RISK",
-                "reason": "Client still holds the financed asset — creditor may seek repossession",
+                "code": "CREDITOR-ASSET-NOT-RETURNED-REJECT",
+                "reason": "Client still holds the financed asset — creditor requires it be returned before proposing",
             })
+            reject_level = True
 
         if criteria.requires_arrangement_call_before_proposing and not cr.get("arrangement_confirmed_before_proposing", False):
             findings.append({
@@ -2317,6 +2439,51 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                 "reason": f"{name} rejects clients with a prior IVA",
             })
             reject_level = True
+
+        # General Creditor: CCJ reject — has_ccj is sourced from the credit report
+        # (Experian Public Information / Aryza "CCJs and Insolvencies") by
+        # _enrich_from_credit_report.
+        if criteria.reject_if_ccj and case.get("has_ccj", False):
+            findings.append({
+                "code": "CREDITOR-CCJ-REJECT",
+                "reason": f"{name} rejects clients with a County Court Judgment on their credit file",
+            })
+            reject_level = True
+
+        # General Creditor: Attachment of Earnings reject
+        if criteria.reject_if_aoe and case.get("aoe_in_place", False):
+            findings.append({
+                "code": "CREDITOR-AOE-REJECT",
+                "reason": f"{name} rejects clients with an Attachment of Earnings order already in place",
+            })
+            reject_level = True
+
+        # General Creditor: minimum loan age — creditor rejects loans younger than
+        # N months (e.g. "REJECT IF LOAN LESS THAN 6 MONTHS OLD"). The client's loan
+        # age is sourced from the credit report (account Start Date) and attached to
+        # the creditor by _enrich_from_credit_report. account_age_months is None when
+        # it could not be verified (no credit report, or no matched account) — in that
+        # case FLAG for caseworker confirmation, never treat unknown as 0 (which would
+        # wrongly reject). Only a verified age below the minimum is a REJECT.
+        if criteria.account_age_months is not None:
+            client_loan_age = cr.get("account_age_months")
+            if client_loan_age is None:
+                findings.append({
+                    "code": "CREDITOR-LOAN-AGE-UNVERIFIED",
+                    "reason": (
+                        f"{name} rejects loans under {criteria.account_age_months} month(s) old; "
+                        "loan age could not be verified from the credit report — confirm before proposing"
+                    ),
+                })
+            elif client_loan_age < criteria.account_age_months:
+                findings.append({
+                    "code": "CREDITOR-LOAN-TOO-RECENT-REJECT",
+                    "reason": (
+                        f"{name}: loan is {client_loan_age} month(s) old — under the creditor's "
+                        f"{criteria.account_age_months}-month minimum"
+                    ),
+                })
+                reject_level = True
 
         # EXCEL_CRITERIA_REFERENCE.md — General Creditor: per-creditor equity block (85% LTV)
         if criteria.reject_if_equity_exceeds_debt and case.get("has_property", False):
@@ -2423,10 +2590,63 @@ def _ampersand_variants(name: str) -> list[str]:
     return variants
 
 
+# Generic / ambiguous tokens that must never resolve to a council on their own.
+# A creditor literally named "OTHER" must NOT match "R-other- District Council".
+_COUNCIL_MATCH_STOPWORDS = frozenset({
+    "other", "misc", "miscellaneous", "unknown", "general", "none", "n a",
+    "various", "sundry", "council", "tax", "city", "county", "borough",
+    "district", "metropolitan", "rent", "arrears", "",
+})
+
+# Council-type/suffix words removed during normalisation so abbreviations and
+# qualifiers collapse to the discriminating part of the name.
+_COUNCIL_SUFFIX_WORDS = (
+    "metropolitan", "borough", "district", "city", "county", "council",
+    "mbc", "rbc", "dc", "bc", "cc",
+)
+
+_COUNCIL_FUZZY_CUTOFF = 92      # last-resort fuzzy: high bar
+_COUNCIL_FUZZY_MARGIN = 6       # best must beat runner-up by this much (no near-ties)
+
+
+def _normalise_council_name(s: str) -> str:
+    """Reduce a council name to its discriminating core for exact comparison.
+
+    Drops parenthetical qualifiers ('(Grimsby)'), trailing '/ ...' notes, '&'/'and',
+    and council-type suffix words, so e.g. both 'North East Lincolnshire Council' and
+    'North East Lincolnshire Council (Grimsby)' normalise to 'north east lincolnshire'
+    — while 'North Lincolnshire Council' stays distinct ('north lincolnshire').
+    """
+    if not s:
+        return ""
+    s = s.lower()
+    s = re.sub(r"\([^)]*\)", " ", s)        # drop parenthetical qualifiers
+    s = s.split("/")[0]                       # drop trailing "/ ..." notes
+    s = re.sub(r"[^a-z0-9 &]", " ", s)        # keep alnum / space / &
+    s = s.replace("&", " and ")
+    s = re.sub(r"\band\b", " ", s)            # treat 'and'/'&' as a separator only
+    for w in _COUNCIL_SUFFIX_WORDS:
+        s = re.sub(rf"\b{w}\b", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _match_council_rule(name: str):
-    """Resolve a council name to a CouncilRule — tolerant of '&'/'and', case and
-    common suffixes. Returns the rule or None."""
+    """Resolve a council name to a CouncilRule. Returns the rule or None.
+
+    Strategy (precise, no substring guessing):
+      1. Exact `iexact` match on '&'/'and' variants (handles the canonical DB name).
+      2. Normalised-exact match: compare discriminating cores (parentheticals,
+         '/'-notes and suffix words stripped). Must be UNIQUE.
+      3. Strict fuzzy last resort: token_sort_ratio on normalised forms, high cutoff
+         AND a clear margin over the runner-up.
+
+    This prevents false positives such as the literal creditor name "OTHER" being
+    substring-matched to "Rother District Council" (the old `icontains` + `.first()`
+    behaviour that mis-classified rent-arrears debts as council tax), and the
+    genuine ambiguity between 'North Lincolnshire' and 'North East Lincolnshire'.
+    """
     from debt_app.models import CouncilRule
+    from rapidfuzz import fuzz
 
     candidates = _ampersand_variants(name)
     for cand in candidates:
@@ -2434,17 +2654,41 @@ def _match_council_rule(name: str):
             return CouncilRule.objects.get(council_name__iexact=cand)
         except CouncilRule.DoesNotExist:
             continue
-    # Fuzzy fallback: strip common council suffixes then icontains search.
-    for cand in candidates:
-        name_part = re.sub(
-            r"\s+(District|Borough|City|County)\s+Council$", "", cand, flags=re.IGNORECASE
-        ).strip()
-        name_part = re.sub(r"\s+(DC|BC|CC|MBC|RBC)$", "", name_part, flags=re.IGNORECASE).strip()
-        if not name_part:
-            continue
-        rule = CouncilRule.objects.filter(council_name__icontains=name_part).first()
-        if rule is not None:
-            return rule
+
+    council_names = list(CouncilRule.objects.values_list("council_name", flat=True))
+    if not council_names:
+        return None
+
+    target = _normalise_council_name(name)
+    if not target or target in _COUNCIL_MATCH_STOPWORDS or len(target) < 4:
+        return None
+
+    norm_map = [(cn, _normalise_council_name(cn)) for cn in council_names]
+
+    # 2. Normalised-exact, unique.
+    exact = [cn for cn, norm in norm_map if norm and norm == target]
+    if len(exact) == 1:
+        try:
+            return CouncilRule.objects.get(council_name=exact[0])
+        except CouncilRule.DoesNotExist:
+            pass
+    if len(exact) > 1:
+        return None  # ambiguous — refuse to guess
+
+    # 3. Strict fuzzy last resort over normalised forms.
+    scored = sorted(
+        ((fuzz.token_sort_ratio(target, norm), cn) for cn, norm in norm_map if norm),
+        key=lambda t: t[0],
+        reverse=True,
+    )
+    if scored:
+        best_score, best_name = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else 0
+        if best_score >= _COUNCIL_FUZZY_CUTOFF and (best_score - second_score) >= _COUNCIL_FUZZY_MARGIN:
+            try:
+                return CouncilRule.objects.get(council_name=best_name)
+            except CouncilRule.DoesNotExist:
+                pass
     return None
 
 
@@ -2466,9 +2710,28 @@ def _check_council_rules(case: dict) -> list[dict]:
         DEBT_TYPE_HOUSING_BENEFIT: "HOUSING_BENEFIT",
     }
 
+    # Resolve council name set — use pre-loaded value from assess_case() when available;
+    # fall back to loading here for standalone calls (e.g. _phase4_county_council).
+    # synthetic_case = {**c, ...} in _phase4_county_council carries _council_rule_names_lower
+    # automatically, so the DB is only hit once per assessment in the normal path.
+    _council_names_lower = case.get("_council_rule_names_lower")
+    if _council_names_lower is None:
+        _council_names_lower = frozenset(
+            v.lower()
+            for n in CouncilRule.objects.values_list("council_name", flat=True)
+            for v in _ampersand_variants(n)
+        )
+
     positions = []
     for cr in case.get("creditors", []):
-        if cr["debt_type_normalised"] not in _COUNCIL_TYPES:
+        # Include if debt type is a recognised council type OR if the creditor's name
+        # matches a CouncilRule entry — the latter catches councils whose debt_type
+        # arrives from Aryza as GENERAL rather than council_tax (e.g. Mansfield District
+        # Council). Without this, those councils were silently routed through
+        # _check_creditor_individual() and their council-specific rejection rules never ran.
+        is_council_type = cr["debt_type_normalised"] in _COUNCIL_TYPES
+        is_council_name = cr.get("name", "").lower() in _council_names_lower
+        if not (is_council_type or is_council_name):
             continue
 
         name = cr["name"]
@@ -2566,26 +2829,17 @@ def _check_council_rules(case: dict) -> list[dict]:
             findings.append({"code": "COUNCIL-TRIGGER-JOINT-BOTH-PARTIES", "reason": "Joint IVA proposed — council rejects"})
             reject_override = True
 
-        # If the council has conditional-reject flags and none triggered, it
-        # is effectively ACCEPT (the Excel notes confirm acceptance when conditions
-        # are met, e.g. "ACCEPT UNEMPLOYED — REJECT IF EMPLOYED").
-        _has_conditional_reject = any([
-            rule.reject_if_employed,
-            rule.reject_if_unemployed_and_homeowner,
-            rule.reject_if_benefits_only,
-            rule.reject_if_any_benefits,
-            rule.reject_if_previous_iva,
-            rule.reject_if_dro_criteria_met,
-            rule.reject_if_aoe_in_place,
-            rule.reject_if_joint_one_party_only,
-            rule.reject_if_joint_both_parties,
-            rule.reject_if_sole,
-            rule.reject_if_joint_one_employed,
-        ])
+        # Effective status is the council's real position:
+        #   - a triggered conditional flag ADDS a reject (reject_override)
+        #   - otherwise the council keeps its documented base status.
+        # We must NOT force ACCEPT just because a council has conditional flags that
+        # didn't fire — that hardcodes an over-optimistic vote and masks the real
+        # position. Ground truth (Councils sheet) confirms: e.g. Doncaster BC ["Will
+        # Consider"], Mid Suffolk ["pod only"/DO_NOT_VOTE], Shropshire ["Reject"]
+        # are NOT acceptances when their reject condition is simply absent — they
+        # stay at their base status (Will Consider / Do Not Vote / Reject).
         if reject_override:
             effective_status = "REJECT"
-        elif _has_conditional_reject:
-            effective_status = "ACCEPT"
         else:
             effective_status = base_status
 
@@ -2594,15 +2848,127 @@ def _check_council_rules(case: dict) -> list[dict]:
         # original_name is the raw '&' form) and the UI can show the real name. Must
         # use original_name because cr["name"] may already be the resolved canonical.
         _raw_name = cr.get("original_name") or name
+        # Always attach a calculated reason so the UI/popup never has to invent one.
+        # Prefer a specific finding; otherwise explain the base position.
+        if findings:
+            reason = findings[0]["reason"]
+        else:
+            reason = _council_status_reason(rule.council_name, effective_status)
         positions.append({
             "council_name": rule.council_name,
             "creditor_name": rule.council_name,
             "original_aryza_name": _raw_name if _raw_name != rule.council_name else None,
             "effective_status": effective_status,
             "findings": findings,
+            "reason": reason,
         })
 
     return positions
+
+
+def _council_status_reason(name: str, status: str) -> str:
+    """Human-readable, calculated reason for a council's effective vote status."""
+    s = (status or "").upper()
+    if s == "REJECT":
+        return f"{name} — council rejects inclusion in this IVA (council policy / alternative recovery available)."
+    if s == "ACCEPT":
+        return f"{name} — council accepts inclusion in the IVA under standard terms."
+    if s == "DO_NOT_VOTE":
+        return f"{name} — council does not participate in the creditor vote (proof of debt only)."
+    if s == "WILL_CONSIDER":
+        return f"{name} — council reviews each IVA proposal individually; outcome depends on dividend and case factors."
+    if s == "CONDITIONAL_VOTER":
+        return f"{name} — council votes conditionally; outcome depends on the dividend offered."
+    return f"{name} — vote status calculated by council rules."
+
+
+# Reason shown for a creditor the engine could not assess at all. NEVER ACCEPT.
+CREDITOR_NOT_ASSESSED_REASON = (
+    "Creditor could not be identified — manual review required before the vote can be relied upon."
+)
+
+
+def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list:
+    """Combine engine `creditor_positions` with any prepared creditor the engine
+    routed elsewhere (councils → `council_positions`) or could not assess.
+
+    Single source of truth shared by every assessment view, so the displayed
+    creditor table always shows the engine's CALCULATED status:
+      - a creditor matched in `council_positions` reuses that council's real
+        effective_status / findings / reason;
+      - a creditor in neither list becomes UNKNOWN with a manual-review reason.
+
+    It must NEVER hardcode ACCEPT (the old STEP 7 bug that masked REJECT councils
+    such as Rother District Council).
+    """
+    from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
+
+    engine_positions = result.get("creditor_positions", []) or []
+    council_positions = result.get("council_positions", []) or []
+
+    positioned = set()
+    for p in engine_positions:
+        for key in (p.get("creditor_name"), p.get("original_aryza_name")):
+            if key:
+                positioned.add(key.strip().lower())
+
+    council_by_name = {}
+    for cp in council_positions:
+        for key in (cp.get("creditor_name"), cp.get("council_name")):
+            if key:
+                council_by_name[key.strip().lower()] = cp
+
+    backfilled = []
+    for c in (prepared_creditors or []):
+        cname = (c.get("creditor_name") or c.get("name") or "").strip()
+        if not cname:
+            continue
+        original = (c.get("original_name") or c.get("name") or cname).strip()
+        alias = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(cname), cname).strip().lower()
+        if (cname.lower() in positioned
+                or original.lower() in positioned
+                or alias in positioned):
+            continue  # already represented in engine output
+
+        balance = float(c.get("crm_balance") or c.get("balance") or 0)
+        council_pos = (
+            council_by_name.get(cname.lower())
+            or council_by_name.get(original.lower())
+            or council_by_name.get(alias)
+        )
+        if council_pos:
+            # Reuse the council's REAL calculated position — never invent ACCEPT.
+            canonical = council_pos.get("council_name") or council_pos.get("creditor_name") or cname
+            findings = council_pos.get("findings") or []
+            status = council_pos.get("effective_status", "UNKNOWN")
+            reason = council_pos.get("reason") or (
+                findings[0].get("reason") if findings else _council_status_reason(canonical, status)
+            )
+            backfilled.append({
+                "creditor_name": canonical,
+                "resolved_canonical_name": canonical,
+                "original_aryza_name": original if original != canonical else None,
+                "representative": "NONE",
+                "effective_status": status,
+                "findings": findings,
+                "reason": reason,
+                "rule_ids": [f.get("code", "") for f in findings],
+                "balance": balance,
+            })
+        else:
+            backfilled.append({
+                "creditor_name": cname,
+                "resolved_canonical_name": cname,
+                "original_aryza_name": original if original != cname else None,
+                "representative": c.get("representative") or "NONE",
+                "effective_status": "UNKNOWN",
+                "findings": [],
+                "reason": CREDITOR_NOT_ASSESSED_REASON,
+                "rule_ids": ["CREDITOR-NOT-ASSESSED"],
+                "balance": balance,
+            })
+
+    return engine_positions + backfilled
 
 
 # ---------------------------------------------------------------------------
@@ -3097,15 +3463,18 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     if not total:
         return {
             "total_debt": Decimal("0"), "threshold": Decimal("0"),
-            "voting_debt": Decimal("0"), "shortfall": Decimal("0"),
-            "achievable": True,
+            "voting_debt": Decimal("0"), "voting_debt_optimistic": Decimal("0"),
+            "unknown_debt": Decimal("0"), "shortfall": Decimal("0"),
+            "achievable": True, "indeterminate": False,
         }
     threshold = (total * Decimal("0.75")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+    # A confirmed YES vote. UNKNOWN is NOT a yes — an unidentified creditor's vote
+    # is genuinely unknown and must not be assumed supportive.
     # EXCEL_CRITERIA_REFERENCE.md — CONDITIONAL_VOTER: only votes YES if dividend meets threshold
     def _counts_as_yes(pos: dict) -> bool:
         status = pos.get("effective_status")
-        if status in ("ACCEPT", "WILL_CONSIDER", "UNKNOWN"):
+        if status in ("ACCEPT", "WILL_CONSIDER"):
             return True
         if status == "CONDITIONAL_VOTER":
             try:
@@ -3118,66 +3487,63 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
             return True
         return False
 
-    if all_positions:
-        # BUG FIX: After name-resolution commits, positions have canonical DB names,
-        # but creditors in case dict have normalized/raw names from payload.
-        # Build a mapping from position creditor_name → original_name to match them correctly.
-        # This ensures voting debt is computed using the actual case creditor rows.
-        
-        # Create reverse mapping: canonical name (from position) → creditor balances
-        # by matching against original_name field which should match the position lookup.
-        balance_by_canonical = {}
-        for c in creditors:
-            # The original_name field is set by _parse_case from the payload
-            canonical_key = c.get("original_name") or c.get("name", "")
-            if canonical_key:
-                if canonical_key not in balance_by_canonical:
-                    balance_by_canonical[canonical_key] = Decimal("0")
-                balance_by_canonical[canonical_key] += c["crm_balance"]
-        
-        # Build a set of canonical names that count as yes votes
-        yes_names = {
-            pos["creditor_name"]
-            for pos in all_positions
-            if _counts_as_yes(pos)
-        }
-        
-        # Also map from position creditor_name to matching creditor rows
-        # If position creditor_name doesn't match directly, try original_name
-        yes_names_with_fallback = yes_names.copy()
-        for pos in all_positions:
-            if not _counts_as_yes(pos):
-                continue
-            pos_name = pos.get("creditor_name")
-            orig_aryza = pos.get("original_aryza_name")
-            if orig_aryza and orig_aryza not in yes_names:
-                yes_names_with_fallback.add(orig_aryza)
-        
-        # Match a case creditor to a yes-vote by ANY of its names — the resolved
-        # canonical (creditor_name), the raw original_name, or name. Matching only
-        # the raw name silently dropped councils whose canonical differs from the
-        # raw form (e.g. 'Brighton & Hove' vs 'Brighton and Hove').
-        def _creditor_counts_yes(c):
-            return any(
-                key and key in yes_names_with_fallback
-                for key in (c.get("creditor_name"), c.get("original_name"), c.get("name"))
-            )
+    def _is_unknown(pos: dict) -> bool:
+        # An explicit UNKNOWN vote — could flip either way once identified.
+        return (pos.get("effective_status") or "").upper() == "UNKNOWN"
 
-        voting_debt = sum(
-            c["crm_balance"]
-            for c in creditors
-            if _creditor_counts_yes(c)
-            and c["name"] not in do_not_vote_names
-        )
+    if all_positions:
+        # Match case creditors to positions by ANY name (resolved canonical,
+        # original_aryza_name) — councils' canonical name differs from the raw
+        # '&'/'and' form, so matching only the raw name silently dropped them.
+        def _names_from_position(pos):
+            return [pos.get("creditor_name"), pos.get("original_aryza_name")]
+
+        yes_names: set = set()
+        unknown_names: set = set()
+        all_positioned_names: set = set()
+        for pos in all_positions:
+            names = [n for n in _names_from_position(pos) if n]
+            all_positioned_names.update(names)
+            if _counts_as_yes(pos):
+                yes_names.update(names)
+            elif _is_unknown(pos):
+                unknown_names.update(names)
+
+        def _creditor_names(c):
+            return [n for n in (c.get("creditor_name"), c.get("original_name"), c.get("name")) if n]
+
+        voting_debt = Decimal("0")
+        unknown_debt = Decimal("0")
+        for c in creditors:
+            if c["name"] in do_not_vote_names:
+                continue
+            names = _creditor_names(c)
+            if any(n in yes_names for n in names):
+                voting_debt += c["crm_balance"]
+            elif any(n in unknown_names for n in names) or not any(n in all_positioned_names for n in names):
+                # Explicit UNKNOWN, or a creditor with no position at all:
+                # excluded from voting_debt, but tracked as a could-flip balance.
+                unknown_debt += c["crm_balance"]
     else:
-        voting_debt = total
+        # No positions computed — treat the whole book as unidentified, not as yes.
+        voting_debt = Decimal("0")
+        unknown_debt = total
+
+    voting_debt_optimistic = voting_debt + unknown_debt
     shortfall = max(Decimal("0"), threshold - voting_debt)
+    achievable = voting_debt >= threshold
+    # Indeterminate: cannot confirm a majority now, but identifying the unknown
+    # creditors could reach it. NOT a true impossibility.
+    indeterminate = (not achievable) and (voting_debt_optimistic >= threshold)
     return {
         "total_debt": total,
         "threshold": threshold,
         "voting_debt": voting_debt,
+        "voting_debt_optimistic": voting_debt_optimistic,
+        "unknown_debt": unknown_debt,
         "shortfall": shortfall,
-        "achievable": shortfall == Decimal("0"),
+        "achievable": achievable,
+        "indeterminate": indeterminate,
     }
 
 
@@ -3379,12 +3745,39 @@ def _enrich_from_credit_report(case_data: dict) -> str:
         else:
             status = "present"
 
+        # Surface the Public Information CCJ signal from the credit report
+        # regardless of per-account matching status — a report can carry a CCJ
+        # even when its account list fails to match the case creditors. The
+        # credit report is the authoritative source for has_ccj.
+        _ccj_report = report or any_report
+        if _ccj_report and _ccj_report.extracted_data and "has_ccj" in _ccj_report.extracted_data:
+            case_data["has_ccj"] = bool(_ccj_report.extracted_data.get("has_ccj"))
+            case_data["credit_report_public_information"] = (
+                _ccj_report.extracted_data.get("public_information") or {}
+            )
+
         if status == "present":
             accounts = report.extracted_data["accounts"]
 
             # Build lookup pool: case creditors with a positive balance
             case_creditors = [c for c in case_data.get("creditors", []) if (c.get("balance") or 0) > 0]
-            creditor_names = [c["name"] for c in case_creditors]
+
+            # Index every case creditor under BOTH its resolved canonical name AND
+            # its raw Aryza name. The PDF extractor and the engine normalise names
+            # through DIFFERENT alias maps, so matching only the resolved name
+            # silently dropped accounts whose two pipelines diverged. Worst case:
+            # the extractor shortens 'Nationwide Building Society' → 'Nationwide'
+            # while the engine keeps the full name (token_sort_ratio 54 < 80), and
+            # 'Octopus Energy Limited' → 'Octopus Energy' scored 78 < 80 — both
+            # >= £1,000 debts that then hard-blocked on missing proof of debt.
+            # The raw Aryza name and the PDF raw_name both come from full legal
+            # names and align almost exactly, so indexing both recovers the match.
+            name_to_creditors: dict[str, list] = {}
+            for c in case_creditors:
+                for nm in (c.get("name"), c.get("original_name")):
+                    if nm:
+                        name_to_creditors.setdefault(nm, []).append(c)
+            search_names = list(name_to_creditors.keys())
 
             evidence_ledger = case_data.setdefault("evidence_ledger", [])
             existing_refs = {e.get("ref") for e in evidence_ledger}
@@ -3404,63 +3797,59 @@ def _enrich_from_credit_report(case_data: dict) -> str:
 
             for account in accounts:
                 matched_creditor = account.get("matched_creditor", "")
-                raw_name = matched_creditor or account.get("raw_name", "")
-                key_used = "matched_creditor" if matched_creditor else "raw_name"
-                logger.debug("[ENRICH] account resolved: '%s' (via %s)", raw_name, key_used)
-                if not raw_name:
+                # Prefer the raw PDF name for display/matching; it aligns with the
+                # case creditor's raw Aryza name. matched_creditor is also tried as
+                # a query below so the extractor's alias output still contributes.
+                raw_name = account.get("raw_name", "") or matched_creditor
+                if not raw_name and not matched_creditor:
                     logger.warning("[ENRICH] account skipped — no name resolved: %s", account)
                     continue
 
-                # Fuzzy-match the raw PDF name against live case creditor names
-                result = rfprocess.extractOne(
-                    raw_name,
-                    creditor_names,
-                    scorer=fuzz.token_sort_ratio,
-                    score_cutoff=80,
-                )
-                if result is None:
+                # Match BOTH PDF name forms (raw PDF name and the extractor's
+                # alias-mapped name) against the dual-name index, keeping the best
+                # score. This bridges the extractor/engine alias-map divergence.
+                best_result = None
+                for query in (raw_name, matched_creditor):
+                    if not query:
+                        continue
+                    r = rfprocess.extractOne(
+                        query,
+                        search_names,
+                        scorer=fuzz.token_sort_ratio,
+                        score_cutoff=80,
+                    )
+                    if r and (best_result is None or r[1] > best_result[1]):
+                        best_result = r
+
+                if best_result is None:
                     logger.info("[CREDIT REPORT MATCH] '%s' → no match (below cutoff)", raw_name)
                     unmatched.append(raw_name)
                     continue
 
-                matched_name, score, _ = result
+                matched_name, score, _ = best_result
                 logger.info("[CREDIT REPORT MATCH] '%s' → '%s' (score=%s)", raw_name, matched_name, score)
 
                 # When multiple creditors share the same name, pick by balance proximity.
                 # Exclude rows already claimed by a previous account to prevent two PDF
                 # accounts from landing on the same case creditor row.
                 candidates = [
-                    c for c in case_creditors
-                    if c["name"] == matched_name and id(c) not in claimed_ids
+                    c for c in name_to_creditors.get(matched_name, [])
+                    if id(c) not in claimed_ids
                 ]
 
                 if not candidates:
-                    # Fall back: check linked_creditor field, also excluding claimed rows
-                    candidates = [
-                        c for c in case_creditors
-                        if c.get("linked_creditor") == matched_name
-                        and id(c) not in claimed_ids
-                    ]
-                    if candidates:
-                        logger.info(
-                            "[ENRICH FALLBACK] '%s' matched via linked_creditor", matched_name
+                    if name_to_creditors.get(matched_name):
+                        logger.warning(
+                            "[ENRICH] '%s' — all candidates claimed, no row available",
+                            raw_name,
                         )
                     else:
-                        if any(
-                            c["name"] == matched_name or c.get("linked_creditor") == matched_name
-                            for c in case_creditors
-                        ):
-                            logger.warning(
-                                "[ENRICH] '%s' — all candidates claimed, no row available",
-                                raw_name,
-                            )
-                        else:
-                            logger.warning(
-                                "[ENRICH] '%s' fuzzy-matched to '%s' but no case creditor row found",
-                                raw_name, matched_name,
-                            )
-                        unmatched.append(raw_name)
-                        continue
+                        logger.warning(
+                            "[ENRICH] '%s' fuzzy-matched to '%s' but no case creditor row found",
+                            raw_name, matched_name,
+                        )
+                    unmatched.append(raw_name)
+                    continue
 
                 # current_balance from extractor is pence; case creditor balance is pounds.
                 # Convert pence → pounds so the tiebreaker arithmetic is in the same unit.
@@ -3576,6 +3965,10 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
             assessment_date=c["assessment_date"],
         )
 
+    # Expose detected representatives to the always-run rules (e.g. TIG-16 scopes
+    # itself to NON-WPM cases — WATCH/WPM equity is handled by WATCH-22.4).
+    c["detected_representatives"] = detected_representatives
+
     # Load disabled rule_keys once — single DB query for the whole assessment.
     try:
         from debt_app.models import GlobalCriteria as _GC
@@ -3665,6 +4058,15 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
             if alias and alias.lower() in criteria_lookup:
                 module4_criteria_data[name] = criteria_lookup[alias.lower()]
 
+    # Attach parent_group (banking group) to each case creditor from its
+    # CreditorCriteria row, so the single-lender rules (WATCH-22.5 / EVOLVE-02)
+    # can collapse brands of one bank into a single lender. ORM stays out of the
+    # rule functions — the lookup happens here once, reusing the bulk prefetch.
+    for cr in c["creditors"]:
+        crit = module4_criteria_data.get(cr.get("name"))
+        if crit and getattr(crit, "parent_group", None):
+            cr["parent_group"] = crit.parent_group
+
     # _phase4_county_council is called later (after _route is defined) so its district
     # positions can be merged into council_positions before majority analysis.
     for fn in [_phase4_vw_termination, _phase4_dmp_reject]:
@@ -3693,6 +4095,25 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
             _run(fn)
 
     # --- Module 5: per-creditor and per-council positions ---
+    # Pre-load all CouncilRule names (+ &/and variants) into a lowercase frozenset once.
+    # Both _check_creditor_individual() and _check_council_rules() read this from c so
+    # council routing is consistent regardless of the debt_type tagged in Aryza (e.g.
+    # a council whose debt_type arrives as GENERAL instead of council_tax is still
+    # routed through _check_council_rules() if its name matches a CouncilRule entry).
+    try:
+        from debt_app.models import CouncilRule as _CouncilRuleModel
+        _raw_council_names = list(
+            _CouncilRuleModel.objects.values_list("council_name", flat=True)
+        )
+        c["_council_rule_names_lower"] = frozenset(
+            variant.lower()
+            for raw in _raw_council_names
+            for variant in _ampersand_variants(raw)
+        )
+    except Exception as _e:
+        logger.warning("Could not pre-load CouncilRule names: %s", _e)
+        c["_council_rule_names_lower"] = frozenset()
+
     _all_creditor_positions = _check_creditor_individual(c)
     for _pos in _all_creditor_positions:
         for _finding in _pos.get("findings", []):
@@ -3784,20 +4205,64 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     # EXCEL_CRITERIA_REFERENCE.md — Council Majority: if 75% majority is mathematically
     # impossible (e.g. council tax creditor holds a blocking minority and does not vote),
     # the IVA cannot proceed regardless of other rules — hard block.
-    if not majority_analysis["achievable"] and majority_analysis["total_debt"] > 0:
-        hard_blocks.append(RuleResult(
-            rule_id="MAJORITY-IMPOSSIBLE",
-            severity="hard_block",
-            triggered=True,
-            message=(
-                f"75% creditor majority is not achievable: only "
-                f"£{majority_analysis['voting_debt']:,.2f} of the required "
-                f"£{majority_analysis['threshold']:,.2f} threshold can be reached "
-                f"(shortfall £{majority_analysis['shortfall']:,.2f}). "
-                "The IVA cannot be approved without additional creditor support."
-            ),
-        ))
-        overall = "blocked"
+    #
+    # BUT only when TRULY impossible: even counting every UNKNOWN/unidentified
+    # creditor as a YES (voting_debt_optimistic) the 75% threshold still cannot be
+    # reached. When the shortfall is only down to unidentified creditors
+    # (indeterminate), identifying them could pass it — so that is a REFERRAL flag,
+    # never a hard block. This prevents a false INELIGIBLE driven purely by an
+    # unidentified creditor.
+    if majority_analysis["total_debt"] > 0 and not majority_analysis["achievable"]:
+        if majority_analysis.get("indeterminate"):
+            flags.append(RuleResult(
+                rule_id="MAJORITY-INDETERMINATE",
+                severity="flag",
+                triggered=True,
+                message=(
+                    f"75% creditor majority cannot yet be confirmed: confirmed support is "
+                    f"£{majority_analysis['voting_debt']:,.2f} of the required "
+                    f"£{majority_analysis['threshold']:,.2f}, with "
+                    f"£{majority_analysis['unknown_debt']:,.2f} from unidentified creditor(s). "
+                    "Identify the unknown creditor(s) before the vote can be relied upon."
+                ),
+                threshold=float(majority_analysis["threshold"]),
+                actual_value=float(majority_analysis["voting_debt"]),
+            ))
+        else:
+            hard_blocks.append(RuleResult(
+                rule_id="MAJORITY-IMPOSSIBLE",
+                severity="hard_block",
+                triggered=True,
+                message=(
+                    f"75% creditor majority is not achievable: even counting every "
+                    f"undecided creditor as a yes vote, only "
+                    f"£{majority_analysis['voting_debt_optimistic']:,.2f} of the required "
+                    f"£{majority_analysis['threshold']:,.2f} threshold can be reached. "
+                    "The IVA cannot be approved without additional creditor support."
+                ),
+            ))
+            overall = "blocked"
+
+    # Material unidentified debt → manual review (REFERRED via flag). Independent of
+    # the majority maths: any case with >=UNKNOWN_REFERRAL_PCT of total debt owed to
+    # creditors the engine could not identify cannot be relied upon until resolved.
+    _unknown_debt = majority_analysis.get("unknown_debt") or Decimal("0")
+    _total_debt_maj = majority_analysis.get("total_debt") or Decimal("0")
+    if _total_debt_maj > 0:
+        _unknown_pct = float(_unknown_debt) / float(_total_debt_maj)
+        if _unknown_pct >= UNKNOWN_REFERRAL_PCT:
+            flags.append(RuleResult(
+                rule_id="CREDITOR-UNIDENTIFIED-MATERIAL",
+                severity="flag",
+                triggered=True,
+                message=(
+                    f"£{float(_unknown_debt):,.2f} of debt ({_unknown_pct * 100:.1f}%) is owed to "
+                    "unidentified creditor(s). Identify them before relying on this assessment — "
+                    "their voting position and any creditor-specific rules are unknown."
+                ),
+                threshold=float(UNKNOWN_REFERRAL_PCT * 100),
+                actual_value=float(_unknown_pct * 100),
+            ))
 
     recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions)
     tig_eligible = len(hard_blocks) == 0
