@@ -3581,7 +3581,8 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
     from debt_app.helpers import _SECURED_TYPES
 
     creditors = case.get("creditors", [])
-    monthly_di = Decimal(str(case.get("monthly_di", "0")))
+    # Clamp to zero: negative DI means £0 available for dividend, not a negative payout.
+    monthly_di = max(Decimal("0"), Decimal(str(case.get("monthly_di") or "0")))
     iva_term_months = case.get("iva_term_months", 60)
     # Exclude secured types (mortgage, hire_purchase) — same set as _parse_case.
     total = sum(
