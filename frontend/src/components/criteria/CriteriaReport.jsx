@@ -177,7 +177,12 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{c.original_aryza_name || c.creditor_name || c.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{c.original_aryza_name || c.creditor_name || c.name}</span>
+                      {c.matched_in_db
+                        ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-green-50 text-green-700 border border-green-200">Matched</span>
+                        : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-gray-100 text-gray-500 border border-gray-200">Unmatched</span>}
+                    </div>
                     {(c.original_aryza_name && c.creditor_name && c.creditor_name !== c.original_aryza_name) ? (
                       <div className="text-xs text-gray-400 mt-0.5">Matched: {c.creditor_name}</div>
                     ) : (c.credit_report_name && (
@@ -390,6 +395,7 @@ export default function CriteriaReport({ result }) {
     ? solutionObj.rationale
     : (solutionDescriptions[solutionCode] || "Based on the assessment, this is the most suitable path forward.")
 
+  const isBlocked = hard_blocks.length > 0
   const isAchievable = result?.majority_analysis?.achievable === true
   const estDividend = result?.dividend_analysis?.estimated_pence || 0
 
@@ -455,47 +461,65 @@ export default function CriteriaReport({ result }) {
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Disposable Income</label>
           <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.disposable_income)}</div>
         </div>
-        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+        <div className={`rounded-xl shadow-sm border p-4 ${isBlocked ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100'}`}>
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Est. Dividend</label>
-          <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
-          {result?.dividend_analysis && (
-            <div className="mt-2">
-              {result.dividend_analysis.below_min?.length > 0 ? (
-                <div className="text-xs text-amber-600">
-                  Below minimum for: {result.dividend_analysis.below_min.map(b => typeof b === 'object' ? b.creditor_name : b).join(', ')}
+          {isBlocked ? (
+            <>
+              <div className="text-2xl font-bold text-gray-300">—</div>
+              <div className="mt-2 text-xs text-gray-400 italic">Not applicable — case blocked</div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
+              {result?.dividend_analysis && (
+                <div className="mt-2">
+                  {result.dividend_analysis.below_min?.length > 0 ? (
+                    <div className="text-xs text-amber-600">
+                      Below minimum for: {result.dividend_analysis.below_min.map(b => typeof b === 'object' ? b.creditor_name : b).join(', ')}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-green-600">All creditors satisfied</div>
+                  )}
                 </div>
-              ) : (
-                <div className="text-xs text-green-600">All creditors satisfied</div>
               )}
-            </div>
+            </>
           )}
         </div>
-        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+        <div className={`rounded-xl shadow-sm border p-4 ${isBlocked ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100'}`}>
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Majority</label>
-          <div className="flex items-center gap-2">
-            {isAchievable ? (
-              <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
-            ) : (
-              <X className="w-6 h-6 text-red-500 stroke-[3]" />
-            )}
-            <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
-          </div>
-          {result?.majority_analysis && (
-            <div className="mt-2 space-y-0.5">
-              <div className="text-xs text-gray-500">
-                75% threshold: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.threshold || 0))}
+          {isBlocked ? (
+            <>
+              <div className="text-2xl font-bold text-gray-300">—</div>
+              <div className="mt-2 text-xs text-gray-400 italic">Not applicable — case blocked</div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                {isAchievable ? (
+                  <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
+                ) : (
+                  <X className="w-6 h-6 text-red-500 stroke-[3]" />
+                )}
+                <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
               </div>
-              <div className="text-xs text-gray-500">
-                Voting debt: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.voting_debt || 0))}
-              </div>
-              {result.majority_analysis.achievable ? (
-                <div className="text-xs font-medium text-green-600">Majority Achievable</div>
-              ) : (
-                <div className="text-xs font-medium text-red-500">
-                  Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
+              {result?.majority_analysis && (
+                <div className="mt-2 space-y-0.5">
+                  <div className="text-xs text-gray-500">
+                    75% threshold: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.threshold || 0))}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Voting debt: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.voting_debt || 0))}
+                  </div>
+                  {result.majority_analysis.achievable ? (
+                    <div className="text-xs font-medium text-green-600">Majority Achievable</div>
+                  ) : (
+                    <div className="text-xs font-medium text-red-500">
+                      Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -518,7 +542,12 @@ export default function CriteriaReport({ result }) {
                 {(result?.creditor_positions || []).map((creditor, idx) => (
                   <tr key={idx}>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{creditor.original_aryza_name || creditor.creditor_name || creditor.display_name || creditor.name}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900">{creditor.original_aryza_name || creditor.creditor_name || creditor.display_name || creditor.name}</span>
+                        {((creditor.effective_status || '').toUpperCase().trim() === 'UNKNOWN')
+                          ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-gray-100 text-gray-500 border border-gray-200">Unmatched</span>
+                          : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-green-50 text-green-700 border border-green-200">Matched</span>}
+                      </div>
                       {(creditor.original_aryza_name && creditor.creditor_name && creditor.creditor_name !== creditor.original_aryza_name) && (
                         <div className="text-xs text-gray-400 mt-0.5">
                           Matched: {creditor.creditor_name}
