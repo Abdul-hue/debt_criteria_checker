@@ -7,7 +7,6 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from debt_app.views.auth_views import email_token_obtain_pair
-from django.views.decorators.csrf import csrf_exempt
 from debt_app.views.assess_view import DirectAssessView
 from debt_app.views.simple import AssessView
 from django.views.generic import TemplateView
@@ -28,8 +27,7 @@ urlpatterns = [
 
     path('api/assess/', AssessView.as_view(), name='assess'),
 
-    # Task 6B — direct case assessment (no auth, accepts raw case JSON)
-    path('api/v1/assess/', csrf_exempt(DirectAssessView.as_view())),
+    path('api/v1/assess/', DirectAssessView.as_view()),
 
     # Authentication endpoints
     path('api/token/', email_token_obtain_pair, name='email_token_obtain_pair'),

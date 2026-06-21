@@ -3,11 +3,12 @@ import json
 import logging
 
 from django.http import JsonResponse
-from django.utils.decorators import method_decorator
-from django.views import View
-from django.views.decorators.csrf import csrf_exempt
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from debt_app.criteria_engine import assess_case, detect_representatives
+from debt_app.permissions import HasFeatureAccess
 from debt_app.recommendation_engine import get_recommendation
 
 logger = logging.getLogger(__name__)
@@ -23,12 +24,12 @@ def _council_default_reason(name: str, status: str) -> str:
     return f"{name} — council creditor status calculated by council rules engine"
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class DirectAssessView(View):
-    """
-    POST /api/v1/assess/
-    Plain Django view — no DRF, so csrf_exempt works reliably.
-    """
+class DirectAssessView(APIView):
+    """POST /api/v1/assess/"""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasFeatureAccess]
+    required_feature = 'run_assessment'
 
     def post(self, request):
         # 1 — Parse body
@@ -70,71 +71,13 @@ class DirectAssessView(View):
             detected_reps = detect_representatives(creditors)
             result = assess_case(case_json, detected_reps)
 
-            # STEP 7 — Surface any creditors the engine did not position.
-            # Voter status is always a calculated output from the engine — never defaulted.
-            # Council creditors are handled by _check_council_rules and appear in
-            # council_positions, not creditor_positions — look them up there first.
-            # Anything genuinely unrecognised is marked UNKNOWN for manual review.
+            # STEP 7 — Surface any creditors the engine did not position, using the
+            # shared reconciliation helper so status is always the engine's CALCULATED
+            # value: councils reuse their real council_positions status; anything
+            # genuinely unrecognised is UNKNOWN. Never a hardcoded ACCEPT.
+            from debt_app.criteria_engine import reconcile_creditor_positions
             engine_positions = result.get("creditor_positions", [])
-            council_positions = result.get("council_positions", [])
-
-            positioned_names = {
-                p.get("creditor_name", "").strip().lower()
-                for p in engine_positions
-            } | {
-                p.get("original_aryza_name", "").strip().lower()
-                for p in engine_positions
-                if p.get("original_aryza_name")
-            }
-
-            # Build a lookup from council_positions by council_name / creditor_name
-            council_by_name = {}
-            for cp in council_positions:
-                for key in (cp.get("creditor_name"), cp.get("council_name")):
-                    if key:
-                        council_by_name[key.strip().lower()] = cp
-
-            missed_positions = []
-            for c in creditors:
-                cname = (c.get("creditor_name") or "").strip()
-                original = (c.get("name") or c.get("original_name") or cname).strip()
-                if not cname:
-                    continue
-                if cname.lower() in positioned_names or original.lower() in positioned_names:
-                    continue
-
-                # Check if the council engine already calculated a status for this creditor
-                council_pos = council_by_name.get(cname.lower()) or council_by_name.get(original.lower())
-                if council_pos:
-                    missed_positions.append({
-                        "creditor_name": cname,
-                        "resolved_canonical_name": council_pos.get("council_name") or cname,
-                        "original_aryza_name": original if original != cname else None,
-                        "representative": "NONE",
-                        "effective_status": council_pos.get("effective_status", "UNKNOWN"),
-                        "findings": council_pos.get("findings", []),
-                        "reason": (
-                            council_pos.get("findings", [{}])[0].get("reason", "")
-                            if council_pos.get("findings")
-                            else _council_default_reason(cname, council_pos.get("effective_status", "UNKNOWN"))
-                        ),
-                        "rule_ids": [f.get("code", "") for f in council_pos.get("findings", [])],
-                        "balance": float(c.get("balance") or 0),
-                    })
-                else:
-                    missed_positions.append({
-                        "creditor_name": cname,
-                        "resolved_canonical_name": cname,
-                        "original_aryza_name": original if original != cname else None,
-                        "representative": "NONE",
-                        "effective_status": "UNKNOWN",
-                        "findings": [],
-                        "reason": "Creditor was not assessed by the engine — manual review required",
-                        "rule_ids": ["CREDITOR-NOT-ASSESSED"],
-                        "balance": float(c.get("balance") or 0),
-                    })
-
-            result["creditor_positions"] = engine_positions + missed_positions
+            result["creditor_positions"] = reconcile_creditor_positions(result, creditors)
 
             # Re-apply representative-body vote mapping over the combined list so
             # any backfilled (engine-missed) creditor that resolves to a WATCH/TIX/

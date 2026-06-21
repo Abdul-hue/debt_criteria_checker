@@ -2,16 +2,20 @@ import dataclasses
 import json
 
 from django.http import JsonResponse
-from django.utils.decorators import method_decorator
-from django.views import View
-from django.views.decorators.csrf import csrf_exempt
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from debt_app.criteria_engine import assess_case
+from debt_app.permissions import HasFeatureAccess
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class AssessView(View):
-    """POST /api/assess/ — internal-only, no auth."""
+class AssessView(APIView):
+    """POST /api/assess/"""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasFeatureAccess]
+    required_feature = 'run_assessment'
 
     def post(self, request, *args, **kwargs):
         try:
@@ -58,42 +62,13 @@ class AssessView(View):
 
             result = assess_case(body)
 
-            # Add back ACCEPT creditors filtered out by engine
-            engine_positions = result.get("creditor_positions", [])
-            positioned_names = {
-                p.get("creditor_name", "").strip().lower()
-                for p in engine_positions
-            } | {
-                p.get("original_aryza_name", "").strip().lower()
-                for p in engine_positions
-                if p.get("original_aryza_name")
-            }
-
-            from debt_app.helpers import get_creditor_by_trading_name
-            from debt_app.models import CreditorCriteria as _CC
-
-            accept_positions = []
-            for c in body.get("creditors") or []:
-                cname = (c.get("creditor_name") or "").strip()
-                original = (c.get("name") or cname).strip()
-                if not cname:
-                    continue
-                if cname.lower() not in positioned_names and original.lower() not in positioned_names:
-                    rep = "NONE"
-                    try:
-                        _crit = get_creditor_by_trading_name(cname)
-                        rep = _crit.representative or "NONE"
-                    except _CC.DoesNotExist:
-                        pass
-                    accept_positions.append({
-                        "creditor_name": cname,
-                        "original_aryza_name": original if original != cname else None,
-                        "representative": rep,
-                        "effective_status": "ACCEPT",
-                        "balance": float(c.get("balance") or 0),
-                    })
-            
-            result["creditor_positions"] = engine_positions + accept_positions
+            # Reconcile creditors the engine routed elsewhere (councils) or could not
+            # assess, using the shared helper so status is always the engine's
+            # CALCULATED value — never a hardcoded ACCEPT.
+            from debt_app.criteria_engine import reconcile_creditor_positions
+            result["creditor_positions"] = reconcile_creditor_positions(
+                result, body.get("creditors") or []
+            )
         except Exception as exc:
             return JsonResponse({'error': f'Engine error: {exc}'}, status=500)
 
