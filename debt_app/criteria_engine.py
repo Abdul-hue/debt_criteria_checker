@@ -3557,10 +3557,16 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
 
+    from debt_app.helpers import _SECURED_TYPES
+
     creditors = case.get("creditors", [])
     monthly_di = Decimal(str(case.get("monthly_di", "0")))
     iva_term_months = case.get("iva_term_months", 60)
-    total = sum(c["crm_balance"] for c in creditors)
+    # Exclude secured types (mortgage, hire_purchase) — same set as _parse_case.
+    total = sum(
+        c["crm_balance"] for c in creditors
+        if c.get("debt_type_normalised", "") not in _SECURED_TYPES
+    )
     if total > 0:
         estimated_pence = int((monthly_di * iva_term_months / total) * 100)
     else:
