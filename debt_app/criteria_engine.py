@@ -2557,7 +2557,7 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         rep = criteria.representative or "NONE"
         if not findings:
             if effective_status == "PENDING_REP_OUTCOME":
-                _default_reason = ""  # will be set by _apply_representative_outcomes
+                _default_reason = criteria.dividend_notes or ""  # will be overridden by _apply_representative_outcomes only if still empty
             elif effective_status == "ACCEPT":
                 _default_reason = f"{canonical} — no rejection conditions apply for this case"
             elif effective_status == "WILL_CONSIDER":
@@ -3406,15 +3406,22 @@ def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
         if current in _REP_NON_VOTING_STATUSES or current == "REJECT":
             continue
 
-        # PENDING_REP_OUTCOME means the engine deferred to the rep body — always overwrite.
-        # For a genuine ACCEPT outcome (no rules fired) also always write the reason.
+        # PENDING_REP_OUTCOME means the engine deferred to the rep body.
+        # ACCEPT from the rep body sets or confirms the final status.
         if status == "ACCEPT" or current == "PENDING_REP_OUTCOME":
             if status == "ABSTAIN":
                 pos["effective_status"] = "DO_NOT_VOTE"
                 pos["reason"] = f"{rep} abstains — client aged 80+ (WATCH-22.8)."
             elif status == "ACCEPT":
                 pos["effective_status"] = "ACCEPT"
-                pos["reason"] = f"Accepted by {rep} representative — no blocks or conditions triggered for this case"
+                # Only set the reason when there is no specific per-creditor reason already
+                # (e.g. dividend_notes, a specific finding, or a previously set message).
+                # Include the canonical creditor name so the message is unique per-creditor
+                # rather than identical for every ACCEPT under the same representative body.
+                if not pos.get("reason"):
+                    creditor_name = pos.get("creditor_name") or pos.get("name") or ""
+                    name_part = f"{creditor_name} — " if creditor_name else ""
+                    pos["reason"] = f"{name_part}accepted by {rep} representative, no blocking conditions triggered"
             else:
                 pos["effective_status"] = status
                 detail = f"{rule_id}: {message}" if (rule_id and message) else f"{rep} {status}"

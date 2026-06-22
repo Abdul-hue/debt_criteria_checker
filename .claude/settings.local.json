@@ -39,7 +39,22 @@
       "Bash(python -c \"import decompile3\")",
       "Bash(python -c \"import uncompyle6\")",
       "Bash(python -c \"import decompiler\")",
-      "Bash(python -c \"import dis, marshal, struct, sys; f=open\\('debt_app/__pycache__/criteria_engine.cpython-312.pyc','rb'\\); f.read\\(16\\); code=marshal.loads\\(f.read\\(\\)\\); names=[c.co_name for c in code.co_consts if hasattr\\(c,'co_name'\\)]; print\\('\\\\n'.join\\(sorted\\(names\\)\\)\\)\")"
+      "Bash(python -c \"import dis, marshal, struct, sys; f=open\\('debt_app/__pycache__/criteria_engine.cpython-312.pyc','rb'\\); f.read\\(16\\); code=marshal.loads\\(f.read\\(\\)\\); names=[c.co_name for c in code.co_consts if hasattr\\(c,'co_name'\\)]; print\\('\\\\n'.join\\(sorted\\(names\\)\\)\\)\")",
+      "PowerShell(python manage.py shell)",
+      "PowerShell(python manage.py shell -c \"exec\\(open\\(r'D:\\\\Temp\\\\claude\\\\c--Users-Canton-Computers-Desktop-Debt-Criteria-check\\\\7f554c86-637b-49cb-b46e-9488d4df2055\\\\scratchpad\\\\verify3.py', encoding='utf-8-sig'\\).read\\(\\)\\)\")",
+      "PowerShell(python \"D:\\\\Temp\\\\claude\\\\c--Users-Canton-Computers-Desktop-Debt-Criteria-check\\\\7f554c86-637b-49cb-b46e-9488d4df2055\\\\scratchpad\\\\scan_ccj.py\")",
+      "PowerShell(python manage.py migrate debt_app 2>&1)",
+      "PowerShell(python manage.py shell -c \"exec\\(open\\(r'D:\\\\Temp\\\\claude\\\\c--Users-Canton-Computers-Desktop-Debt-Criteria-check\\\\7f554c86-637b-49cb-b46e-9488d4df2055\\\\scratchpad\\\\verify_phase1.py', encoding='utf-8-sig'\\).read\\(\\)\\)\")",
+      "PowerShell(python manage.py shell -c \"exec\\(open\\(r'D:\\\\Temp\\\\claude\\\\c--Users-Canton-Computers-Desktop-Debt-Criteria-check\\\\7f554c86-637b-49cb-b46e-9488d4df2055\\\\scratchpad\\\\verify_pipeline.py', encoding='utf-8-sig'\\).read\\(\\)\\)\")",
+      "PowerShell(python manage.py test debt_app.tests_phase1_ccj_aoe --verbosity=2 2>&1)",
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(python manage.py pre_deploy_audit)",
+      "Bash(git commit -m ' *)",
+      "PowerShell(cd \"C:\\\\Users\\\\Canton Computers\\\\Desktop\\\\Debt Criteria check\"; $env:DJANGO_SETTINGS_MODULE=\"debt_project.settings\"; .venv\\\\Scripts\\\\python.exe -m pytest debt_app/tests_dividend_denominator.py -v 2>&1 | Select-Object -First 60)",
+      "PowerShell(Get-ChildItem \"C:\\\\\" -Directory -ErrorAction SilentlyContinue | ForEach-Object { try { $s = \\(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum\\).Sum; [PSCustomObject]@{Name=$_.FullName; SizeGB=[math]::Round\\($s/1GB,2\\)} } catch {} } | Sort-Object SizeGB -Descending | Select-Object -First 8)",
+      "PowerShell(npm cache clean --force 2>&1)",
+      "Bash(grep -rn \"\\\\.first_name\\\\|\\\\.last_name\" \"C:\\\\Users\\\\Canyon Computers\\\\Desktop\\\\case-assessment-staging\\\\case-assessment-backend\\\\case_assesment\\\\accounts\" --include=\"*.py\" | grep \"request.data\\\\|POST\\\\|PUT\\\\|PATCH\")",
+      "Read(//c/Users/Canyon Computers/Desktop/case-assessment-staging/case-assessment-backend/case_assesment/**)"
     ]
   }
 }
