@@ -461,65 +461,47 @@ export default function CriteriaReport({ result }) {
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Disposable Income</label>
           <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.disposable_income)}</div>
         </div>
-        <div className={`rounded-xl shadow-sm border p-4 ${isBlocked ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100'}`}>
+        <div className="rounded-xl shadow-sm border p-4 bg-white border-gray-100">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Est. Dividend</label>
-          {isBlocked ? (
-            <>
-              <div className="text-2xl font-bold text-gray-300">—</div>
-              <div className="mt-2 text-xs text-gray-400 italic">Not applicable — case blocked</div>
-            </>
-          ) : (
-            <>
-              <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
-              {result?.dividend_analysis && (
-                <div className="mt-2">
-                  {result.dividend_analysis.below_min?.length > 0 ? (
-                    <div className="text-xs text-amber-600">
-                      Below minimum for: {result.dividend_analysis.below_min.map(b => typeof b === 'object' ? b.creditor_name : b).join(', ')}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-green-600">All creditors satisfied</div>
-                  )}
+          <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
+          {result?.dividend_analysis && (
+            <div className="mt-2">
+              {result.dividend_analysis.below_min?.length > 0 ? (
+                <div className="text-xs text-amber-600">
+                  Below minimum for: {result.dividend_analysis.below_min.map(b => typeof b === 'object' ? b.creditor_name : b).join(', ')}
                 </div>
+              ) : (
+                <div className="text-xs text-green-600">All creditors satisfied</div>
               )}
-            </>
+            </div>
           )}
         </div>
-        <div className={`rounded-xl shadow-sm border p-4 ${isBlocked ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100'}`}>
+        <div className="rounded-xl shadow-sm border p-4 bg-white border-gray-100">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Majority</label>
-          {isBlocked ? (
-            <>
-              <div className="text-2xl font-bold text-gray-300">—</div>
-              <div className="mt-2 text-xs text-gray-400 italic">Not applicable — case blocked</div>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                {isAchievable ? (
-                  <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
-                ) : (
-                  <X className="w-6 h-6 text-red-500 stroke-[3]" />
-                )}
-                <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
+          <div className="flex items-center gap-2">
+            {isAchievable ? (
+              <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
+            ) : (
+              <X className="w-6 h-6 text-red-500 stroke-[3]" />
+            )}
+            <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
+          </div>
+          {result?.majority_analysis && (
+            <div className="mt-2 space-y-0.5">
+              <div className="text-xs text-gray-500">
+                75% threshold: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.threshold || 0))}
               </div>
-              {result?.majority_analysis && (
-                <div className="mt-2 space-y-0.5">
-                  <div className="text-xs text-gray-500">
-                    75% threshold: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.threshold || 0))}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Voting debt: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.voting_debt || 0))}
-                  </div>
-                  {result.majority_analysis.achievable ? (
-                    <div className="text-xs font-medium text-green-600">Majority Achievable</div>
-                  ) : (
-                    <div className="text-xs font-medium text-red-500">
-                      Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
-                    </div>
-                  )}
+              <div className="text-xs text-gray-500">
+                Voting debt: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.voting_debt || 0))}
+              </div>
+              {result.majority_analysis.achievable ? (
+                <div className="text-xs font-medium text-green-600">Majority Achievable</div>
+              ) : (
+                <div className="text-xs font-medium text-red-500">
+                  Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>

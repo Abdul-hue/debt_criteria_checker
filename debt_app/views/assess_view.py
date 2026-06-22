@@ -3,12 +3,10 @@ import json
 import logging
 
 from django.http import JsonResponse
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from debt_app.criteria_engine import assess_case, detect_representatives
-from debt_app.permissions import HasFeatureAccess
 from debt_app.recommendation_engine import get_recommendation
 
 logger = logging.getLogger(__name__)
@@ -27,9 +25,8 @@ def _council_default_reason(name: str, status: str) -> str:
 class DirectAssessView(APIView):
     """POST /api/v1/assess/"""
 
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, HasFeatureAccess]
-    required_feature = 'run_assessment'
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request):
         # 1 — Parse body

@@ -7,7 +7,7 @@ from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings as django_settings
-from rest_framework.permissions import BasePermission, IsAuthenticated, IsAdminUser
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
@@ -243,10 +243,9 @@ def build_uploaded_docs(aryza_reference: str) -> dict:
 
 
 class AssessCaseView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, HasFeatureAccess]
+    authentication_classes = []
+    permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
-    required_feature = 'run_assessment'
 
     def _prepare_engine_payload(self, case_data_obj):
         """
