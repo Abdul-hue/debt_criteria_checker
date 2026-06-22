@@ -296,8 +296,10 @@ def _todo_flag(rule_id: str, field_name: str) -> RuleResult:
     )
 
 
-def _pass(rule_id: str, message: str = "Passed.", creditors: list = None) -> RuleResult:
-    return RuleResult(rule_id=rule_id, severity="pass", triggered=False, message=message, creditors=creditors or [])
+def _pass(rule_id: str, message: str = "Passed.", creditors: list = None,
+          threshold: float = None, actual_value: float = None) -> RuleResult:
+    return RuleResult(rule_id=rule_id, severity="pass", triggered=False, message=message,
+                      creditors=creditors or [], threshold=threshold, actual_value=actual_value)
 
 
 def _func_to_rule_id(name: str) -> str:
@@ -1469,11 +1471,23 @@ def _tig_16(c: dict) -> RuleResult:
     evaluates equity-vs-debt (at 85% LTV) for them; Eversheds and all other
     non-WATCH cases are covered by this rule.
     """
+    has_property = c.get("has_property", False)
+
     # WPM (WATCH) cases are handled by WATCH-22.4 — TIG-16 is for NON-WPM cases.
+    # Still compute equity so the figures appear as evidence even on the pass result.
     if "WATCH" in (c.get("detected_representatives") or set()):
+        if has_property:
+            pv = _parse_amount(c.get("property_value") or 0)
+            equity = (pv - c["mortgage_balance"]) if pv > 0 else None
+            liabilities = c["total_debt"]
+            return _pass(
+                "TIG-16",
+                "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.",
+                threshold=liabilities,
+                actual_value=equity,
+            )
         return _pass("TIG-16", "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.")
 
-    has_property = c.get("has_property", False)
     if not has_property:
         return _pass("TIG-16", "Client does not own property.")
 
@@ -1500,7 +1514,8 @@ def _tig_16(c: dict) -> RuleResult:
             ),
             threshold=liabilities, actual_value=equity,
         )
-    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed total liabilities £{liabilities:,.2f}.")
+    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed total liabilities £{liabilities:,.2f}.",
+                 threshold=liabilities, actual_value=equity)
 
 
 def _tig_17(c: dict) -> RuleResult:
@@ -1845,7 +1860,8 @@ def _count_qualifying_lenders(creditors: list, threshold: float) -> int:
     is the client's TOTAL exposure to a lender, not any single debt row — two
     £400 accounts with one lender (£800 total) qualify that lender.
     """
-    totals = {}
+    totals: dict[str, float] = {}
+    display_names: dict[str, str] = {}
     for cr in creditors:
         key = (cr.get("parent_group") or "").strip().lower() \
             or (cr.get("name") or "").strip().lower()
@@ -1856,21 +1872,30 @@ def _count_qualifying_lenders(creditors: list, threshold: float) -> int:
         except (TypeError, ValueError):
             bal = 0.0
         totals[key] = totals.get(key, 0.0) + bal
-    return sum(1 for total in totals.values() if total > threshold)
+        # Keep the most readable display name for this lender key
+        if key not in display_names:
+            display_names[key] = (cr.get("parent_group") or cr.get("name") or key).strip()
+    qualifying_names = sorted(
+        display_names[k] for k, v in totals.items() if v > threshold
+    )
+    return qualifying_names
 
 
 def _watch_22_5(c: dict) -> RuleResult:
     """WATCH-22.5: Only 1 qualifying lender (balance > £500) — hard block.
     Banking-group brands count as a single lender (see _count_qualifying_lenders)."""
     threshold = 500.0
-    qualifying = _count_qualifying_lenders(c["creditors"], threshold)
-    if qualifying <= 1:
+    qualifying_names = _count_qualifying_lenders(c["creditors"], threshold)
+    count = len(qualifying_names)
+    names_str = ", ".join(qualifying_names) if qualifying_names else "none"
+    if count <= 1:
         return RuleResult(
             rule_id="WATCH-22.5", severity="hard_block", triggered=True,
-            message=f"Only {qualifying} qualifying lender(s) with balance > £{threshold:,.2f}. WATCH requires at least two separate lenders.",
-            threshold=threshold, actual_value=float(qualifying),
+            message=f"Only {count} qualifying lender(s) with balance > £{threshold:,.2f} ({names_str}). WATCH requires at least two separate lenders.",
+            threshold=threshold, actual_value=float(count),
         )
-    return _pass("WATCH-22.5", f"{qualifying} qualifying lenders with balance > £{threshold:,.2f}.")
+    return _pass("WATCH-22.5", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
+                 threshold=threshold, actual_value=float(count))
 
 
 def _watch_22_6(c: dict) -> RuleResult:
@@ -2144,14 +2169,17 @@ def _evolve_02(c: dict) -> RuleResult:
     """EVOLVE-02: Single lender (NatWest group counts as one lender) — hard block.
     Banking-group brands are grouped via parent_group (see _count_qualifying_lenders)."""
     threshold = 500.0
-    qualifying = _count_qualifying_lenders(c["creditors"], threshold)
-    if qualifying <= 1:
+    qualifying_names = _count_qualifying_lenders(c["creditors"], threshold)
+    count = len(qualifying_names)
+    names_str = ", ".join(qualifying_names) if qualifying_names else "none"
+    if count <= 1:
         return RuleResult(
             rule_id="EVOLVE-02", severity="hard_block", triggered=True,
-            message=f"Only {qualifying} qualifying lender(s) with balance > £{threshold:,.2f}. EVOLVE requires at least two separate lenders.",
-            threshold=threshold, actual_value=float(qualifying),
+            message=f"Only {count} qualifying lender(s) with balance > £{threshold:,.2f} ({names_str}). EVOLVE requires at least two separate lenders.",
+            threshold=threshold, actual_value=float(count),
         )
-    return _pass("EVOLVE-02", f"{qualifying} qualifying lenders with balance > £{threshold:,.2f}.")
+    return _pass("EVOLVE-02", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
+                 threshold=threshold, actual_value=float(count))
 
 
 def _evolve_03(c: dict) -> RuleResult:
@@ -3791,37 +3819,32 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
 
     aryza_has_property = bool(c.get("has_property"))
     aryza_mortgage_balance = float(c.get("mortgage_balance") or 0.0)
-    aryza_has_data = aryza_has_property or aryza_mortgage_balance > 0
+    # Use owns_property as the sole ownership signal — a non-zero mortgage_balance
+    # alone is not conclusive because it may come from a secured creditor typed
+    # as 'mortgage' in Aryza (e.g. an HP agreement), not from the property table.
+    # When owns_property is explicitly False, treat as "no Aryza property data"
+    # and let the credit report be the authoritative source.
+    aryza_has_data = aryza_has_property
 
     if not aryza_has_data:
         # Case 1 — Aryza property tables empty, credit report has active mortgage(s).
         # type_code "MG" with a live status and positive balance means a mortgage
         # still being serviced — inferring has_property=True is safe.
+        logger.warning("[PROPERTY CROSSCHECK] Case 1: Aryza empty, CR has mortgage. Setting has_property=True, balance=£%s", cr_mortgage_balance)
         c["has_property"] = True
         c["mortgage_balance"] = cr_mortgage_balance
         # No property valuation signal exists in credit report data — only the debt
-        # balance is present. Leave property_value as None so the existing
-        # [RULE-CANNOT-EVALUATE] path in every equity rule fires correctly rather
-        # than computing a spurious equity figure from a 0-valued property.
+        # balance is present. Explicitly set property_value to None so the
+        # [RULE-CANNOT-EVALUATE] path in equity rules fires correctly rather than
+        # computing a spurious equity figure from a 0-valued payload default.
+        c["property_value"] = None
         c["available_equity"] = None
         c["property_data_source"] = "credit_report_fallback"
 
-        acct_names = ", ".join(
-            (acct.get("raw_name") or acct.get("matched_creditor") or "unknown lender")
-            for acct in cr_active_mortgages
+        logger.info(
+            "[PROPERTY CROSSCHECK] Using credit report mortgage balance £%s as authoritative source (Aryza property tables empty).",
+            cr_mortgage_balance,
         )
-        findings.append(RuleResult(
-            rule_id="PROPERTY-DATA-FROM-CREDIT-REPORT",
-            severity="flag",
-            triggered=True,
-            message=(
-                f"Credit report shows mortgage account(s) ({acct_names}) with total balance "
-                f"£{cr_mortgage_balance:,.2f}, but Aryza property tables were empty for this "
-                "case. Using credit report mortgage balance as fallback; property value is "
-                "unknown. Caseworker must verify actual property ownership and obtain current "
-                "valuation before equity rules can be evaluated."
-            ),
-        ))
 
     elif cr_mortgage_balance > 0:
         # Case 3 — both sources have mortgage data: check for significant disagreement.
@@ -3861,7 +3884,6 @@ def _enrich_from_credit_report(case_data: dict) -> str:
     Returns "present" | "absent" | "extraction_failed".
     """
     try:
-        from rapidfuzz import fuzz, process as rfprocess
         from debt_app.models import CreditReport, CreditorCriteria
 
         ref = case_data.get("aryza_reference")
@@ -3909,6 +3931,7 @@ def _enrich_from_credit_report(case_data: dict) -> str:
             case_data["property_report_findings"] = _prop_findings
 
         if status == "present":
+            from rapidfuzz import fuzz, process as rfprocess
             accounts = report.extracted_data["accounts"]
 
             # Build lookup pool: case creditors with a positive balance
@@ -4108,8 +4131,8 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     c = _parse_case(case_json)
     credit_report_status = _enrich_from_credit_report(c)
 
-    logger.info("DEBUG: has_property=%s, property_value=%s, mortgage_balance=%s, disposable_income=%s",
-        c["has_property"], c["property_value"], c["mortgage_balance"], c["disposable_income"])
+    logger.warning("[PROPERTY ENRICH] ref=%s has_property=%s property_value=%s mortgage_balance=%s enrich_status=%s",
+        c.get("aryza_reference"), c["has_property"], c["property_value"], c["mortgage_balance"], credit_report_status)
 
     if detected_representatives is None:
         detected_representatives = detect_representatives(

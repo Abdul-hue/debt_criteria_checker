@@ -638,7 +638,7 @@ class AssessCaseView(APIView):
                 decision_output=serialized,
                 recommended_solution=db_recommended_solution,
                 passes_all_hard_blocks=serialized.get("passes_all_hard_blocks", False),
-                triggered_by=request.user,
+                triggered_by=request.user if getattr(request.user, 'is_authenticated', False) else None,
                 source="STANDALONE"
             )
             decision_id = str(decision_obj.id)
