@@ -79,6 +79,15 @@ class CreditorCriteria(models.Model):
         blank=True,
         help_text="Age of the account in months. Used for Shop Direct account age rules."
     )
+    reject_if_recent_spend_months = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text=(
+            "Reject if client has had any transactions matching this "
+            "creditor name in the last N months. Checked against "
+            "gold_transactions in the case payload."
+        ),
+    )
     parent_group = models.CharField(
         max_length=255,
         blank=True,

@@ -101,6 +101,10 @@ class EvaluateCaseView(APIView):
                     "balance": float(c.get("balance", 0)),
                     "effective_status": c.get("effective_status", "UNKNOWN"),
                     "representative": c.get("representative", "NONE"),
+                    "reason": c.get("reason", ""),
+                    "findings": c.get("findings", []),
+                    "criteria_notes": c.get("criteria_notes", ""),
+                    "dividend_notes": c.get("dividend_notes", ""),
                 } for c in engine_output.get("creditor_positions", [])
             ],
             "total_unsecured_debt": float(case_data.get("total_unsecured_debt", 0)),
@@ -148,16 +152,22 @@ class EvaluateCaseView(APIView):
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
         Converts pence (int) to pounds (float).
         """
-        # Convert pence to pounds for all financial fields.
-        # DI is only reliable when Aryza has expenditure data (income - expenses).
-        # If expenditure is 0 but income > 0, Aryza returned no SFS expense rows,
-        # so the computed DI equals gross income — which is wrong for dividend calc.
-        # In that case pass monthly_di=0 so the engine shows 0p (honest) rather
-        # than an inflated dividend based on gross income.
+        # Compute DI from the fetched income and expenditure totals.
+        # Rules:
+        #   - Both present: DI = max(0, income - expenditure)
+        #   - Income present, no expense detail: DI = 0 (avoid inflated dividend
+        #     from gross income with no SFS deductions applied)
+        #   - No income: DI = 0 (fact find incomplete; engine will hard-block)
+        # Never pass a negative value — negative DI is a display artefact from
+        # doubled expenditure rows or missing income, not a meaningful figure.
         income_pence = case_data_obj.income.get("total", 0)
         expenditure_pence = case_data_obj.expenditure.get("total", 0)
-        has_expense_data = expenditure_pence > 0
-        di_pounds = case_data_obj.disposable_income / 100.0 if has_expense_data else 0.0
+        if income_pence > 0 and expenditure_pence > 0:
+            di_pounds = max(0, income_pence - expenditure_pence) / 100.0
+        elif income_pence > 0:
+            di_pounds = 0.0
+        else:
+            di_pounds = 0.0
         gross_income_pounds = income_pence / 100.0
 
         # Calculate unsecured debt excluding HP/secured debts
@@ -167,6 +177,38 @@ class EvaluateCaseView(APIView):
             if "hp" not in c["name"].lower()
             and c.get("creditor_type", "unsecured").lower() not in ("hp", "hire_purchase", "secured")
         )
+
+        aryza_ref = case_data_obj.aryza_reference
+
+        property_dict = {
+            "owns_property": case_data_obj.property.get("owns_property", False),
+            "property_value": (case_data_obj.property.get("property_value") or 0) / 100.0 if case_data_obj.property.get("property_value") else None,
+            "mortgage_balance": (case_data_obj.property.get("mortgage_balance") or 0) / 100.0 if case_data_obj.property.get("mortgage_balance") else None,
+            "equity": (case_data_obj.property.get("equity") or 0) / 100.0 if case_data_obj.property.get("equity") else None,
+        }
+
+        # Fallback: if Aryza has no mortgage balance, read from uploaded credit report
+        if property_dict.get("mortgage_balance") is None:
+            try:
+                from debt_app.models import CreditReport
+                cr = CreditReport.objects.filter(
+                    aryza_reference=aryza_ref
+                ).order_by("-created_at").first()
+                if cr and cr.extracted_data:
+                    mortgage_accounts = cr.extracted_data.get("mortgage_accounts", [])
+                    if mortgage_accounts:
+                        total_mortgage = sum(
+                            m.get("current_balance", 0) or 0
+                            for m in mortgage_accounts
+                        )
+                        if total_mortgage > 0:
+                            property_dict["mortgage_balance"] = total_mortgage / 100.0
+                            logger.info(
+                                "Mortgage balance £%s enriched from credit report for %s",
+                                total_mortgage / 100.0, aryza_ref
+                            )
+            except Exception as e:
+                logger.warning("Credit report mortgage enrichment failed: %s", e)
 
         # Build the engine payload matching CASE_ASSESSMENT_PAYLOAD.md
         payload = {
@@ -215,12 +257,7 @@ class EvaluateCaseView(APIView):
             ],
             "income": {k: v/100.0 for k, v in case_data_obj.income.items()},
             "expenditure": {k: v/100.0 for k, v in case_data_obj.expenditure.items()},
-            "property": {
-                "owns_property": case_data_obj.property.get("owns_property", False),
-                "property_value": (case_data_obj.property.get("property_value") or 0) / 100.0 if case_data_obj.property.get("property_value") else None,
-                "mortgage_balance": (case_data_obj.property.get("mortgage_balance") or 0) / 100.0 if case_data_obj.property.get("mortgage_balance") else None,
-                "equity": (case_data_obj.property.get("equity") or 0) / 100.0 if case_data_obj.property.get("equity") else None,
-            },
+            "property": property_dict,
             "vehicle": {
                 "has_vehicle": case_data_obj.vehicle.get("has_vehicle", False),
                 "vehicle_value": (case_data_obj.vehicle.get("vehicle_value") or 0) / 100.0 if case_data_obj.vehicle.get("vehicle_value") else None,

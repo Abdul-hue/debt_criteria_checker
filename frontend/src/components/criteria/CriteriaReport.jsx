@@ -702,16 +702,72 @@ export default function CriteriaReport({ result }) {
                 'No additional information available.'}
             </div>
 
-            {/* Findings */}
-            {statusPopup.creditor.findings?.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Conditions / Flags</div>
-                {statusPopup.creditor.findings.map((f, i) => (
-                  <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs text-amber-800">
-                    <span className="font-semibold text-amber-600 mr-1.5">{f.code}:</span>
-                    {f.reason}
-                  </div>
-                ))}
+            {/* Checks run on this case */}
+            {(statusPopup.creditor.findings || []).length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                    Checks run on this case
+                  </span>
+                  <div className="flex-1 h-px bg-gray-100" />
+                  <span className="text-[11px] text-gray-400">
+                    {(statusPopup.creditor.findings || []).filter(f => f.severity === 'pass').length} passed
+                    {' · '}
+                    {(statusPopup.creditor.findings || []).filter(f => f.code.endsWith('-REJECT')).length} failed
+                    {' · '}
+                    {(statusPopup.creditor.findings || []).filter(f => !f.severity?.match(/pass/) && !f.code.endsWith('-REJECT')).length} flagged
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {(() => {
+                    const sorted = [...(statusPopup.creditor.findings || [])].sort((a, b) => {
+                      const sa = a.code.endsWith('-REJECT') ? 0 : a.severity === 'pass' ? 2 : 1;
+                      const sb = b.code.endsWith('-REJECT') ? 0 : b.severity === 'pass' ? 2 : 1;
+                      return sa - sb;
+                    });
+
+                    return sorted.map((f, i) => {
+                      const isReject    = f.code.endsWith('-REJECT');
+                      const isDoNotVote = f.code.endsWith('-DO_NOT_VOTE');
+                      const isPass      = f.severity === 'pass';
+
+                      const chipClasses = isReject
+                        ? 'bg-red-50 border-red-200 text-red-800'
+                        : isDoNotVote
+                        ? 'bg-gray-50 border-gray-200 text-gray-600'
+                        : isPass
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : 'bg-amber-50 border-amber-200 text-amber-800';
+
+                      const iconClasses = isReject
+                        ? 'text-red-500'
+                        : isDoNotVote
+                        ? 'text-gray-400'
+                        : isPass
+                        ? 'text-green-500'
+                        : 'text-amber-500';
+
+                      const icon = isReject ? '✕' : isPass ? '✓' : '!';
+
+                      return (
+                        <div
+                          key={i}
+                          className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs ${chipClasses}`}
+                        >
+                          <span className={`mt-0.5 font-bold text-sm leading-none ${iconClasses}`}>
+                            {icon}
+                          </span>
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <span className="font-semibold tracking-wide uppercase text-[10px] opacity-70">
+                              {f.code}
+                            </span>
+                            <span className="leading-snug">{f.reason}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
               </div>
             )}
 

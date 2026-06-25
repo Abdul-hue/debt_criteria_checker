@@ -28,6 +28,9 @@ Creditor representative lookup is done once in assess_case() and passed in.
 # CREDITOR-EQUITY-EXCEEDS-DEBT      — equity at 85% LTV exceeds total unsecured debt (per-creditor)
 # CREDITOR-NOT-GRANT-OVERPAYMENT    — creditor only accepts grant overpayment debts
 # CREDITOR-FRAUD-CLAIM-RISK         — fraud claim risk noted; caseworker review required (informational)
+# CREDITOR-RECENT-SPEND-REJECT      — creditor rejects recent spend; matching transaction(s) found within N months
+# CREDITOR-RECENT-SPEND-UNVERIFIED  — creditor requires no recent spend but no transaction data in payload
+# CREDITOR-MANUAL-CHECK-REQUIRED    — criteria_notes is non-empty; caseworker must read and apply manually
 
 import logging
 import re
@@ -86,6 +89,23 @@ NON_OVERRIDABLE_RULE_IDS = frozenset({
     "WATCH-22.13",  # Antecedent transactions — no exceptions
 })
 
+# Rules that evaluate case-wide (body-level) data, not per-creditor data.
+# These must never be used to derive a representative body outcome that gets
+# stamped onto individual creditor findings — they belong in the case-level
+# flags/hard_blocks lists only.
+_BODY_LEVEL_ONLY_RULES = frozenset({
+    "TIX-04",       # Total HP monthly payment — case-wide, not per-creditor
+    "WATCH-22.10",  # Total HP monthly payment — case-wide, not per-creditor
+    "TIG-18",       # Total spend vs income — case-wide transaction scan (no open banking guard)
+    "TIG-19",       # Shop Direct recent purchases — case-wide transaction scan
+    "TIG-19.1",     # Shop Direct account age — case-wide
+    "TIG-20",       # Creation recent purchases — case-wide transaction scan
+    "TIG-20.1",     # Creation recent spend hard block — case-wide
+    "WATCH-22.2",   # WATCH-22.2 — Debt repayable in under 6 years from DI
+    "WATCH-22.4",   # Equity vs debt — case-wide property check
+    "WATCH-22.5",   # Single lender — case-wide creditor composition check
+})
+
 LUXURY_CATEGORIES: frozenset[str] = frozenset({
     "gambling", "luxury", "entertainment", "holidays", "travel",
     "jewellery", "electronics", "clothing_luxury", "restaurants_fine_dining",
@@ -135,6 +155,17 @@ _HMRC_NAMES = frozenset({
     "his majesty's revenue and customs",
     "her majesty's revenue & customs",
     "his majesty's revenue & customs",
+})
+
+_HMRC_KNOWN_SUBTYPES = frozenset({
+    "vat", "value_added_tax",
+    "paye", "pay_as_you_earn",
+    "tax credit", "tax_credit",
+    "national insurance", "national_insurance", "ni", "ni_arrears",
+    "self assessment", "self_assessment",
+    "corporation tax", "corporation_tax",
+    "income tax", "income_tax",
+    "seiss",
 })
 
 _GAMBLING_KEYWORDS = [
@@ -202,6 +233,23 @@ def _in_set(name: str, name_set: frozenset) -> bool:
             break
     # 3. Then check membership in the set
     return s in name_set
+
+
+def _contains_any(name: str, brand_set: frozenset) -> bool:
+    """Returns True if the cleaned creditor name contains any brand token from brand_set.
+    Uses whole-word matching for 'very' to avoid false positives on 'Recovery', 'Discovery', etc.
+    All other tokens use substring match."""
+    if not name:
+        return False
+    cleaned = name.lower().strip()
+    for brand in brand_set:
+        if brand == "very":
+            if re.search(r'\bvery\b', cleaned):
+                return True
+        else:
+            if brand in cleaned:
+                return True
+    return False
 
 
 def _days_since(date_str: Optional[str], reference: Optional[date] = None) -> int:
@@ -336,7 +384,8 @@ def _parse_case(case_json: dict) -> dict:
         assessment_date_parsed = date.today()
 
     creditors_raw = case_json.get("creditors") or []
-    gold_tx = case_json.get("gold_transactions") or []
+    gold_tx_raw = case_json.get("gold_transactions")
+    gold_tx = gold_tx_raw if gold_tx_raw is not None else []
     documents = case_json.get("documents") or []
     financial = case_json.get("financial_summary") or {}
     crm = case_json.get("crm_data") or {}
@@ -580,6 +629,21 @@ def _parse_case(case_json: dict) -> dict:
         gold_tx, _CAR_FINANCE_KEYWORDS, 90, reference=assessment_date_parsed
     )
 
+    # --- Benefit income amount — compute from income dict components if not explicitly supplied ---
+    _income_dict = case_json.get("income") or {}
+    _explicit_benefit = case_json.get("benefit_income_amount")
+    if _explicit_benefit is not None:
+        benefit_income_amount = _explicit_benefit
+    elif _income_dict:
+        benefit_income_amount = (
+            _income_dict.get("universal_credit", 0)
+            + _income_dict.get("dla", 0)
+            + _income_dict.get("pip", 0)
+            + _income_dict.get("other_benefits", 0)
+        )
+    else:
+        benefit_income_amount = None
+
     return {
         # Metadata
         "aryza_reference": case_json.get("aryza_reference") or case_json.get("application_id", ""),
@@ -613,6 +677,10 @@ def _parse_case(case_json: dict) -> dict:
         "income_source": income_source,
         "has_job": case_json.get("has_job", False),
         "has_uc_journal": case_json.get("has_uc_journal", False),
+        "uc_journal_date": (
+            date.fromisoformat(str(case_json["uc_journal_date"]).split("T")[0])
+            if case_json.get("uc_journal_date") else None
+        ),
         # Property / equity
         "has_property": has_property,
         "property_value": property_value,          # TODO: missing from payload
@@ -624,6 +692,7 @@ def _parse_case(case_json: dict) -> dict:
         "gambling_monthly": gambling_monthly,
         # Transaction lookups
         "gold_transactions": gold_tx,
+        "has_open_banking": gold_tx_raw is not None,
         "shop_direct_tx_3mo": shop_direct_tx_3mo,
         "shop_direct_tx_4mo": shop_direct_tx_4mo,
         "creation_tx_4mo": creation_tx_4mo,
@@ -635,11 +704,12 @@ def _parse_case(case_json: dict) -> dict:
         "children": case_json.get("children") or [],
         "antecedent_transactions": case_json.get("antecedent_transactions") or case_json.get("has_antecedent_transactions"),
         "seiss_debt_flag": case_json.get("seiss_debt_flag"),
-        "full_and_final_from_savings": bool(case_json.get("full_and_final_from_savings", False)),
+        "full_and_final_from_savings": case_json.get("full_and_final_from_savings"),
         "gambling_main_cause": bool(case_json.get("gambling_main_cause") or case_json.get("gambling_primary_cause") or crm.get("gambling_main_cause", False)),
-        "income_deductions_active": bool(
-            case_json.get("income_deductions_active")
-            or case_json.get("benefit_income_has_deduction", False)
+        "income_deductions_active": (
+            True if (case_json.get("income_deductions_active") or case_json.get("benefit_income_has_deduction"))
+            else (False if (case_json.get("income_deductions_active") is not None or case_json.get("benefit_income_has_deduction") is not None)
+            else None)
         ),
         "vulnerability_claimed": bool(case_json.get("vulnerability_claimed", False)),
         "vulnerability_evidence_uploaded": bool(case_json.get("vulnerability_evidence_uploaded", False)),
@@ -671,10 +741,16 @@ def _parse_case(case_json: dict) -> dict:
             or client_info.get("is_employed")
             or case_json.get("has_job", False)
         ),
-        "income_is_benefits_only": bool(case_json.get("income_is_benefits_only", False)),
+        "income_is_benefits_only": bool(
+            case_json.get("income_is_benefits_only", False)
+            or income_source in {
+                "benefits", "uc", "universal_credit", "pip", "dla",
+                "esa", "pension_credit", "disability", "carer",
+            }
+        ),
         "receives_any_benefits": bool(case_json.get("receives_any_benefits", False)),
         "gamstop_registered": bool(case_json.get("gamstop_registered", False)),
-        "benefit_income_amount": case_json.get("benefit_income_amount"),
+        "benefit_income_amount": benefit_income_amount,
         "aoe_in_place": bool(case_json.get("aoe_in_place", False)),
         # has_ccj base value — overridden authoritatively by _enrich_from_credit_report
         # when a credit report is present for this case.
@@ -778,6 +854,17 @@ def _tig_04(c: dict) -> RuleResult:
         return _pass("TIG-04", "No DLA/PIP income — TIG-04 not applicable.")
     disability_expenses = c["disability_expenses"]
     if not disability_expenses:
+        # Avoid false positive: check SFS breakdown for any disability-labelled line
+        sfs = c.get("sfs_expenditure_breakdown") or []
+        _DISABILITY_KEYWORDS = ("disability", "care", "medical")
+        if any(
+            any(kw in item.get("category", "").lower() for kw in _DISABILITY_KEYWORDS)
+            for item in sfs
+        ):
+            return _pass(
+                "TIG-04",
+                "DLA/PIP income present; disability-related costs found in SFS breakdown.",
+            )
         return RuleResult(
             rule_id="TIG-04", severity="flag", triggered=True,
             message=(
@@ -844,16 +931,28 @@ def _tig_06(c: dict) -> RuleResult:
 
 def _tig_07(c: dict) -> RuleResult:
     """TIG-07: UC income requires UC journal dated within 90 days."""
-    if c["income_source"] not in ("uc", "universal_credit"):
+    if c["income_source"] not in ("uc", "universal_credit", "benefits_only"):
         return _pass("TIG-07", "No UC income — UC journal not required.")
 
     if not c["has_uc_journal"]:
         return RuleResult(
             rule_id="TIG-07", severity="hard_block", triggered=True,
-            message="UC income present but has_uc_journal is false.",
+            message="UC income present but no UC journal has been uploaded.",
         )
 
-    return _pass("TIG-07", "UC journal present.")
+    journal_date = c.get("uc_journal_date")
+    if journal_date is None:
+        return RuleResult(
+            rule_id="TIG-07", severity="flag", triggered=True,
+            message="UC journal uploaded but date could not be verified — confirm it is dated within the last 3 months.",
+        )
+    if (c["assessment_date"] - journal_date).days > 90:
+        return RuleResult(
+            rule_id="TIG-07", severity="hard_block", triggered=True,
+            message=f"UC journal is dated {journal_date} — must be within last 90 days.",
+        )
+
+    return _pass("TIG-07", "UC journal present and dated within 90 days.")
 
 
 def _tig_08(c: dict) -> RuleResult:
@@ -898,136 +997,50 @@ def _tig_09(c: dict) -> RuleResult:
 
 
 def _tig_10(c: dict) -> RuleResult:
-    """TIG-10: Each debt must have supporting proof (hard block >= £1,000; flag < £1,000)."""
+    """TIG-10: Debts must be verifiable via Aryza name, credit report match, or verbal for sub-£1,000."""
     creditors = c.get("creditors", [])
-    evidence_ledger = c.get("evidence_ledger", [])
 
-    # Map evidence ledger by ref for fast lookup
-    evidence_map = {e.get("ref"): e for e in evidence_ledger if e.get("ref")}
+    # Names that indicate the creditor could not be identified from Aryza
+    _UNKNOWN_NAMES = frozenset({"unknown", "unknown creditor"})
 
-    hard_blocks = []
-    flags = []
-    verified_count = 0
-    creditors_detail = []
-    subk_unverified_total = 0.0  # sum of sub-£1,000 unverified balances (debt-level-issue check)
-
-    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT, CREDITOR_ALIAS_MAP, normalise_creditor_name
-    from debt_app.models import CreditorCriteria
-    _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
-
-    # Pre-load representative info once — keyed by canonical creditor name
-    _criteria_map = {
-        c.creditor_name: (c.representative or 'NONE', c.status or 'ACCEPT')
-        for c in CreditorCriteria.objects.filter(is_active=True).only(
-            'creditor_name', 'representative', 'status'
-        )
-    }
+    unverified = []
 
     for creditor in creditors:
-        # Council debts are evaluated by _check_council_rules, not by proof-of-debt evidence
-        if creditor.get("debt_type_normalised") in _COUNCIL_TYPES:
-            continue
-
         balance = creditor.get("balance", 0)
-        # Edge case: Creditor with balance = 0: skip (no evidence needed)
         if balance <= 0:
             continue
 
-        # Edge case: Creditor with no linked_creditor field: treat as missing evidence
-        ref = creditor.get("linked_creditor")
-        evidence = evidence_map.get(ref) if ref else None
-
-        # Evidence entry exists but is_verified = False: Treat same as missing evidence
-        is_verified = False
-        if evidence and evidence.get("is_verified") is True:
-            is_verified = True
-
         name = creditor.get("name", "Unknown Creditor")
-        original_name = creditor.get("original_name") or name
 
-        # Resolve raw Aryza name → canonical DB name exactly like _check_creditor_individual
-        try:
-            from debt_app.helpers import get_creditor_by_trading_name
-            criteria = get_creditor_by_trading_name(original_name)
-            canonical = criteria.creditor_name
-        except CreditorCriteria.DoesNotExist:
-            canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(original_name)) or original_name
-        except Exception as _exc:
-            logger.warning(
-                "[TIG-10] Unexpected error resolving creditor '%s' → alias fallback: %s",
-                original_name, _exc,
-            )
-            canonical = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(original_name)) or original_name
+        # Any creditor with a real name (not an UNKNOWN fallback) is Aryza-sourced → verified
+        is_aryza_sourced = name.strip().lower() not in _UNKNOWN_NAMES
 
-        _rep, _cstatus = _criteria_map.get(canonical) or _criteria_map.get(original_name, ('NONE', None))
+        # Verified if the debt came from the credit report
+        has_credit_report = bool(creditor.get("from_credit_report"))
 
-        creditors_detail.append({
-            "creditor_name": canonical,
-            "original_aryza_name": original_name if original_name != canonical else None,
-            "balance": balance,
-            "is_verified": is_verified,
-            "evidence_status": "verified" if is_verified else ("missing" if not ref else "unverified"),
-            "debt_type": creditor.get("creditor_type") or creditor.get("debt_type_normalised") or "",
-            "representative": _rep,
-            "creditor_status": _cstatus,
-            # True when the raw Aryza name resolved to a real CreditorCriteria row.
-            # _cstatus is None only when no DB match was found (falls back to
-            # ('NONE', None)), so it is a reliable matched/unmatched signal for the UI.
-            "matched_in_db": _cstatus is not None,
-        })
+        # Verbal confirmation acceptable for sub-£1,000 debts
+        is_sub_1k = balance < 1000
 
-        if not is_verified:
-            name = creditor.get("name", "Unknown Creditor")
-            if balance >= 1000:
-                hard_blocks.append(f"{name} (£{balance:,.2f})")
-            else:
-                flags.append(name)
-                subk_unverified_total += balance
-        else:
-            verified_count += 1
+        if is_aryza_sourced or has_credit_report or is_sub_1k:
+            continue
 
-    if hard_blocks:
-        return RuleResult(
-            rule_id="TIG-10",
-            severity="hard_block",
-            triggered=True,
-            message=f"Hard block: No linked verified evidence for debts >= £1,000: {', '.join(hard_blocks)}.",
-            creditors=creditors_detail,
-        )
+        # Unverified: UNKNOWN name, no credit report match, balance >= £1,000
+        unverified.append((name, balance))
 
-    if flags:
-        # "Debt level issue" caveat (Excel Proof of Debts / TIG-14): sub-£1,000
-        # debts may normally be taken verbally (flag), but NOT when they are
-        # load-bearing for the £6,000 minimum debt (TIG-01) — i.e. without these
-        # unproven debts the case would fall below the minimum. Then they require
-        # real proof → hard block. (Reachable only when there is no >=£1,000
-        # unverified debt above, so all unverified debts are the sub-£1,000 ones.)
-        MIN_DEBT = 6000.0  # mirrors TIG-01's hardcoded minimum (code-managed)
-        total_debt = c.get("total_debt") or 0
-        provable = total_debt - subk_unverified_total
-        if provable < MIN_DEBT:
-            return RuleResult(
-                rule_id="TIG-10",
-                severity="hard_block",
-                triggered=True,
-                message=(
-                    f"Hard block (debt level issue): sub-£1,000 debt(s) without verified "
-                    f"proof are needed to meet the £{MIN_DEBT:,.0f} minimum debt — provable "
-                    f"debt would be £{provable:,.2f}: {', '.join(flags)}. Verbal proof is not "
-                    f"acceptable when eligibility depends on these debts."
-                ),
-                creditors=creditors_detail,
-            )
-        return RuleResult(
-            rule_id="TIG-10",
-            severity="flag",
-            triggered=True,
-            message=f"Flag: No linked verified evidence for: {', '.join(flags)}.",
-            creditors=creditors_detail,
-        )
+    if not unverified:
+        return _pass("TIG-10", "All debts verified via Aryza or credit report.")
 
-    # If all creditors have verified evidence: return pass with count
-    return _pass("TIG-10", f"Verified evidence present for all {verified_count} creditors.", creditors=creditors_detail)
+    lines = [
+        f"{name} — balance £{balance:,.0f} cannot be verified from Aryza or credit report. "
+        "Obtain proof of debt before proposing."
+        for name, balance in unverified
+    ]
+    return RuleResult(
+        rule_id="TIG-10",
+        severity="flag",
+        triggered=True,
+        message="\n".join(lines),
+    )
 
 
 def _tig_11(c: dict) -> RuleResult:
@@ -1069,6 +1082,14 @@ def _tig_11_gambling(c: dict) -> RuleResult:
     Runs independently of TIG-11 bank statement check so gambling is always evaluated
     regardless of whether a bank statement document has been uploaded.
     """
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-11-GAMBLING",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — gambling transaction check could not be completed. Verify manually.",
+        )
+
     gm = c["gambling_monthly"]
     # EXCEL_CRITERIA_REFERENCE.md — TIG Gambling: under £1,000 is allowed; £1,000+ is hard block
     if gm >= 1000:
@@ -1100,17 +1121,20 @@ def _tig_11_gambling(c: dict) -> RuleResult:
 
 def _tig_12(c: dict) -> RuleResult:
     """TIG-12: Third-party contribution requires signed letter."""
-    # EXCEL_CRITERIA_REFERENCE.md — stub replaced;
-    # triggered=True without evaluation is misleading
     tp = c["third_party_contribution"]
-    if tp is None:
-        return RuleResult(
-            rule_id="TIG-12", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule TIG-12 cannot be evaluated — third_party_contribution not present in payload",
-        )
     if not tp:
+        # None, 0, 0.0, False — no TPC present
         return _pass("TIG-12", "No third-party contribution — letter not required.")
-    # If we have a value but no signed_letter flag, block
+    if isinstance(tp, (int, float)):
+        # Aryza supplies a raw amount but no letter metadata yet
+        return RuleResult(
+            rule_id="TIG-12", severity="flag", triggered=True,
+            message=(
+                f"Third-party contribution of £{tp:,.2f} recorded — confirm signed letter "
+                "with duration, address and contact details is in place."
+            ),
+        )
+    # tp is a dict with letter metadata
     if not tp.get("signed_letter_present", False):
         return RuleResult(
             rule_id="TIG-12", severity="hard_block", triggered=True,
@@ -1135,6 +1159,13 @@ def _tig_15_1(c: dict) -> RuleResult:
     """TIG-15.1: HMRC majority creditor + income/benefit deductions already being taken."""
     if not c["hmrc_is_majority"]:
         return _pass("TIG-15.1", "HMRC is not the majority creditor.")
+    if c["income_deductions_active"] is None:
+        return RuleResult(
+            rule_id="TIG-15.1",
+            severity="flag",
+            triggered=True,
+            message="HMRC is the majority creditor — confirm whether any income or benefit deductions are active before proposing.",
+        )
     if not c["income_deductions_active"]:
         return _pass("TIG-15.1", "No income/benefit deductions active — HMRC majority check passed.")
     return RuleResult(
@@ -1221,15 +1252,24 @@ def _tig_15_5(c: dict) -> RuleResult:
 
 def _tig_15_6(c: dict) -> RuleResult:
     """TIG-15.6: Full & Final funded from savings accumulated while debts were unpaid — hard block."""
-    if not c["full_and_final_from_savings"]:
-        return _pass("TIG-15.6", "No savings-funded F&F arrangement identified.")
-    return RuleResult(
-        rule_id="TIG-15.6", severity="hard_block", triggered=True,
-        message=(
-            "Full & Final settlement funded from savings accumulated while debts were unpaid. "
-            "Cannot proceed with IVA — this constitutes an antecedent concern."
-        ),
-    )
+    val = c["full_and_final_from_savings"]
+    if val is None:
+        return RuleResult(
+            rule_id="TIG-15.6", severity="flag", triggered=True,
+            message=(
+                "Full & Final savings source not confirmed — caseworker must verify whether "
+                "savings were accumulated while debts were unpaid before proceeding."
+            ),
+        )
+    if val is True:
+        return RuleResult(
+            rule_id="TIG-15.6", severity="hard_block", triggered=True,
+            message=(
+                "Full & Final settlement funded from savings accumulated while debts were unpaid. "
+                "Cannot proceed with IVA — this constitutes an antecedent concern."
+            ),
+        )
+    return _pass("TIG-15.6", "No savings-funded F&F arrangement identified.")
 
 
 def _tig_15_7(c: dict) -> RuleResult:
@@ -1314,15 +1354,45 @@ def _tig_hmrc_03(c: dict) -> RuleResult:
         # EXCEL_CRITERIA_REFERENCE.md — HMRC Rule 3: VAT debt type matching
         "vat" in (cr["creditor_type"] or "").lower()
         or "value_added_tax" in (cr["creditor_type"] or "").lower()
+        or "vat" in cr["name"].lower()
         for cr in c["hmrc_creditors"]
     )
     if not has_vat_debt:
+        # Only flag if no HMRC creditor has any recognised sub-type
+        # If sub-type is known but isn't VAT, this rule simply doesn't apply
+        _any_known = any(
+            any(kw in (cr["creditor_type"] or "").lower() or kw in cr["name"].lower()
+                for kw in _HMRC_KNOWN_SUBTYPES)
+            for cr in c["hmrc_creditors"]
+        )
+        if not _any_known:
+            return RuleResult(
+                rule_id="TIG-HMRC-VAT-TRADING",
+                severity="flag",
+                triggered=True,
+                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether VAT applies before proposing.",
+            )
         return _pass("TIG-HMRC-VAT-TRADING", "No VAT arrears present.")
-    if not c["is_currently_trading"]:
+    _is_trading = c.get("is_currently_trading")
+    if _is_trading is None:
+        return RuleResult(
+            rule_id="TIG-HMRC-VAT-TRADING",
+            severity="flag",
+            triggered=True,
+            message="VAT debt present — trading status unknown. Verify whether client is currently trading before proposing.",
+        )
+    if not _is_trading:
         return _pass("TIG-HMRC-VAT-TRADING", "Client is not currently trading.")
     # is_currently_trading is True; check for arrangement
     if c["has_vat_arrangement"]:
         return _pass("TIG-HMRC-VAT-TRADING", "VAT payment arrangement is in place.")
+    if c.get("has_vat_arrangement") is None:
+        return RuleResult(
+            rule_id="TIG-HMRC-VAT-TRADING",
+            severity="flag",
+            triggered=True,
+            message="VAT debt present and client is trading — confirm whether a payment arrangement with HMRC is in place before proposing.",
+        )
     return RuleResult(
         rule_id="TIG-HMRC-VAT-TRADING",
         severity="hard_block",
@@ -1343,9 +1413,24 @@ def _tig_hmrc_04(c: dict) -> RuleResult:
         # EXCEL_CRITERIA_REFERENCE.md — HMRC Rule 4: PAYE debt type matching
         "paye" in (cr["creditor_type"] or "").lower()
         or "pay_as_you_earn" in (cr["creditor_type"] or "").lower()
+        or "paye" in cr["name"].lower()
         for cr in c["hmrc_creditors"]
     )
     if not has_paye_debt:
+        # Only flag if no HMRC creditor has any recognised sub-type
+        # If sub-type is known but isn't PAYE, this rule simply doesn't apply
+        _any_known = any(
+            any(kw in (cr["creditor_type"] or "").lower() or kw in cr["name"].lower()
+                for kw in _HMRC_KNOWN_SUBTYPES)
+            for cr in c["hmrc_creditors"]
+        )
+        if not _any_known:
+            return RuleResult(
+                rule_id="TIG-HMRC-PAYE-OBLIGATIONS",
+                severity="flag",
+                triggered=True,
+                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether PAYE applies before proposing.",
+            )
         return _pass("TIG-HMRC-PAYE-OBLIGATIONS", "No PAYE arrears present.")
     paye_current = c["employer_paye_obligations_current"]
     if paye_current is None:
@@ -1379,9 +1464,24 @@ def _tig_hmrc_05(c: dict) -> RuleResult:
         # EXCEL_CRITERIA_REFERENCE.md — HMRC Rule 5: tax credit debt type matching
         "tax credit" in (cr["creditor_type"] or "").lower()
         or "tax_credit" in (cr["creditor_type"] or "").lower()
+        or "tax credit" in cr["name"].lower()
         for cr in c["hmrc_creditors"]
     )
     if not has_tc_debt:
+        # Only flag if no HMRC creditor has any recognised sub-type
+        # If sub-type is known but isn't tax credits, this rule simply doesn't apply
+        _any_known = any(
+            any(kw in (cr["creditor_type"] or "").lower() or kw in cr["name"].lower()
+                for kw in _HMRC_KNOWN_SUBTYPES)
+            for cr in c["hmrc_creditors"]
+        )
+        if not _any_known:
+            return RuleResult(
+                rule_id="TIG-HMRC-TAX-CREDITS",
+                severity="flag",
+                triggered=True,
+                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether tax credits applies before proposing.",
+            )
         return _pass("TIG-HMRC-TAX-CREDITS", "No tax credit overpayment debt present.")
     return RuleResult(
         rule_id="TIG-HMRC-TAX-CREDITS",
@@ -1407,6 +1507,20 @@ def _tig_hmrc_06(c: dict) -> RuleResult:
         for cr in c["hmrc_creditors"]
     )
     if not has_ni_debt:
+        # Only flag if no HMRC creditor has any recognised sub-type
+        # If sub-type is known but isn't NI, this rule simply doesn't apply
+        _any_known = any(
+            any(kw in (cr["creditor_type"] or "").lower() or kw in cr["name"].lower()
+                for kw in _HMRC_KNOWN_SUBTYPES)
+            for cr in c["hmrc_creditors"]
+        )
+        if not _any_known:
+            return RuleResult(
+                rule_id="TIG-HMRC-NI-CLASS",
+                severity="flag",
+                triggered=True,
+                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether National Insurance applies before proposing.",
+            )
         return _pass("TIG-HMRC-NI-CLASS", "No National Insurance debt present.")
     return RuleResult(
         rule_id="TIG-HMRC-NI-CLASS",
@@ -1424,7 +1538,15 @@ def _tig_hmrc_07(c: dict) -> RuleResult:
     # EXCEL_CRITERIA_REFERENCE.md — HMRC Rule 7
     if not c["hmrc_is_creditor"]:
         return _pass("TIG-HMRC-ONGOING-TRADING", "No HMRC creditor.")
-    if not c["is_currently_trading"]:
+    _is_trading = c.get("is_currently_trading")
+    if _is_trading is None:
+        return RuleResult(
+            rule_id="TIG-HMRC-ONGOING-TRADING",
+            severity="flag",
+            triggered=True,
+            message="HMRC ongoing trading rule — trading status unknown. Verify whether client is currently trading before proposing.",
+        )
+    if not _is_trading:
         return _pass("TIG-HMRC-ONGOING-TRADING", "Client is not currently trading.")
     return RuleResult(
         rule_id="TIG-HMRC-ONGOING-TRADING",
@@ -1443,7 +1565,7 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
     # _watch_22_13 still catches antecedent transactions for non-HMRC creditors when WATCH is present.
     if not c["hmrc_is_creditor"]:
         return _pass("TIG-HMRC-ANTECEDENT", "No HMRC creditor.")
-    at = c["antecedent_transactions"]
+    at = c.get("antecedent_transactions")
     if at:
         return RuleResult(
             rule_id="TIG-HMRC-ANTECEDENT",
@@ -1453,6 +1575,13 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
                 "Preferential/antecedent payment to HMRC detected — hard reject. "
                 "Potential clawback risk makes IVA non-viable."
             ),
+        )
+    if not at and not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-HMRC-ANTECEDENT",
+            severity="flag",
+            triggered=True,
+            message="Antecedent transaction data not available — confirm no preferential payments were made to HMRC in the last 2 years.",
         )
     return _pass("TIG-HMRC-ANTECEDENT", "No antecedent transactions to HMRC identified.")
 
@@ -1474,19 +1603,31 @@ def _tig_16(c: dict) -> RuleResult:
     has_property = c.get("has_property", False)
 
     # WPM (WATCH) cases are handled by WATCH-22.4 — TIG-16 is for NON-WPM cases.
-    # Still compute equity so the figures appear as evidence even on the pass result.
     if "WATCH" in (c.get("detected_representatives") or set()):
-        if has_property:
-            pv = _parse_amount(c.get("property_value") or 0)
-            equity = (pv - c["mortgage_balance"]) if pv > 0 else None
-            liabilities = c["total_debt"]
+        if not has_property:
             return _pass(
                 "TIG-16",
-                "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.",
-                threshold=liabilities,
-                actual_value=equity,
+                "No property — TIG-16 not applicable.",
             )
-        return _pass("TIG-16", "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.")
+        pv = _parse_amount(c.get("property_value") or 0)
+        if pv <= 0:
+            return RuleResult(
+                rule_id="TIG-16",
+                severity="flag",
+                triggered=True,
+                message=(
+                    "Client owns property but no valuation provided — "
+                    "WATCH-22.4 cannot evaluate equity. Manual valuation required before proceeding."
+                ),
+            )
+        equity = pv - c["mortgage_balance"]
+        liabilities = c["total_debt"]
+        return _pass(
+            "TIG-16",
+            "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.",
+            threshold=liabilities,
+            actual_value=equity,
+        )
 
     if not has_property:
         return _pass("TIG-16", "Client does not own property.")
@@ -1527,6 +1668,13 @@ def _tig_17(c: dict) -> RuleResult:
     """
     if not c["council_is_majority"]:
         return _pass("TIG-17", "Council is not the majority creditor.")
+    if c["income_deductions_active"] is None:
+        return RuleResult(
+            rule_id="TIG-17",
+            severity="flag",
+            triggered=True,
+            message="Council is majority creditor — confirm whether any income or benefit deductions are active before proposing.",
+        )
     if not c["income_deductions_active"]:
         return _pass("TIG-17", "Council is majority creditor but no income/benefit deductions active.")
     return RuleResult(
@@ -1541,6 +1689,13 @@ def _tig_17(c: dict) -> RuleResult:
 
 def _tig_18(c: dict) -> RuleResult:
     """TIG-18: Total spend in last 2 months >= monthly income (excl. payday loans) — flag only."""
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-18",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — recent spend check could not be completed. Verify manually.",
+        )
     monthly_income = c["total_income"]
     spend = c["total_spend_2mo"]
     if monthly_income <= 0:
@@ -1556,6 +1711,13 @@ def _tig_18(c: dict) -> RuleResult:
 
 def _tig_19(c: dict) -> RuleResult:
     """TIG-19: Shop Direct purchases within 3 months of statement date — hard block."""
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-19",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — Shop Direct transaction check could not be completed. Verify manually.",
+        )
     if c["shop_direct_tx_3mo"]:
         return RuleResult(
             rule_id="TIG-19", severity="hard_block", triggered=True,
@@ -1579,10 +1741,17 @@ def _tig_19_review(c: dict) -> RuleResult:
 def _tig_19_1(c: dict) -> RuleResult:
     """TIG-19.1: Shop Direct account < 6 months old — hard block."""
     for creditor in c["creditors"]:
-        if not _in_set(creditor["name"], _SHOP_DIRECT_NAMES):
+        if not _contains_any(creditor["name"], _SHOP_DIRECT_NAMES):
             continue
         age = creditor.get("account_age_months")
-        if age is not None and age < 6:
+        if age is None:
+            return RuleResult(
+                rule_id="TIG-19.1",
+                severity="flag",
+                triggered=True,
+                message=f"{creditor['name']}: Shop Direct account present but account age could not be verified — confirm account is at least 6 months old before proposing.",
+            )
+        if age < 6:
             return RuleResult(
                 rule_id="TIG-19.1", severity="hard_block", triggered=True,
                 message=f"{creditor['name']}: account is only {age} months old (minimum 6 months required).",
@@ -1593,6 +1762,13 @@ def _tig_19_1(c: dict) -> RuleResult:
 
 def _tig_20(c: dict) -> RuleResult:
     """TIG-20: Creation purchases within 3 months — flag (TIG-20.1 is the hard block)."""
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-20",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — Creation / Sygma / Laser transaction check could not be completed. Verify manually.",
+        )
     if c["creation_tx_4mo"]:
         return RuleResult(
             rule_id="TIG-20", severity="flag", triggered=True,
@@ -1608,6 +1784,13 @@ def _tig_20_1(c: dict) -> RuleResult:
     SYGMA / CREATION / LASER REGARDLESS OF THE REASON.'
     The block is on recent SPEND only; having a dormant Creation account is not a block.
     """
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIG-20.1",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — Creation / Sygma / Laser spend check could not be completed. Verify manually.",
+        )
     if c["creation_tx_4mo"]:
         return RuleResult(
             rule_id="TIG-20.1", severity="hard_block", triggered=True,
@@ -1900,7 +2083,12 @@ def _watch_22_5(c: dict) -> RuleResult:
 
 def _watch_22_6(c: dict) -> RuleResult:
     """WATCH-22.6: Excessive luxury/non-essential spend in last 3 months."""
-    # EXCEL_CRITERIA_REFERENCE.md — Watch Criteria: luxury/non-essential spend only, assessment_date reference
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="WATCH-22.6", severity="flag", triggered=True,
+            message="No open banking data loaded — luxury spend in last 3 months could not be verified.",
+        )
+
     assessment_date = c["assessment_date"]
     recent_out = [
         t for t in c["gold_transactions"]
@@ -1909,36 +2097,29 @@ def _watch_22_6(c: dict) -> RuleResult:
             t.get("transaction_date") or t.get("date"), 90, reference=assessment_date
         )
     ]
-    if not recent_out:
-        return _pass("WATCH-22.6", "No outgoing transactions within the last 90 days.")
 
     has_categories = any(
         t.get("category") or t.get("transaction_category") for t in recent_out
     )
 
     if has_categories:
-        luxury_total = sum(
-            _parse_amount(t.get("amount", 0))
-            for t in recent_out
+        luxury_txs = [
+            t for t in recent_out
             if (t.get("category") or t.get("transaction_category") or "").lower()
             in LUXURY_CATEGORIES
-        )
-        threshold = c["total_income"] * 0.5
-        if luxury_total > threshold:
+        ]
+        if luxury_txs:
+            luxury_total = sum(_parse_amount(t.get("amount", 0)) for t in luxury_txs)
             return RuleResult(
-                rule_id="WATCH-22.6", severity="hard_block", triggered=True,
+                rule_id="WATCH-22.6", severity="flag", triggered=True,
                 message=(
-                    f"Luxury/non-essential spend of £{luxury_total:,.2f} in last 90 days "
-                    f"exceeds 50% of monthly income (£{threshold:,.2f})."
+                    f"Luxury/non-essential spend of £{luxury_total:,.2f} in last 90 days identified. "
+                    "Review with client before proposing."
                 ),
-                threshold=threshold, actual_value=luxury_total,
+                actual_value=luxury_total,
             )
-        return _pass("WATCH-22.6", f"Luxury spend £{luxury_total:,.2f} within threshold.")
 
-    return RuleResult(
-        rule_id="WATCH-22.6", severity="info", triggered=False,
-        message="Transaction categories were not available so the rule could not be fully evaluated.",
-    )
+    return _pass("WATCH-22.6", "No excessive luxury spend identified in the last 3 months.")
 
 
 def _watch_22_7(c: dict) -> RuleResult:
@@ -2002,6 +2183,13 @@ def _watch_22_10(c: dict) -> RuleResult:
     """WATCH-22.10: Car HP payment > £400/month — flag."""
     threshold = float(WATCH_HP_MONTHLY_CAP)
     actual = c["vehicle_hp_monthly"]
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="WATCH-22.10",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — HP monthly payment could not be verified. Confirm HP payment amount manually.",
+        )
     if actual > threshold:
         return RuleResult(
             rule_id="WATCH-22.10", severity="flag", triggered=True,
@@ -2039,24 +2227,32 @@ def _watch_22_12(c: dict) -> RuleResult:
 def _watch_22_13(c: dict) -> RuleResult:
     """WATCH-22.13: Antecedent transactions identified — hard block, no exceptions."""
     at = c["antecedent_transactions"]
-    if at is None:
-        return _pass("WATCH-22.13", "No antecedent transactions identified.")
     if at:
         return RuleResult(
             rule_id="WATCH-22.13", severity="hard_block", triggered=True,
-            message="Antecedent transactions identified. WATCH hard block — no exceptions.",
+            message="Antecedent transactions identified — case cannot proceed.",
         )
-    return _pass("WATCH-22.13", "No antecedent transactions.")
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="WATCH-22.13", severity="flag", triggered=True,
+            message="No open banking data loaded — confirm no antecedent transactions exist before proceeding.",
+        )
+    return _pass("WATCH-22.13", "No antecedent transactions identified.")
 
 
 def _watch_22_14(c: dict) -> RuleResult:
     """WATCH-22.14: Car finance taken in last 3 months — hard block unless valid evidence."""
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="WATCH-22.14", severity="flag", triggered=True,
+            message="No open banking data loaded — car finance taken in last 3 months could not be verified.",
+        )
     if c["car_finance_tx_3mo"]:
         return RuleResult(
             rule_id="WATCH-22.14", severity="hard_block", triggered=True,
             message="Car finance transaction within the last 3 months detected. Hard block unless evidence provided (old car scrapped, accident, employment requirement).",
         )
-    return _pass("WATCH-22.14", "No car finance in the last 3 months.")
+    return _pass("WATCH-22.14", "No car finance transactions identified in the last 3 months.")
 
 
 # ---------------------------------------------------------------------------
@@ -2065,6 +2261,16 @@ def _watch_22_14(c: dict) -> RuleResult:
 
 def _tix_01(c: dict) -> RuleResult:
     """TIX-01: Shop Direct / Very / Littlewoods spend in last 3 months — hard block."""
+    shop_direct_is_creditor = any(_contains_any(cr["name"], _SHOP_DIRECT_NAMES) for cr in c["creditors"])
+    if not shop_direct_is_creditor:
+        return _pass("TIX-01", "No Shop Direct / Very / Littlewoods creditor in case — TIX-01 not applicable.")
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIX-01",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — Shop Direct / Very / Littlewoods spend check (TIX) could not be completed. Verify manually.",
+        )
     if c["shop_direct_tx_3mo"]:
         return RuleResult(
             rule_id="TIX-01", severity="hard_block", triggered=True,
@@ -2076,10 +2282,17 @@ def _tix_01(c: dict) -> RuleResult:
 def _tix_02(c: dict) -> RuleResult:
     """TIX-02: Shop Direct account < 6 months old — hard block."""
     for creditor in c["creditors"]:
-        if not _in_set(creditor["name"], _SHOP_DIRECT_NAMES):
+        if not _contains_any(creditor["name"], _SHOP_DIRECT_NAMES):
             continue
         age = creditor.get("account_age_months")
-        if age is not None and age < 6:
+        if age is None:
+            return RuleResult(
+                rule_id="TIX-02",
+                severity="flag",
+                triggered=True,
+                message=f"{creditor['name']}: Shop Direct account present but account age could not be verified — confirm account is at least 6 months old before proposing.",
+            )
+        if age < 6:
             return RuleResult(
                 rule_id="TIX-02", severity="hard_block", triggered=True,
                 message=f"{creditor['name']}: account is {age} months old (minimum 6 required). TIX hard block.",
@@ -2090,6 +2303,16 @@ def _tix_02(c: dict) -> RuleResult:
 
 def _tix_03(c: dict) -> RuleResult:
     """TIX-03: Creation / Sygma / Laser spend in last 4 months — hard block."""
+    creation_is_creditor = any(_contains_any(cr["name"], _CREATION_NAMES) for cr in c["creditors"])
+    if not creation_is_creditor:
+        return _pass("TIX-03", "No Creation / Sygma / Laser creditor in case — TIX-03 not applicable.")
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIX-03",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — Creation / Sygma / Laser spend check (TIX) could not be completed. Verify manually.",
+        )
     if c["creation_tx_4mo"]:
         return RuleResult(
             rule_id="TIX-03", severity="hard_block", triggered=True,
@@ -2102,6 +2325,13 @@ def _tix_04(c: dict) -> RuleResult:
     """TIX-04: Car HP payment > £250/month — flag. NOTE: TIX threshold is £250, WATCH is £400."""
     threshold = 250.0
     actual = c["vehicle_hp_monthly"]
+    if not c.get("has_open_banking"):
+        return RuleResult(
+            rule_id="TIX-04",
+            severity="flag",
+            triggered=True,
+            message="No open banking data loaded — HP monthly payment could not be verified. Confirm HP payment amount manually.",
+        )
     if actual > threshold:
         return RuleResult(
             rule_id="TIX-04", severity="flag", triggered=True,
@@ -2206,10 +2436,26 @@ def _phase4_vw_termination(c: dict, criteria_map: dict) -> RuleResult:
     from debt_app.helpers import DEBT_TYPE_HP
 
     for creditor in c["creditors"]:
-        if creditor["debt_type_normalised"] != DEBT_TYPE_HP:
-            continue
         name = creditor["name"]
         name_lower = name.lower()
+        is_vw = name_lower in _VW_GROUP_NAMES
+        is_hp = creditor["debt_type_normalised"] == DEBT_TYPE_HP
+
+        if not is_vw and not is_hp:
+            continue
+
+        if is_vw and not is_hp:
+            return RuleResult(
+                rule_id="PHASE4-VW-TERMINATION",
+                severity="flag",
+                triggered=True,
+                message=(
+                    f"{name}: VW Group creditor detected but debt type is "
+                    f"'{creditor['debt_type_normalised']}' not hire_purchase — confirm whether "
+                    "vehicle is on HP and termination risk applies."
+                ),
+            )
+
         if name_lower in _VW_GROUP_NAMES:
             return RuleResult(
                 rule_id="PHASE4-VW-TERMINATION", severity="hard_block", triggered=True,
@@ -2323,6 +2569,199 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
 # ---------------------------------------------------------------------------
 # Module 5 — Per-creditor and per-council evaluation
 # ---------------------------------------------------------------------------
+
+def _build_creditor_reason(criteria, cr: dict, case: dict) -> str:
+    """
+    Build a human-readable profile description for a creditor from seeded DB data
+    plus the calculated balance/share for this specific case.  Stored as
+    checks_description so _apply_representative_outcomes can append the rep body
+    outcome idempotently.  Case-specific rule evaluation is shown in findings.
+    """
+    canonical = criteria.creditor_name
+    rep = (criteria.representative or "NONE").upper()
+    group = (criteria.parent_group or "").strip()
+    status_label = _STATUS_NORMALISE.get(criteria.status, criteria.status)
+
+    # --- Balance and share of total debt (case-specific) ---
+    balance = float(cr.get("balance") or 0)
+    total_debt = float(case.get("total_debt") or 0)
+    if total_debt > 0 and balance > 0:
+        share = (balance / total_debt) * 100
+        balance_str = f"Balance: £{balance:,.0f} ({share:.1f}% of total debt)."
+    elif balance > 0:
+        balance_str = f"Balance: £{balance:,.0f}."
+    else:
+        balance_str = ""
+
+    # --- Profile header ---
+    if rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS"):
+        header = f"{canonical}: {rep} representative creditor"
+        if group:
+            header += f" ({group})"
+        header += f". Standing position: {status_label}."
+    else:
+        header = f"{canonical}: standing position — {status_label}"
+        if group:
+            header += f" ({group})"
+        header += "."
+
+    # --- Configured conditions (creditor policy, not case-specific evaluation) ---
+    conditions = []
+
+    if criteria.blocked_until_cleared:
+        reason = (criteria.blocked_reason or "blocked until further notice").strip()
+        conditions.append(f"currently blocked — {reason}")
+    if criteria.reject_if_never_made_payment:
+        conditions.append("requires at least one payment to have been made")
+    if criteria.reject_if_ccj:
+        conditions.append("rejects if CCJ present on credit file")
+    if criteria.reject_if_aoe:
+        conditions.append("rejects if attachment of earnings is in place")
+    if criteria.reject_if_second_iva:
+        conditions.append("rejects if client has a prior IVA")
+    if criteria.reject_if_equity_exceeds_debt:
+        conditions.append("rejects if property equity (85% LTV) exceeds total unsecured debt")
+    if criteria.reject_if_client_still_has_asset:
+        conditions.append("rejects if financed asset is still held by client")
+    if criteria.account_age_months is not None:
+        conditions.append(f"rejects if account is less than {criteria.account_age_months} months old")
+    if criteria.reject_if_majority_share_exceeds_pct is not None:
+        conditions.append(
+            f"rejects if creditor holds more than "
+            f"{criteria.reject_if_majority_share_exceeds_pct:.0f}% of total debt"
+        )
+    if criteria.reject_if_debt_repayable_within_months is not None:
+        conditions.append(
+            f"rejects if debt repayable within "
+            f"{criteria.reject_if_debt_repayable_within_months} months from disposable income"
+        )
+    if criteria.requires_arrangement_call_before_proposing:
+        conditions.append("arrangement call required before proposing")
+    if criteria.requires_grant_overpayment_only:
+        conditions.append("accepts grant overpayment debts only")
+    if criteria.vehicle_arrears_repossession_months is not None:
+        conditions.append(
+            f"rejects if vehicle arrears exceed "
+            f"{criteria.vehicle_arrears_repossession_months} months"
+        )
+    if criteria.fees_cap_percentage is not None:
+        conditions.append(f"IP fees capped at {criteria.fees_cap_percentage:.0f}%")
+    if criteria.fraud_claim_risk:
+        conditions.append("known fraud claim risk — caseworker review required before proposing")
+    if criteria.termination_risk_if_vehicle_on_finance:
+        conditions.append("may terminate agreement if vehicle is on finance")
+
+    # --- Dividend / conditional voter ---
+    dividend_parts = []
+    if criteria.min_dividend_pence is not None:
+        dividend_parts.append(f"minimum dividend: {criteria.min_dividend_pence}p/£1")
+    if criteria.conditional_voter:
+        cv = criteria.conditional_voter_min_dividend_pence
+        if cv is not None:
+            dividend_parts.append(f"conditional voter — votes only if dividend ≥ {cv}p/£1")
+        else:
+            dividend_parts.append("conditional voter")
+
+    # --- Notes from spreadsheet ---
+    notes = (criteria.criteria_notes or criteria.dividend_notes or "").strip()
+
+    # --- Compose ---
+    parts = [header]
+    if balance_str:
+        parts.append(balance_str)
+    if conditions:
+        parts.append(f"Conditions: {'; '.join(conditions)}.")
+    if dividend_parts:
+        parts.append(f"{'; '.join(dividend_parts).capitalize()}.")
+    if notes:
+        parts.append(f"Note: {notes}")
+
+    return " ".join(parts)
+
+
+def _build_council_reason(rule, cr: dict, case: dict, effective_status: str) -> str:
+    """
+    Build a human-readable profile description for a council creditor from seeded
+    DB data plus the calculated balance/share for this case.  Describes the
+    council's base position and configured conditional rejection policy.
+    Case-specific evaluation is shown in findings.
+    """
+    name = rule.council_name
+    base_status = (rule.status or "UNKNOWN").upper()
+
+    _STATUS_DESC = {
+        "REJECT":            "rejects IVA proposals",
+        "ACCEPT":            "accepts IVA proposals",
+        "DO_NOT_VOTE":       "submits proof of debt only (does not vote)",
+        "WILL_CONSIDER":     "reviews proposals on a case-by-case basis",
+        "CONDITIONAL_VOTER": "votes conditionally based on the dividend offered",
+    }
+    base_desc = _STATUS_DESC.get(base_status, f"base status: {base_status}")
+
+    # --- Balance and share of total debt (case-specific) ---
+    balance = float(cr.get("balance") or 0)
+    total_debt = float(case.get("total_debt") or 0)
+    if total_debt > 0 and balance > 0:
+        share = (balance / total_debt) * 100
+        balance_str = f"Balance: £{balance:,.0f} ({share:.1f}% of total debt)."
+    elif balance > 0:
+        balance_str = f"Balance: £{balance:,.0f}."
+    else:
+        balance_str = ""
+
+    # --- Configured conditional rejection rules (policy) ---
+    conditions = []
+    if rule.reject_if_employed:
+        conditions.append("rejects if client is employed")
+    if rule.reject_if_unemployed_and_homeowner:
+        conditions.append("rejects if client is unemployed and owns property")
+    if rule.reject_if_benefits_only:
+        conditions.append("rejects if client's income is benefits only")
+    if rule.reject_if_any_benefits:
+        conditions.append("rejects if client receives any benefits")
+    if rule.reject_if_previous_iva:
+        conditions.append("rejects if client has a prior IVA")
+    if rule.reject_if_dro_criteria_met:
+        conditions.append("rejects if client meets DRO criteria")
+    if rule.reject_if_aoe_in_place:
+        conditions.append("rejects if attachment of earnings is in place")
+    if rule.reject_if_sole:
+        conditions.append("rejects sole IVA applications")
+    if rule.reject_if_joint_one_party_only:
+        conditions.append("rejects if joint debt is included in a sole IVA")
+    if rule.reject_if_joint_both_parties:
+        conditions.append("rejects joint IVA proposals")
+    if rule.reject_if_joint_one_employed:
+        conditions.append("rejects joint cases where one party is employed")
+
+    # --- Informational flags ---
+    info_parts = []
+    if rule.do_not_chase:
+        info_parts.append("do not contact proactively — council may reject if chased")
+    if rule.include_current_year_ct:
+        info_parts.append(
+            "include current-year council tax in proposal even if not yet in arrears"
+        )
+    if rule.min_dividend_pence is not None:
+        info_parts.append(f"minimum dividend: {rule.min_dividend_pence}p/£1")
+
+    # blocked_reason stores raw notes from the Excel sheet (operational instructions,
+    # email contacts, submission requirements etc.) — always surface them.
+    raw_notes = (rule.blocked_reason or "").strip()
+
+    # --- Compose ---
+    parts = [f"{name}: {base_desc}."]
+    if balance_str:
+        parts.append(balance_str)
+    if conditions:
+        parts.append(f"Conditions: {'; '.join(conditions)}.")
+    if info_parts:
+        parts.append(f"Note: {'; '.join(info_parts)}.")
+    if raw_notes:
+        parts.append(f"Caseworker notes: {raw_notes}")
+
+    return " ".join(parts)
+
 
 def _check_creditor_individual(case: dict) -> list[dict]:
     """
@@ -2507,6 +2946,30 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             })
             reject_level = True
 
+        # General Creditor: I&E match
+        # ie_matches_loan_application is parsed per-creditor at line 380.
+        if criteria.reject_if_ie_doesnt_match_application:
+            ie_status = cr.get("ie_matches_loan_application")
+            if ie_status is False:
+                findings.append({
+                    "code": "CREDITOR-IE-MISMATCH-REJECT",
+                    "reason": (
+                        f"{name}: income and expenditure does not match "
+                        "the original loan application — creditor rejects"
+                    ),
+                })
+                reject_level = True
+            elif ie_status is None:
+                findings.append({
+                    "code": "CREDITOR-IE-MATCH-UNVERIFIED",
+                    "reason": (
+                        f"{name}: requires I&E to match loan application "
+                        "— not confirmed in payload, verify before proposing"
+                    ),
+                    "severity": "flag",
+                })
+            # ie_status is True → criteria satisfied, no finding
+
         # General Creditor: minimum loan age — creditor rejects loans younger than
         # N months (e.g. "REJECT IF LOAN LESS THAN 6 MONTHS OLD"). The client's loan
         # age is sourced from the credit report (account Start Date) and attached to
@@ -2533,6 +2996,66 @@ def _check_creditor_individual(case: dict) -> list[dict]:
                     ),
                 })
                 reject_level = True
+
+        # General Creditor: recent spend rejection
+        # Uses _recent_transactions_matching with creditor name and
+        # trading names as keywords. Any match within N months = reject.
+        if criteria.reject_if_recent_spend_months is not None:
+            _months = criteria.reject_if_recent_spend_months
+            _gold_tx = case.get("gold_transactions") or []
+            _keywords = [name] + list(criteria.trading_names or [])
+            if _gold_tx:
+                _recent = _recent_transactions_matching(
+                    _gold_tx,
+                    _keywords,
+                    _months * 30,
+                    reference=case.get("assessment_date"),
+                )
+                if _recent:
+                    findings.append({
+                        "code": "CREDITOR-RECENT-SPEND-REJECT",
+                        "reason": (
+                            f"{name}: {len(_recent)} transaction(s) found "
+                            f"in the last {_months} month(s) — creditor "
+                            "rejects recent spend on account"
+                        ),
+                    })
+                    reject_level = True
+            else:
+                # No gold transactions — fall back to credit report recent_spending signal
+                _cr_recent = cr.get("recent_spending")  # bool | None — set by _enrich_from_credit_report
+                if _cr_recent is True:
+                    # Credit report confirms recent spend on this account
+                    findings.append({
+                        "code": "CREDITOR-RECENT-SPEND-REJECT",
+                        "reason": (
+                            f"{name} rejects clients with spend in the last "
+                            f"{_months} month(s) — recent activity detected on credit report."
+                        ),
+                        "severity": "flag",
+                    })
+                    reject_level = True
+                elif _cr_recent is False:
+                    # Credit report confirms no recent spend — condition satisfied
+                    findings.append({
+                        "code": "CREDITOR-RECENT-SPEND-PASS",
+                        "reason": (
+                            f"{name}: no recent spend detected on credit report "
+                            f"within the {_months}-month window — condition satisfied."
+                        ),
+                        "severity": "pass",
+                    })
+                else:
+                    # Neither gold transactions nor credit report — genuinely unverified
+                    findings.append({
+                        "code": "CREDITOR-RECENT-SPEND-UNVERIFIED",
+                        "reason": (
+                            f"{name} rejects clients with spend in the last "
+                            f"{_months} month(s) — upload a credit report or open banking "
+                            f"data to verify before proposing."
+                        ),
+                        "severity": "flag",
+                    })
 
         # EXCEL_CRITERIA_REFERENCE.md — General Creditor: per-creditor equity block (85% LTV)
         if criteria.reject_if_equity_exceeds_debt and case.get("has_property", False):
@@ -2579,34 +3102,100 @@ def _check_creditor_individual(case: dict) -> list[dict]:
 
         canonical = criteria.creditor_name
 
-        # Ensure consistent naming for UI:
-        # creditor_name should be the canonical/resolved name
-        # original_aryza_name should be the raw name from Aryza
-        rep = criteria.representative or "NONE"
-        if not findings:
-            if effective_status == "PENDING_REP_OUTCOME":
-                _default_reason = criteria.dividend_notes or ""  # will be overridden by _apply_representative_outcomes only if still empty
-            elif effective_status == "ACCEPT":
-                _default_reason = f"{canonical} — no rejection conditions apply for this case"
-            elif effective_status == "WILL_CONSIDER":
-                _default_reason = (
-                    criteria.dividend_notes or
-                    f"{canonical} reviews each IVA proposal individually — no automatic accept or reject position"
-                )
-            elif effective_status == "DO_NOT_VOTE":
-                _default_reason = (
-                    criteria.dividend_notes or
-                    f"{canonical} does not participate in the creditor vote"
-                )
-            elif effective_status == "CONDITIONAL_VOTER":
-                _default_reason = (
-                    criteria.dividend_notes or
-                    f"{canonical} votes conditionally — outcome depends on dividend and case-specific factors"
-                )
-            else:
-                _default_reason = criteria.dividend_notes or ""
-        else:
-            _default_reason = criteria.dividend_notes or ""
+        # Build a per-creditor audit description covering every check the engine
+        # ran and its outcome.  Stored as checks_description so
+        # _apply_representative_outcomes can append the rep body result without
+        # re-accessing the criteria object — making the function idempotent on
+        # a second call from the view layer.
+        # Surface unmappable criteria_notes as a caseworker warning.
+        # Fires when criteria_notes is non-empty. Caseworkers must
+        # read and manually apply any conditions described here that
+        # are not covered by structured fields above.
+        if criteria.criteria_notes and criteria.criteria_notes.strip():
+            findings.append({
+                "code": "CREDITOR-MANUAL-CHECK-REQUIRED",
+                "reason": (
+                    f"{name}: additional criteria must be checked "
+                    f"manually before proposing — "
+                    f"{criteria.criteria_notes.strip()}"
+                ),
+                "severity": "flag",
+            })
+
+        # --- Pass findings emission ---
+        existing_codes = {f["code"] for f in findings}
+
+        PASS_CHECKS = [
+            (
+                criteria.reject_if_ccj,
+                "CREDITOR-CCJ-REJECT", "CREDITOR-CCJ-REPORT-REQUIRED",
+                "CREDITOR-CCJ-PASS",
+                f"{criteria.creditor_name}: no CCJ on credit file — condition satisfied."
+            ),
+            (
+                criteria.reject_if_aoe,
+                "CREDITOR-AOE-REJECT", None,
+                "CREDITOR-AOE-PASS",
+                f"{criteria.creditor_name}: no attachment of earnings in place — condition satisfied."
+            ),
+            (
+                criteria.reject_if_never_made_payment,
+                "CREDITOR-NO-PAYMENT", None,
+                "CREDITOR-NO-PAYMENT-PASS",
+                f"{criteria.creditor_name}: first payment confirmed — condition satisfied."
+            ),
+            (
+                criteria.reject_if_second_iva,
+                "CREDITOR-SECOND-IVA-REJECT", None,
+                "CREDITOR-SECOND-IVA-PASS",
+                f"{criteria.creditor_name}: no previous IVA — condition satisfied."
+            ),
+            (
+                criteria.reject_if_equity_exceeds_debt,
+                "CREDITOR-EQUITY-EXCEEDS-DEBT", None,
+                "CREDITOR-EQUITY-PASS",
+                f"{criteria.creditor_name}: equity does not exceed total debt — condition satisfied."
+            ),
+            (
+                criteria.reject_if_majority_share_exceeds_pct is not None,
+                "CREDITOR-MAJORITY-SHARE-EXCEEDED", None,
+                "CREDITOR-MAJORITY-SHARE-PASS",
+                f"{criteria.creditor_name}: creditor share within permitted threshold — condition satisfied."
+            ),
+        ]
+
+        for (active, fail_code, flag_code, pass_code, pass_reason) in PASS_CHECKS:
+            if not active:
+                continue
+            blocking_codes = {fail_code, flag_code} - {None}
+            if not blocking_codes.intersection(existing_codes):
+                findings.append({
+                    "code": pass_code,
+                    "reason": pass_reason,
+                    "severity": "pass"
+                })
+
+        # account_age_months — only pass if neither reject nor unverified fired
+        if criteria.account_age_months is not None:
+            if "CREDITOR-LOAN-TOO-RECENT-REJECT" not in existing_codes \
+                    and "CREDITOR-LOAN-AGE-UNVERIFIED" not in existing_codes:
+                findings.append({
+                    "code": "CREDITOR-LOAN-AGE-PASS",
+                    "reason": f"{criteria.creditor_name}: account age meets the {criteria.account_age_months}-month minimum — condition satisfied.",
+                    "severity": "pass"
+                })
+
+        # reject_if_recent_spend_months — only pass if neither reject nor unverified fired
+        if criteria.reject_if_recent_spend_months is not None:
+            if "CREDITOR-RECENT-SPEND-REJECT" not in existing_codes \
+                    and "CREDITOR-RECENT-SPEND-UNVERIFIED" not in existing_codes:
+                findings.append({
+                    "code": "CREDITOR-RECENT-SPEND-PASS",
+                    "reason": f"{criteria.creditor_name}: no recent spend within the restricted {criteria.reject_if_recent_spend_months}-month window — condition satisfied.",
+                    "severity": "pass"
+                })
+
+        _checks_description = _build_creditor_reason(criteria, cr, case)
 
         positions.append({
             "creditor_name": canonical,
@@ -2616,9 +3205,12 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             "representative": criteria.representative or "NONE",
             "effective_status": effective_status,
             "findings": findings,
-            "reason": findings[0]["reason"] if findings else _default_reason,
+            "checks_description": _checks_description,
+            "reason": _checks_description,
             "rule_ids": [f["code"] for f in findings],
             "balance": balance,
+            "criteria_notes": criteria.criteria_notes or "",
+            "dividend_notes": criteria.dividend_notes or "",
         })
 
     return positions
@@ -2897,12 +3489,7 @@ def _check_council_rules(case: dict) -> list[dict]:
         # original_name is the raw '&' form) and the UI can show the real name. Must
         # use original_name because cr["name"] may already be the resolved canonical.
         _raw_name = cr.get("original_name") or name
-        # Always attach a calculated reason so the UI/popup never has to invent one.
-        # Prefer a specific finding; otherwise explain the base position.
-        if findings:
-            reason = findings[0]["reason"]
-        else:
-            reason = _council_status_reason(rule.council_name, effective_status)
+        reason = _build_council_reason(rule, cr, case, effective_status)
         positions.append({
             "council_name": rule.council_name,
             "creditor_name": rule.council_name,
@@ -2990,9 +3577,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
             canonical = council_pos.get("council_name") or council_pos.get("creditor_name") or cname
             findings = council_pos.get("findings") or []
             status = council_pos.get("effective_status", "UNKNOWN")
-            reason = council_pos.get("reason") or (
-                findings[0].get("reason") if findings else _council_status_reason(canonical, status)
-            )
+            reason = council_pos.get("reason") or _council_status_reason(canonical, status)
             backfilled.append({
                 "creditor_name": canonical,
                 "resolved_canonical_name": canonical,
@@ -3371,13 +3956,19 @@ def _derive_representative_outcomes(case: dict, hard_blocks: list, flags: list) 
     `hard_blocks`/`flags` already contain only triggered rules (see _run).
     """
     # Capture the first triggering rule per body, per severity, for explainability.
+    # Body-level rules that evaluate case-wide data are excluded: they appear in the
+    # case-level hard_blocks/flags lists but must not drive a per-creditor outcome.
     reject_rule: dict = {}
     flag_rule: dict = {}
     for r in hard_blocks:
+        if r.rule_id in _BODY_LEVEL_ONLY_RULES:
+            continue
         body = _rep_body_for_rule(getattr(r, "rule_id", ""))
         if body and body not in reject_rule:
             reject_rule[body] = (r.rule_id, r.message)
     for r in flags:
+        if r.rule_id in _BODY_LEVEL_ONLY_RULES:
+            continue
         body = _rep_body_for_rule(getattr(r, "rule_id", ""))
         if body and body not in flag_rule:
             flag_rule[body] = (r.rule_id, r.message)
@@ -3435,34 +4026,84 @@ def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
             continue
 
         # PENDING_REP_OUTCOME means the engine deferred to the rep body.
-        # ACCEPT from the rep body sets or confirms the final status.
+        # Rebuild reason from checks_description (the per-creditor audit trail
+        # written by _build_creditor_reason) + the rep body result.  Using
+        # checks_description rather than pos["reason"] makes this idempotent:
+        # a second call from the view layer reads the same source and produces
+        # the same string, so there is no duplication.
+        checks_desc = (pos.get("checks_description") or "").rstrip(" .")
+
+        def _rep_outcome_line(rep_name: str, outcome: dict) -> str:
+            st  = outcome.get("status", "ACCEPT")
+            rid = outcome.get("rule_id")
+            msg = outcome.get("message")
+
+            if st == "ACCEPT":
+                return (
+                    f"All {rep_name} body criteria satisfied for this case "
+                    f"— this creditor votes Accept."
+                )
+            if st == "REJECT":
+                if rid and msg:
+                    return (
+                        f"{rid}: {msg} "
+                        f"— this creditor votes Reject."
+                    )
+                return f"{rep_name} body criteria not met — this creditor votes Reject."
+            if st == "WILL_CONSIDER":
+                if rid and msg:
+                    return (
+                        f"{rid}: {msg} "
+                        f"— modification may be required. This creditor will consider."
+                    )
+                return (
+                    f"{rep_name} raised a flag on this case "
+                    f"— modification may be required. This creditor will consider."
+                )
+            if st == "DO_NOT_VOTE":
+                if rid:
+                    return f"{rid}: {rep_name} abstains on this case."
+                return f"{rep_name} abstains on this case."
+            return f"{rep_name} body outcome: {st}."
+
+        # Normalise ABSTAIN → DO_NOT_VOTE for the outcome line so the new
+        # function's DO_NOT_VOTE branch handles the WATCH-22.8 abstain case.
+        _normalised_status = "DO_NOT_VOTE" if status == "ABSTAIN" else status
+        _outcome_for_line = {"status": _normalised_status, "rule_id": rule_id, "message": message}
+
         if status == "ACCEPT" or current == "PENDING_REP_OUTCOME":
             if status == "ABSTAIN":
                 pos["effective_status"] = "DO_NOT_VOTE"
-                pos["reason"] = f"{rep} abstains — client aged 80+ (WATCH-22.8)."
             elif status == "ACCEPT":
                 pos["effective_status"] = "ACCEPT"
-                # Only set the reason when there is no specific per-creditor reason already
-                # (e.g. dividend_notes, a specific finding, or a previously set message).
-                # Include the canonical creditor name so the message is unique per-creditor
-                # rather than identical for every ACCEPT under the same representative body.
-                if not pos.get("reason"):
-                    creditor_name = pos.get("creditor_name") or pos.get("name") or ""
-                    name_part = f"{creditor_name} — " if creditor_name else ""
-                    pos["reason"] = f"{name_part}accepted by {rep} representative, no blocking conditions triggered"
             else:
                 pos["effective_status"] = status
-                detail = f"{rule_id}: {message}" if (rule_id and message) else f"{rep} {status}"
-                pos["reason"] = f"Vote set by {rep} representative body — {detail}"
+            line = _rep_outcome_line(rep, _outcome_for_line)
+            pos["reason"] = f"{checks_desc.rstrip('.')}. {line}".strip() if checks_desc else line
+            if _normalised_status != "ACCEPT":
+                _new_code = f"{rep}-{_normalised_status}"
+                _existing_codes = {f.get("code") for f in pos.get("findings", [])}
+                if _new_code not in _existing_codes:
+                    pos.setdefault("findings", []).append({
+                        "code": _new_code,
+                        "reason": line,
+                    })
             continue
 
         if status == "ABSTAIN":
             pos["effective_status"] = "DO_NOT_VOTE"
-            pos["reason"] = f"{rep} abstains — client aged 80+ (WATCH-22.8)."
         else:
             pos["effective_status"] = status
-            detail = f"{rule_id}: {message}" if (rule_id and message) else f"{rep} {status}"
-            pos["reason"] = f"Vote set by {rep} representative body — {detail}"
+        line = _rep_outcome_line(rep, _outcome_for_line)
+        pos["reason"] = f"{checks_desc} {line}".strip() if checks_desc else line
+        if _normalised_status != "ACCEPT":
+            _new_code = f"{rep}-{_normalised_status}"
+            _existing_codes = {f.get("code") for f in pos.get("findings", [])}
+            if _new_code not in _existing_codes:
+                pos.setdefault("findings", []).append({
+                    "code": _new_code,
+                    "reason": line,
+                })
 
         rule_ids = pos.setdefault("rule_ids", [])
         for tag in (f"REP-{rep}-{status}", rule_id):
@@ -3511,19 +4152,25 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                     do_not_vote_names.add(pos["creditor_name"])
             except CreditorCriteria.DoesNotExist:
                 pass
+    # Voting pool: creditors who can actually vote (excludes DO_NOT_VOTE).
+    # Used to determine which balances count toward voting_debt.
     total = sum(  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
         c["crm_balance"]
         for c in creditors
         if c["name"] not in do_not_vote_names
     )
-    if not total:
+    # The 75% threshold is calculated against ALL unsecured debt, not just the
+    # voting pool — a large non-voting creditor (e.g. council) reduces the
+    # achievable majority even when they abstain.
+    full_total = Decimal(str(case.get("total_debt") or 0))
+    if not full_total:
         return {
             "total_debt": Decimal("0"), "threshold": Decimal("0"),
             "voting_debt": Decimal("0"), "voting_debt_optimistic": Decimal("0"),
             "unknown_debt": Decimal("0"), "shortfall": Decimal("0"),
             "achievable": True, "indeterminate": False,
         }
-    threshold = (total * Decimal("0.75")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    threshold = (full_total * Decimal("0.75")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # A confirmed YES vote. UNKNOWN is NOT a yes — an unidentified creditor's vote
     # is genuinely unknown and must not be assumed supportive.
@@ -3583,7 +4230,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     else:
         # No positions computed — treat the whole book as unidentified, not as yes.
         voting_debt = Decimal("0")
-        unknown_debt = total
+        unknown_debt = full_total
 
     voting_debt_optimistic = voting_debt + unknown_debt
     shortfall = max(Decimal("0"), threshold - voting_debt)
@@ -3592,7 +4239,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     # creditors could reach it. NOT a true impossibility.
     indeterminate = (not achievable) and (voting_debt_optimistic >= threshold)
     return {
-        "total_debt": total,
+        "total_debt": full_total,
         "threshold": threshold,
         "voting_debt": voting_debt,
         "voting_debt_optimistic": voting_debt_optimistic,
@@ -3921,6 +4568,27 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                 _ccj_report.extracted_data.get("public_information") or {}
             )
 
+        # AoE — credit report is authoritative over Aryza payload
+        if _ccj_report and _ccj_report.extracted_data and "aoe_in_place" in _ccj_report.extracted_data:
+            case_data["aoe_in_place"] = bool(_ccj_report.extracted_data.get("aoe_in_place"))
+
+        # previous_iva — credit report is authoritative over Aryza factfind
+        # Reads from public_information["iva_or_bankruptcy"] which is already
+        # surfaced in case_data["credit_report_public_information"]
+        _pub_info = case_data.get("credit_report_public_information") or {}
+        if _ccj_report and _pub_info and "iva_or_bankruptcy" in _pub_info:
+            if bool(_pub_info.get("iva_or_bankruptcy")):
+                # Only upgrade to True — never downgrade Aryza True to credit report False
+                case_data["previous_iva"] = True
+
+        # is_currently_in_dmp — credit report detection supplements Aryza payload
+        # _phase4_dmp_reject uses c["is_currently_in_dmp"] as a hard dict access
+        # so we must never remove or None this key — only upgrade False → True
+        if _ccj_report and _pub_info and "debt_management" in _pub_info:
+            if bool(_pub_info.get("debt_management")):
+                # Only upgrade to True — Aryza True must never be overwritten to False
+                case_data["is_currently_in_dmp"] = True
+
         # Cross-check Aryza property data against credit report mortgage accounts.
         # Uses same fallback pattern as has_ccj above — works on any available report,
         # not just fully-extracted ones, since mortgage_accounts may be present even
@@ -4055,6 +4723,16 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                 best_creditor["credit_report_balance"] = account.get("current_balance")
                 best_creditor["payment_history_months"] = account.get("payment_history_months")
 
+                # Infer first_payment_made from account_status
+                # "defaulted" and "arrangement" require prior billing history — strong signal
+                # "late" implies active account with arrears — sufficient signal
+                # Upgrade-only: never overwrite Aryza True with False
+                _fpm_before = best_creditor.get("first_payment_made")
+                if not best_creditor.get("first_payment_made"):
+                    _acct_status = account.get("account_status", "")
+                    if _acct_status in {"defaulted", "arrangement", "late"}:
+                        best_creditor["first_payment_made"] = True
+
                 # Inject evidence entries keyed by linked_creditor AND name so
                 # _tig_10 hits on whichever key it uses for lookup
                 account_balance_pence = account.get("current_balance") or 0
@@ -4159,6 +4837,8 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     passed: list[RuleResult] = []
 
     def _run(rule_func, *args):
+        if _func_to_rule_id(rule_func.__name__) in _disabled_rules:
+            return  # skip execution entirely — rule is disabled in DB
         try:
             r = rule_func(c, *args)
         except Exception as exc:
@@ -4169,9 +4849,6 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 triggered=True,
                 message=f"Rule evaluation error: {exc}",
             )
-        # Silently discard results for rules disabled in the DB (is_active=False).
-        if r.rule_id in _disabled_rules:
-            return
         if r.severity == "hard_block" and r.triggered:
             hard_blocks.append(r)
         elif r.severity == "flag" and r.triggered:

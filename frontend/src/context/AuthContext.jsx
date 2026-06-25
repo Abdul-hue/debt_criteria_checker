@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { jwtDecode } from 'jwt-decode'
-import axiosInstance, { STORAGE_KEY } from '../lib/axios.js'
+import axiosInstance, { STORAGE_KEY, REFRESH_KEY } from '../lib/axios.js'
 
 const AuthContext = createContext(null)
 
@@ -34,11 +34,13 @@ export function AuthProvider({ children }) {
             })
           } else {
             localStorage.removeItem(STORAGE_KEY)
+            localStorage.removeItem(REFRESH_KEY)
             setState((prev) => ({ ...prev, isLoading: false }))
           }
         } catch (error) {
           console.error('Failed to decode token:', error)
           localStorage.removeItem(STORAGE_KEY)
+          localStorage.removeItem(REFRESH_KEY)
           setState((prev) => ({ ...prev, isLoading: false }))
         }
       } else {
@@ -49,7 +51,7 @@ export function AuthProvider({ children }) {
     initializeAuth()
   }, [])
 
-  // Listen for auth:logout DOM event (fired by Axios 401 interceptor)
+  // Listen for auth:logout DOM event (fired by Axios interceptor on refresh failure)
   useEffect(() => {
     const handleLogout = () => {
       setState({
@@ -70,8 +72,11 @@ export function AuthProvider({ children }) {
         email,
         password,
       })
-      const { access } = response.data
+      const { access, refresh } = response.data
       localStorage.setItem(STORAGE_KEY, access)
+      if (refresh) {
+        localStorage.setItem(REFRESH_KEY, refresh)
+      }
       const decoded = jwtDecode(access)
       setState({
         user: decoded,
@@ -88,6 +93,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(REFRESH_KEY)
     setState({
       user: null,
       token: null,

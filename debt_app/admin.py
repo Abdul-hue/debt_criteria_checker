@@ -10,10 +10,48 @@ from .models import (
 
 @admin.register(CreditorCriteria)
 class CreditorCriteriaAdmin(admin.ModelAdmin):
-    list_display = ['creditor_name', 'representative', 'parent_group', 'is_active', 'last_updated']
+    list_display = [
+        'creditor_name', 'representative', 'parent_group',
+        'min_dividend_pence', 'account_age_months', 'fees_cap_percentage',
+        'is_active', 'last_updated',
+    ]
     list_filter = ['is_active', 'representative']
     search_fields = ['creditor_name', 'trading_names', 'parent_group']
     readonly_fields = ['last_updated']
+    fieldsets = (
+        ('Identity', {
+            'fields': ('creditor_name', 'trading_names', 'parent_group', 'representative',
+                       'source_sheet', 'is_active', 'last_updated'),
+        }),
+        ('Dividend', {
+            'fields': ('min_dividend_pence', 'dividend_notes', 'conditional_voter_min_dividend_pence'),
+        }),
+        ('Age & Repayability', {
+            'fields': ('account_age_months', 'reject_if_debt_repayable_within_months'),
+        }),
+        ('Asset & Vehicle', {
+            'fields': ('reject_if_client_still_has_asset', 'vehicle_arrears_repossession_months',
+                       'termination_risk_if_vehicle_on_finance'),
+        }),
+        ('Financial Position', {
+            'fields': ('reject_if_equity_exceeds_debt', 'reject_if_majority_share_exceeds_pct',
+                       'fees_cap_percentage', 'min_di_for_fees_pence'),
+        }),
+        ('Application Checks', {
+            'fields': ('reject_if_ie_doesnt_match_application', 'requires_pg_called_up',
+                       'requires_arrangement_call_before_proposing',
+                       'requires_grant_overpayment_only'),
+        }),
+        ('Hard Blocks', {
+            'fields': ('blocked_until_cleared', 'reject_if_never_made_payment',
+                       'reject_if_second_iva', 'reject_if_ccj', 'reject_if_aoe',
+                       'reject_if_in_dmp', 'reject_if_police_employed', 'fraud_claim_risk'),
+        }),
+        ('Notes', {
+            'fields': ('criteria_notes',),
+            'classes': ('collapse',),
+        }),
+    )
 
 
 @admin.register(GlobalCriteria)

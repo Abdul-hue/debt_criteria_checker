@@ -271,13 +271,19 @@ class AssessCaseView(APIView):
             'secured', 'charge', 'second_charge', 'secured loan'
         })
 
-        # Convert pence to pounds for all financial fields
+        # Convert pence to pounds for all financial fields.
+        # Never produce a negative DI — income=0 means fact find is incomplete,
+        # not that the client owes money every month.
         _income_total_pence = (case_data_obj.income or {}).get("total", 0) or 0
         _expenditure_total_pence = (case_data_obj.expenditure or {}).get("total", 0) or 0
-        if _expenditure_total_pence > 0:
-            di_pounds = (_income_total_pence - _expenditure_total_pence) / 100.0
+        if _income_total_pence > 0 and _expenditure_total_pence > 0:
+            di_pounds = max(0, _income_total_pence - _expenditure_total_pence) / 100.0
+        elif _income_total_pence > 0:
+            di_pounds = 0.0  # income present but no SFS expenses yet
         else:
-            di_pounds = case_data_obj.disposable_income / 100.0
+            # No income rows in client_income — fall back to Aryza's pre-computed DI
+            # (td_client.td_contribution), already clamped to >= 0 by _calculate_totals.
+            di_pounds = max(0, case_data_obj.disposable_income) / 100.0
         
         # Deduplication on (name, type, reference) — same entry only counted once
         seen_keys = set()

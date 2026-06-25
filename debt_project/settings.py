@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -122,6 +123,13 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 # Ensure cookies and sessions work on non-HTTPS if needed (though not used for JWT)
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': False,
+    'UPDATE_LAST_LOGIN': True,
+}
 
 # DEBUG MIDDLEWARE
 MIDDLEWARE.insert(0, 'debt_project.debug_middleware.RequestDebugMiddleware')

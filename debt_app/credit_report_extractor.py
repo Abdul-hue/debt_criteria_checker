@@ -321,7 +321,7 @@ def _parse_missed_payments_last_3_months(lines: list[str]) -> int:
             current_year = int(stripped)
         elif current_year and payment_row_re.match(stripped):
             tokens = stripped.split()
-            clean = [t for t in tokens if re.match(r"^\d+$|^D$", t)]
+            clean = [t for t in tokens if t == "D" or (t.isdigit() and int(t) <= 6)]
             if 1 <= len(clean) <= 12:
                 if current_year not in year_data:
                     year_data[current_year] = clean
@@ -339,11 +339,9 @@ def _parse_missed_payments_last_3_months(lines: list[str]) -> int:
     for v in recent:
         if v == "D":
             missed += 1
-        else:
-            try:
-                missed += int(v)
-            except ValueError:
-                pass
+        elif int(v) <= 6:
+            missed += int(v)
+        # else: discard — value above valid CAIS range, extraction artifact
     return missed
 
 
@@ -742,6 +740,7 @@ def extract_public_information(full_text: str) -> dict:
         "ccjs": [],
         "iva_or_bankruptcy": False,
         "debt_management": False,
+        "aoe_in_place": False,
     }
     if not full_text:
         return info
@@ -799,6 +798,19 @@ def extract_public_information(full_text: str) -> dict:
     info["iva_or_bankruptcy"] = bool(iva_m and iva_m.group(1).upper() == "Y")
     dm_m = re.search(r"Debt Management:\s*(\w)", full_text, re.IGNORECASE)
     info["debt_management"] = bool(dm_m and dm_m.group(1).upper() == "Y")
+
+    # Attachment of Earnings detection — Experian and Aryza Advize formats
+    _aoe_patterns = [
+        r"type:\s*attachment",
+        r"attachment\s+of\s+earnings",
+        r"\bAoE\s+Order\b",
+        r"\bAttachment\s+Order\b",
+        r"earnings\s+arrestment",   # Scottish equivalent
+    ]
+    info["aoe_in_place"] = any(
+        re.search(p, full_text, re.IGNORECASE)
+        for p in _aoe_patterns
+    )
 
     return info
 
@@ -1018,6 +1030,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             "unmatched_accounts": unmatched,
             "public_information": public_info,
             "has_ccj": public_info["has_ccj"],
+            "aoe_in_place": public_info.get("aoe_in_place", False),
         }
 
     except Exception as e:

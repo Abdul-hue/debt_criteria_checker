@@ -88,6 +88,13 @@ def _handle_operational_error(exc: Exception) -> None:
     raise AryzaConnectionError(str(exc)) from exc
 
 
+# Normalise raw Aryza employment_status values to the keys the criteria engine expects.
+_INCOME_SOURCE_MAP = {
+    "benefits_only": "benefits",
+    "universal_credit": "uc",
+}
+
+
 # ============================================================================
 # TYPE DEFINITIONS
 # ============================================================================
@@ -443,6 +450,33 @@ class AryzaClient:
                 logger.debug(f"td_client not available for clientid {clientid}: {e}")
                 self._audit(case, "td_client", "ERROR", str(e))
 
+            # Try client_iande for the I&E statement DI.
+            # td_client.td_contribution is the IVA proposal contribution and can be
+            # negative (expenses > income) or zero before a proposal is drafted.
+            # When that happens, fall back to the I&E statement's own DI figure,
+            # which matches what Case Assessment reads from the Aryza CRM API.
+            if case.disposable_income <= 0:
+                try:
+                    cursor.execute(
+                        "SELECT di FROM client_iande "
+                        "WHERE clientid = %s ORDER BY id DESC LIMIT 1",
+                        [clientid]
+                    )
+                    iande_row = cursor.fetchone()
+                    if iande_row and iande_row[0] is not None:
+                        iande_di = self._pence(iande_row[0])
+                        if iande_di > 0:
+                            case.disposable_income = iande_di
+                            self._audit(case, "client_iande", "FOUND",
+                                        f"DI fallback: £{iande_di/100.0:.2f}")
+                        else:
+                            self._audit(case, "client_iande", "FOUND", "DI non-positive, skipped")
+                    else:
+                        self._audit(case, "client_iande", "EMPTY", "No iande row found")
+                except Exception as e:
+                    # Table absent or column missing in this Aryza instance — safe to ignore.
+                    self._audit(case, "client_iande", "SCHEMA-ABSENT", str(e))
+
             # Try iva_client for TPC fallback only — iva_bankruptcy_dividend and
             # iva_bankruptcy_return are absent from this Aryza instance (schema-absent).
             bankruptcy_dividend = None  # schema-absent: column not in this Aryza instance
@@ -471,61 +505,95 @@ class AryzaClient:
         with connection.cursor() as cursor:
             try:
                 cursor.execute(
-                    """SELECT 
+                    """SELECT
                         earnings_net, earnings_net_frequency,
-                        earnings_partner_net,
+                        earnings_partner_net, earnings_partner_net_frequency,
                         benefit_universal_credit, benefit_universal_credit_frequency,
                         benefit_dla, benefit_dla_frequency,
                         benefit_pip, benefit_pip_frequency,
                         benefit_child, benefit_housing, benefit_income_support,
                         benefit_working_tax_credit, benefit_child_tax_credit,
                         benefit_esa, benefit_carers_allowance,
-                        pension_state, pension_client, pension_private, pension_credit,
+                        benefit_aa, benefit_bereavement, benefit_incapacity,
+                        benefit_industrial_disablement, benefit_job_seekers_allowance,
+                        benefit_job_seekers_allowance_cont_based,
+                        benefit_maternity_allowance, benefit_statutory_maternity_pay,
+                        benefit_statutory_sick_pay, benefit_council_tax,
+                        pension_state, pension_client, pension_private,
+                        pension_credit, pension_other,
+                        student_loan, student_grant, child_income_support,
                         non_dependant_contributions, lodger_income
                     FROM client_income WHERE clientid = %s LIMIT 1""",
                     [clientid]
                 )
                 row = cursor.fetchone()
                 if row:
-                    # Employment income (normalise to monthly)
+                    # col indices after adding earnings_partner_net_frequency at [3]:
+                    # [0] earnings_net  [1] earnings_net_frequency
+                    # [2] earnings_partner_net  [3] earnings_partner_net_frequency
+                    # [4] uc  [5] uc_freq  [6] dla  [7] dla_freq  [8] pip  [9] pip_freq
+                    # [10:17] other means-tested benefits (child..carers)
+                    # [17:27] additional benefits (aa..council_tax)
+                    # [27:32] pensions (state, client, private, credit, other)
+                    # [32:35] student_loan, student_grant, child_income_support
+                    # [35] non_dependant_contributions  [36] lodger_income
+
+                    # Employment income (normalise to monthly, both client and partner)
                     emp_net = self._pence(row[0])
                     emp_freq = row[1] or 'monthly'
                     emp_partner = self._pence(row[2])
+                    emp_partner_freq = row[3] or 'monthly'
                     case.income["employment"] = (
                         self._normalise_to_monthly(emp_net, emp_freq) +
-                        self._normalise_to_monthly(emp_partner, 'monthly')
+                        self._normalise_to_monthly(emp_partner, emp_partner_freq)
                     )
-                    
+
                     # Universal Credit
-                    uc_amt = self._pence(row[3])
-                    uc_freq = row[4] or 'monthly'
+                    uc_amt = self._pence(row[4])
+                    uc_freq = row[5] or 'monthly'
                     case.income["universal_credit"] = self._normalise_to_monthly(uc_amt, uc_freq)
-                    
+
                     # DLA
-                    dla_amt = self._pence(row[5])
-                    dla_freq = row[6] or 'monthly'
+                    dla_amt = self._pence(row[6])
+                    dla_freq = row[7] or 'monthly'
                     case.income["dla"] = self._normalise_to_monthly(dla_amt, dla_freq)
-                    
+
                     # PIP
-                    pip_amt = self._pence(row[7])
-                    pip_freq = row[8] or 'monthly'
+                    pip_amt = self._pence(row[8])
+                    pip_freq = row[9] or 'monthly'
                     case.income["pip"] = self._normalise_to_monthly(pip_amt, pip_freq)
-                    
-                    # Other benefits (child, housing, income support, tax credits, ESA, carer)
-                    other = sum(self._pence(v) for v in row[9:16] if v is not None)
+
+                    # Other means-tested benefits and additional benefit types
+                    # (child, housing, income support, tax credits, ESA, carer, AA,
+                    # bereavement, incapacity, industrial disablement, JSA x2,
+                    # maternity allowance, statutory maternity/sick pay, council tax)
+                    other = sum(self._pence(v) for v in row[10:27] if v is not None)
                     case.income["other_benefits"] = other
-                    
-                    # Third-party contributions (lodger, non-dependant)
-                    tp = sum(self._pence(v) for v in [row[20], row[21]] if v is not None)
+
+                    # Pension income (state, client, private, credit, other)
+                    pension = sum(self._pence(v) for v in row[27:32] if v is not None)
+                    case.income["other_benefits"] += pension
+
+                    # Other income (student loan, student grant, child income support)
+                    other_income = sum(self._pence(v) for v in row[32:35] if v is not None)
+                    case.income["other_benefits"] += other_income
+
+                    # Third-party contributions (non-dependant, lodger)
+                    tp = sum(self._pence(v) for v in [row[35], row[36]] if v is not None)
                     if tp > 0 and case.income["third_party_contribution"] == 0:
                         case.income["third_party_contribution"] = tp
-                    
-                    # Determine employment status
+
+                    # Determine employment status — detect UC as a distinct source
                     if case.income["employment"] > 0:
                         case.employment_status = "employed"
-                    elif case.income["universal_credit"] + case.income["dla"] + case.income["pip"] + case.income["other_benefits"] > 0:
+                    elif case.income["universal_credit"] > 0:
+                        case.employment_status = "universal_credit"
+                    elif case.income["dla"] + case.income["pip"] + case.income["other_benefits"] > 0:
                         case.employment_status = "benefits_only"
-                    
+                    case.employment_status = _INCOME_SOURCE_MAP.get(
+                        case.employment_status, case.employment_status
+                    )
+
                     logger.debug(f"Income fetched for {clientid}: emp={case.income['employment']}, uc={case.income['universal_credit']}")
                     self._audit(case, "client_income", "FOUND", f"Total: £{case.income['total']/100.0:.2f}")
                 else:
@@ -534,27 +602,55 @@ class AryzaClient:
                 logger.debug(f"Failed to fetch client_income for clientid {clientid}: {e}")
                 self._audit(case, "client_income", "ERROR", str(e))
             
-            # Fallback: try client_expenses for income type entries
+            # Fallback: try client_expenses for income type entries (latest statement only)
             try:
                 cursor.execute(
-                    "SELECT field, value, frequency FROM client_expenses WHERE clientid = %s AND type = 'income'",
+                    "SELECT MAX(statement_id) FROM client_expenses "
+                    "WHERE clientid = %s AND type = 'income' AND statement_id IS NOT NULL",
                     [clientid]
                 )
+                max_stmt = cursor.fetchone()[0]
+                if max_stmt is not None:
+                    cursor.execute(
+                        "SELECT field, value, frequency FROM client_expenses "
+                        "WHERE clientid = %s AND type = 'income' AND statement_id = %s",
+                        [clientid, max_stmt]
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT field, value, frequency FROM client_expenses "
+                        "WHERE clientid = %s AND type = 'income'",
+                        [clientid]
+                    )
                 rows = cursor.fetchall()
                 if rows:
+                    _se_income = 0
+                    _cis_income = 0
                     for row in rows:
                         field, value, freq = row[0], self._pence(row[1]), row[2] or 'monthly'
                         monthly_val = self._normalise_to_monthly(value, freq)
-                        if 'earnings' in field or 'employment' in field:
+                        _fl = field.lower()
+                        if 'self_employed' in _fl or 'self-employed' in _fl:
+                            _se_income += monthly_val
                             case.income["employment"] += monthly_val
-                        elif 'universal_credit' in field:
+                        elif 'cis' in _fl:
+                            _cis_income += monthly_val
+                            case.income["employment"] += monthly_val
+                        elif 'earnings' in _fl or 'employment' in _fl:
+                            case.income["employment"] += monthly_val
+                        elif 'universal_credit' in _fl:
                             case.income["universal_credit"] += monthly_val
-                        elif 'dla' in field:
+                        elif 'dla' in _fl:
                             case.income["dla"] += monthly_val
-                        elif 'pip' in field:
+                        elif 'pip' in _fl:
                             case.income["pip"] += monthly_val
                         else:
                             case.income["other_benefits"] += monthly_val
+                    # Self-employed/CIS take priority over whatever client_income set
+                    if _cis_income > 0:
+                        case.employment_status = "cis"
+                    elif _se_income > 0:
+                        case.employment_status = "self_employed"
                     self._audit(case, "client_expenses (income)", "FOUND", f"Fetched {len(rows)} items")
                 else:
                     self._audit(case, "client_expenses (income)", "EMPTY", "No income entries in expenses table")
@@ -566,28 +662,47 @@ class AryzaClient:
         """Fetch detailed expenditure data from client_expenses for SFS breakdown."""
         with connection.cursor() as cursor:
             try:
-                # Fetch all non-income expenses
+                # Fetch non-income expenses from the latest SFS statement only.
+                # Aryza creates a new statement_id on each SFS revision, leaving the
+                # old rows in place. Without this filter, every expense is counted
+                # once per revision, doubling (or more) the expenditure total.
                 cursor.execute(
-                    "SELECT field, value, frequency FROM client_expenses WHERE clientid = %s AND type != 'income'",
+                    "SELECT MAX(statement_id) FROM client_expenses "
+                    "WHERE clientid = %s AND type != 'income' AND statement_id IS NOT NULL",
                     [clientid]
                 )
+                max_stmt = cursor.fetchone()[0]
+                if max_stmt is not None:
+                    cursor.execute(
+                        "SELECT field, value, frequency FROM client_expenses "
+                        "WHERE clientid = %s AND type != 'income' AND statement_id = %s",
+                        [clientid, max_stmt]
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT field, value, frequency FROM client_expenses "
+                        "WHERE clientid = %s AND type != 'income'",
+                        [clientid]
+                    )
                 rows = cursor.fetchall()
                 if rows:
                     for row in rows:
                         field, value, freq = row[0], self._pence(row[1]), row[2] or 'monthly'
                         monthly_val = self._normalise_to_monthly(value, freq)
-                        
+
                         # Convert pence to pounds for the breakdown
                         monthly_pounds = monthly_val / 100.0
-                        
+
                         if monthly_pounds > 0:
                             case.sfs_expenditure_breakdown.append({
                                 "category": field.replace('_', ' ').title(),
                                 "monthly_amount": monthly_pounds,
-                                "bank_proven_amount": monthly_pounds, # Default to same as declared for now
-                                "sfs_guideline_max": 0, # Guidelines not stored in Aryza expenses table
+                                "bank_proven_amount": monthly_pounds,
+                                "sfs_guideline_max": 0,
                             })
                             case.expenditure["total"] += monthly_val
+                            if any(kw in field.lower() for kw in ("disability", "care", "medical")):
+                                case.expenditure["disability_expenses"] += monthly_val
                     
                     logger.debug(f"Fetched {len(case.sfs_expenditure_breakdown)} expenditure items for {clientid}")
                     self._audit(case, "client_expenses (expenditure)", "FOUND", f"Fetched {len(rows)} items")
@@ -600,7 +715,7 @@ class AryzaClient:
     def _fetch_transaction_data(self, connection, case: CaseData, clientid: int) -> None:
         """Open Banking transaction data — table absent in this Aryza instance."""
         # schema-absent: client_open_banking_transactions not present
-        case.gold_transactions = []
+        case.gold_transactions = None
         self._audit(case, "client_open_banking_transactions", "SCHEMA-ABSENT",
                     "table absent from this Aryza instance")
 
@@ -624,6 +739,8 @@ class AryzaClient:
                         balance = self._pence(row[0])
                         creditor_name = row[5]
                         creditor_ref = row[3] or f"debt_{row[2]}_{balance}"
+                        is_hmrc = "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower()
+                        raw_type = row[2] or "unsecured"
                         creditor = {
                             "name": creditor_name,
                             "balance": balance,
@@ -631,8 +748,8 @@ class AryzaClient:
                             "linked_creditor": creditor_ref,
                             "account_open_date": None,
                             "last_transaction_date": None,
-                            "creditor_type": row[2] or "unsecured",
-                            "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
+                            "creditor_type": self._normalise_hmrc_creditor_type(raw_type, creditor_name) if is_hmrc else raw_type,
+                            "is_hmrc": is_hmrc,
                             "is_council": "council" in creditor_name.lower(),
                             "from_credit_report": bool(row[4]),
                         }
@@ -664,6 +781,8 @@ class AryzaClient:
                             balance = self._pence(row[0])
                             creditor_name = row[4]
                             creditor_ref = row[3] or f"iva_debt_{row[2]}_{balance}"
+                            is_hmrc = "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower()
+                            raw_type = row[2] or "unsecured"
                             creditor = {
                                 "name": creditor_name,
                                 "balance": balance,
@@ -671,8 +790,8 @@ class AryzaClient:
                                 "linked_creditor": creditor_ref,
                                 "account_open_date": None,
                                 "last_transaction_date": None,
-                                "creditor_type": row[2] or "unsecured",
-                                "is_hmrc": "hmrc" in creditor_name.lower() or "hm revenue" in creditor_name.lower(),
+                                "creditor_type": self._normalise_hmrc_creditor_type(raw_type, creditor_name) if is_hmrc else raw_type,
+                                "is_hmrc": is_hmrc,
                                 "is_council": "council" in creditor_name.lower(),
                                 "from_credit_report": False,
                             }
@@ -874,6 +993,27 @@ class AryzaClient:
     # HELPER METHODS - DATA TRANSFORMATION
     # ========================================================================
     
+    @staticmethod
+    def _normalise_hmrc_creditor_type(raw_type: str, creditor_name: str) -> str:
+        """For HMRC creditors, infer sub-type from the creditor name when Aryza stores
+        a generic type (e.g. 'unsecured').  Returns the raw_type unchanged for non-HMRC
+        creditors or when the raw_type already identifies the sub-type."""
+        _GENERIC = {"unsecured", "other", "", None}
+        if raw_type not in _GENERIC:
+            return raw_type
+        name = creditor_name.lower()
+        if "vat" in name:
+            return "vat"
+        if "paye" in name:
+            return "paye"
+        if "self assessment" in name or "self-assessment" in name:
+            return "self_assessment"
+        if "tax credit" in name:
+            return "tax_credit"
+        if "national insurance" in name or " ni " in name:
+            return "national_insurance"
+        return raw_type
+
     def _pence(self, pounds: Any) -> int:
         """Convert pounds (Decimal) to pence (int)."""
         if pounds is None:
@@ -983,6 +1123,12 @@ class AryzaClient:
         if case.income["total"] > 0:
             case.disposable_income = max(0, case.income["total"] - case.expenditure["total"])
             logger.debug(f"Calculated disposable_income={case.disposable_income}")
+        else:
+            # Income not found — td_client may hold a negative contribution figure.
+            # Clamp to 0 so the engine receives "unknown" (0) rather than a nonsense
+            # negative value that would produce a misleading displayed DI.
+            if case.disposable_income < 0:
+                case.disposable_income = 0
 
 
 # ============================================================================

@@ -1,0 +1,75 @@
+creditor_name,pattern_matched,field_needed,current_value,status
+Acorn Banking,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,6,OK
+Admiral Loans,\bCCJ\b,reject_if_ccj,True,OK
+Admiral Loans,\bAOE\b|attachment\s+of\s+earnings,reject_if_aoe,True,OK
+Advantage Finance,\bCCJ\b,reject_if_ccj,True,OK
+Advantage Finance,\bAOE\b|attachment\s+of\s+earnings,reject_if_aoe,True,OK
+Allders Credit Card (Sygma),recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,None,GAP
+American Express Service,recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,None,GAP
+Amigo,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,30,OK
+Amigo,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,None,GAP
+Bamboo,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,None,GAP
+Believe Housing,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,40,OK
+Beyond Housing,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,30,OK
+Buddy Loans t/a Advancis Ltd,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+CAMBRIAN credit union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+CAMBRIAN credit union,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,6,OK
+CARDIFF CREDIT UNION(I),(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,45,OK
+"Cardiff & Vale Credit Union, Cardiff and Vale",(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+Castle Community Bank,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,30,OK
+Citysave Credit Union Ltd,"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,False,GAP
+Clockwise Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+Clockwise Credit Union,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,2,OK
+Coal Island Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+Commsave Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+DRAGON SAVERS CREDIT UNION,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,68,OK
+Enterprise Credit Union,recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,3,OK
+Everyday Loans,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,6,OK
+FCE Bank PLC,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,75,OK
+Fair for you Enterprise,recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,None,GAP
+Fairshare Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+Fintern limited / Abound - NOT WPM,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,None,GAP
+Funding Circle,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,30,OK
+Funding Corporation,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+GLENSIDE FINANCE LTD,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,25,OK
+Great Western Credit Union,recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,3,OK
+HMRC - benefits overpayments,"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,False,GAP
+HULL & EAST YORKSHIRE CREDIT UNION (I) Hey CU (Hey Credit Union),(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,60,OK
+Hitachi Capital/Credit / Novuna,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,1,OK
+IWOCA / IWOKA LOANS,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+LURGAN CREDIT UNION,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+Loans 2 Go,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,1,OK
+Loans by Mal,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,3,OK
+Loans by Mal,"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,True,OK
+Manchester Credit Union,recent\s+spend|spend\s+in\s+last\s+\d+\s+months?,reject_if_recent_spend_months,3,OK
+Marsh Finance,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,70,OK
+Match the Cash t/a Guarantor My Loan (Match the Cash trading name),(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+Match the Cash t/a Guarantor My Loan (Match the Cash trading name),"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,True,OK
+Moneybarn,repossess|vehicle\s+arrears,vehicle_arrears_repossession_months,2,OK
+Moneybarn,"arrangement.{0,25}call|call.{0,25}arrangement",requires_arrangement_call_before_proposing,True,OK
+NHS CREDIT UNION (I),(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,78,OK
+Norwich Trust Limited,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+One Stop Money Shop,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,3,OK
+Partners Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,65,OK
+Pennine Community Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+Perch Capital Limited,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,5,OK
+Police Credit Union (PCU) aka Serve and Protect,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,8,OK
+Ratesetter,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,25,OK
+Ratesetter,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,None,GAP
+Savvy (TICK TOCK LOANS),months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,6,OK
+South East Water,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,40,OK
+Specialist Motor Finance,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+TFS Loans,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+THIS BANK LTD - PREVIOUSLY -JN Bank Limited & Jamaica Bank,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,15,OK
+TM Advances,"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,False,GAP
+Transave UK Credit Union,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,60,OK
+Transave UK Credit Union,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,3,OK
+Travis Perkins,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK
+Unify Credit Union Limited,"I&E|income.{0,15}expenditure.{0,25}match|match.{0,25}application",reject_if_ie_doesnt_match_application,False,GAP
+Voyager Alliance Credit Union / The Penny Post Group,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,100,OK
+Wiltshire and Swindon Credit Union,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,6,OK
+Transave Credit Union,months?\s+old|account\s+age|less\s+than\s+\d+\s+months?,account_age_months,None,GAP
+Wyre Forest Council,\bAOE\b|attachment\s+of\s+earnings,reject_if_aoe,False,GAP
+_AUDIT_TEST_CCJ,\bCCJ\b,reject_if_ccj,False,GAP
+_AUDIT_TEST_DIV_NONE,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,75,OK
+_AUDIT_TEST_DIV_SET,(\d+)\s*p\s*/?\s*£|(\d+)\s*p\s*/?\s*pound,min_dividend_pence,50,OK

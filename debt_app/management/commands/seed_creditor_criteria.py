@@ -37,26 +37,43 @@ STRUCTURED_CRITERIA = {
                       "reject_if_ccj": True, "reject_if_aoe": True},  # "no CCJ, no AOE"
     "CAMBRIAN credit union": {"account_age_months": 6,                # "REJECT IF LOAN LESS THAN 6 MONTHS OLD"
                               "reject_if_in_dmp": True},              # "CLIENT IS ALREADY IN A DMP"
-    "Clockwise Credit Union": {"account_age_months": 2},             # "loan taken out in last 8 weeks" (8wk≈2mo)
+    "Clockwise Credit Union": {"account_age_months": 2,                # "loan taken out in last 8 weeks" (8wk≈2mo)
+                              "min_dividend_pence": 50},              # "MUST BE 50p£" — not in Dividends_Criteria.md
     "Everyday Loans": {"account_age_months": 6,                      # "Loan must be 6 months old"
+                       "open_banking_access": True,                  # "open banking required"
                        "reject_if_debt_repayable_within_months": 120},  # "cannot be debt repayment in 10 years"
-    "Fair for you Enterprise": {"account_age_months": 1},            # "NO LESS THAN 30 DAYS OLD"
+    "Fair for you Enterprise": {"account_age_months": 1,            # "NO LESS THAN 30 DAYS OLD"
+                                "reject_if_recent_spend_months": 1},  # "reject if spent within last month"
+    "Fintern limited / Abound - NOT WPM": {"account_age_months": 6,  # "reject if under 6 months"
+                                          "open_banking_access": True},  # "open banking required"
     "Hitachi Capital/Credit / Novuna": {"account_age_months": 1},    # "reject if taken out in less than 1 month"
-    "Ikano Finance": {"account_age_months": 12},                     # "if under a year old"
-    "Loans at home": {"account_age_months": 1},                      # "if loan taken out in last 1 months"
+    "Ikano Finance": {"account_age_months": 12,                      # "if under a year old"
+                      "reject_if_never_made_payment": True},         # "reject if no payment has been made"
+    "Loans at home": {"account_age_months": 1,                       # "if loan taken out in last 1 months"
+                      "reject_if_never_made_payment": True},         # "reject if no payment has been made"
     "Loans by Mal": {"account_age_months": 3,                        # "REJECT IF LESS THAN 3 MONTHS"
-                     "reject_if_debt_repayable_within_months": 84},  # "REPAID IN 84 MONTHS"
+                     "reject_if_debt_repayable_within_months": 84,   # "REPAID IN 84 MONTHS"
+                     "reject_if_ie_doesnt_match_application": True}, # "APPLICATION DOES NOT MATCH OUR I&E"
     "Loans 2 Go": {"account_age_months": 1,                          # "if loan less than 1 month old"
+                   "reject_if_never_made_payment": True,             # "reject if no payment has been made"
                    "fraud_claim_risk": True},                        # "reject and claim fraud"
     "Mutual Clothing": {"account_age_months": 6},                    # "IF TAKEN OUT RECENTLY WILL REJECT (6 MONTHS)"
     "One Stop Money Shop": {"account_age_months": 3},                # "LESS THAN 3 MONTHS OLD"
     "Savvy (TICK TOCK LOANS)": {"account_age_months": 6,             # "IF LOAN IS LESS THAN 6 MONTHS OLD"
                                 "fraud_claim_risk": True},           # "CALL OUT FRAUD"
-    "Transave UK Credit Union": {"account_age_months": 3},           # "needs to be at least 3 months old"
+    "Transave UK Credit Union": {"account_age_months": 3,            # "needs to be at least 3 months old"
+                                 "min_dividend_pence": 60},          # "NEEDS TO BE 60P/£" — Dividends name "Transave Credit Union" differs, so must set here
     "UK Credit Ltd": {"account_age_months": 6},                      # "WILL REJECT IF LOAN IS UNDER 6 MONTHS"
     "Wiltshire and Swindon Credit Union": {"account_age_months": 6}, # "reject if less than 6 months old"
+    "Bamboo": {"account_age_months": 3,                              # "REJECT IF LESS THAN 3 MONTHS"
+               "reject_if_never_made_payment": True,                # "reject if no payment has been made"
+               "reject_if_debt_repayable_within_months": 96},       # "repaid in 96 months"
+    "TM Advances": {"account_age_months": 6,                        # "reject if under 6 months"
+                    "reject_if_ie_doesnt_match_application": True,  # "I&E has to match loan application"
+                    "open_banking_access": True},                    # "open banking required"
 
     # --- debt repayable within N months (balance/DI < N → reject) ---
+    "Amigo": {"reject_if_debt_repayable_within_months": 84},             # "repaid in 84 months"
     "Lifestyle Loans": {"reject_if_debt_repayable_within_months": 80},   # "repaid in 80 months"
     "Hastings Direct Loans": {"reject_if_debt_repayable_within_months": 120},  # "repayed in 10 years"
 
@@ -64,10 +81,14 @@ STRUCTURED_CRITERIA = {
     "American Express Service": {"reject_if_equity_exceeds_debt": True},   # "REJECT IF MORE EQUITY THAN THEIR DEBT"
     "HM Revenue & Customs": {"reject_if_equity_exceeds_debt": True},       # "WILL REJECT if more equity than their debt"
     "Shawbrook": {"reject_if_equity_exceeds_debt": True},                  # "MORE EQUTIY THEN THERE DEBT WILL REJECT"
-    "The Funding Corporation": {"reject_if_equity_exceeds_debt": True},    # "reject if more equity than their debt"
-    "Funding Circle": {"reject_if_equity_exceeds_debt": True},             # "WILL REJECT IF EQUITY IN PROPERTY"
+    "The Funding Corporation": {"reject_if_equity_exceeds_debt": True,     # "reject if more equity than their debt"
+                                "min_dividend_pence": 50},                 # "Vote to accept with 50p dividend" — Dividends "Funding Corp" differs
+    "Funding Corporation": {"min_dividend_pence": 50},                     # "If div is lower than 50p/£ for a 5 year IVA they will reject"
+    "Funding Circle": {"reject_if_equity_exceeds_debt": True,             # "WILL REJECT IF EQUITY IN PROPERTY"
+                     "min_dividend_pence": 30},                            # "30p/£ minimum"
     "IWOCA / IWOKA LOANS": {"reject_if_equity_exceeds_debt": True,         # "cannot be more equity than their debt"
-                            "requires_pg_called_up": True},                # "PG must have been called up"
+                            "requires_pg_called_up": True,                 # "PG must have been called up"
+                            "min_dividend_pence": 50},                     # "50P/£ MINIMUM" — not in Dividends file
 
     # --- majority share % → reject ---
     "Commsave Credit Union": {"reject_if_majority_share_exceeds_pct": 50,  # "Reject if they own over 50%"
@@ -79,17 +100,58 @@ STRUCTURED_CRITERIA = {
     "Advantage Finance": {"reject_if_client_still_has_asset": True,        # "Car needs to have gone back"
                           "reject_if_ccj": True, "reject_if_aoe": True},   # "REJECT IF ... AOE OR CCJ"
     "First Response Finance": {"reject_if_client_still_has_asset": True},  # "car needs to have gone back"
-    "Marsh Finance": {"reject_if_client_still_has_asset": True},           # "car had to have gone back"
+    "Marsh Finance": {"reject_if_client_still_has_asset": True,            # "car had to have gone back"
+                      "min_dividend_pence": 70},                           # "confirmed want 70p/£" — not in Dividends file
     "Oodle Finance": {"reject_if_client_still_has_asset": True},           # "MUST HAVE THE VEHICLE IN THEIR POSSESSION"
+    "Billings finance": {"reject_if_client_still_has_asset": True},        # "car needs to have gone back"
+    "Santander Consumer Finance": {"reject_if_client_still_has_asset": True},  # "car needs to have gone back"
     "Snap on Tools": {"reject_if_client_still_has_asset": True},           # "REJECT IF CUSTOMER STILL HAS TOOLS"
     "Moneybarn": {"reject_if_client_still_has_asset": True,                # "CAR MUST HAVE BEEN RETURNED ... OTHERWISE REJECT"
-                  "fees_cap_percentage": 25},                             # "fees capped at 25% of TR"
+                  "fees_cap_percentage": 25,                               # "fees capped at 25% of TR"
+                  "vehicle_arrears_repossession_months": 2,                # "WILL REPOSSESS IF VEHICLE HP HAS 2 MONTHS OR MORE ARREARS"
+                  "requires_arrangement_call_before_proposing": True},     # "if arrears MUST HAVE CALL TO CONFIRM ARRANGEMENT IN PLACE BEFORE PROPSING"
+
+    # --- minimum dividend (pence per pound) ---
+    # Only creditors where Dividends_Criteria.md uses a DIFFERENT name than General_Creditors.md
+    # (exact-name matches are already handled by the Dividends parsing step in _parse_strict_sources).
+    # Creditors only in General notes (not in Dividends file) are also listed here.
+    "Asset Link Capital": {"min_dividend_pence": 50},          # Dividends: "Asset Link: 50p" — name differs from "Asset Link Capital"
+    "CARDIFF CREDIT UNION(I)": {"min_dividend_pence": 45},     # Dividends: "Cardiff Credit Union: 45p" — name differs from "CARDIFF CREDIT UNION(I)"
+    "Cardiff & Vale Credit Union, Cardiff and Vale": {"min_dividend_pence": 50},  # "will only consider 50p/£" — not in Dividends
+    "Castle Community Bank": {"min_dividend_pence": 30},       # "the case has to be proposed at 30p/£" — not in Dividends
+    "FCE Bank PLC": {"min_dividend_pence": 75},                # Dividends: "FCE Bank: 75p" — name differs from "FCE Bank PLC"
+    "GLENSIDE FINANCE LTD": {"min_dividend_pence": 25},        # Dividends: "Glenside Finance: 25p" — name differs from "GLENSIDE FINANCE LTD"
+    "HULL & EAST YORKSHIRE CREDIT UNION (I) Hey CU (Hey Credit Union)": {"min_dividend_pence": 60},  # Dividends: "Hull and East Yorkshire CU: 60p"
+    "Match the Cash t/a Guarantor My Loan (Match the Cash trading name)": {
+        "min_dividend_pence": 50,                              # Dividends: "Guarantor My Loan: 50p" — name differs
+        "reject_if_ie_doesnt_match_application": True,         # "I&E has to match loan application"
+    },
+    "NHS CREDIT UNION (I)": {"min_dividend_pence": 78},        # "WANT 78P/£" — not in Dividends
+    "Norwich Trust Limited": {"min_dividend_pence": 100},      # "WILL ONLY ACCEPT 100P/£" — not in Dividends
+    "Perch Capital Limited": {"min_dividend_pence": 5},        # "Require a minimum dividend of 5p/£" — not in Dividends
+    "Specialist Motor Finance": {"min_dividend_pence": 50},    # Dividends: "Specialist Motor Finance: 50p" — exact name match but safe to set here too
+    "Travis Perkins": {"min_dividend_pence": 50},              # "WILL ONLY CONSIDER ANYTHING ABOVE 50P/£" — not in Dividends
+    "Buddy Loans t/a Advancis Ltd": {"min_dividend_pence": 50},  # "minimum of 50P/£ DIV" — not in Dividends
+    "DRAGON SAVERS CREDIT UNION": {"min_dividend_pence": 68},    # "68p/£ minimum" — not in Dividends file
+    "Partners Credit Union": {"min_dividend_pence": 65},         # "65p/£ minimum" — not in Dividends file
+    "Believe Housing": {"min_dividend_pence": 40},               # "minimum 40p/£" — not in Dividends_Criteria.md
+    "Beyond Housing": {"min_dividend_pence": 30},                # "30p/£ minimum" — not in Dividends_Criteria.md
+    "South East Water": {"min_dividend_pence": 40},              # "40p/£ confirmed 4/7/25" — not in Dividends_Criteria.md
 
     # --- flags ---
     "South Yorkshire Credit Union": {"fraud_claim_risk": True},           # "reject if taken out fraudulently"
-    "Unify Credit Union Limited": {"fraud_claim_risk": True},             # "THEY ALSO CLAIM FRAUD"
+    "Unify Credit Union Limited": {"account_age_months": 6,               # "reject if under 6 months"
+                                  "reject_if_ie_doesnt_match_application": True,  # "I&E has to match loan application"
+                                  "fraud_claim_risk": True},             # "THEY ALSO CLAIM FRAUD"
     "No1 Copperpot Credit Union": {"reject_if_police_employed": True},    # "CANNOT INCLUDE IF STILL EMLOYED BY THE POLICE"
+    "Student Loans Company": {"requires_grant_overpayment_only": True},   # "grant overpayment only"
     "Volkswagen Financial Services": {"termination_risk_if_vehicle_on_finance": True},  # "will terminate ... if car is on finance"
+
+    # --- recent spend rejection (gold_transactions name-match within N months → reject) ---
+    "Enterprise Credit Union":    {"reject_if_recent_spend_months": 3},
+    "Manchester Credit Union":    {"reject_if_recent_spend_months": 3},
+    "Great Western Credit Union": {"reject_if_recent_spend_months": 3},
+    "Studio Cards & Gifts":       {"reject_if_recent_spend_months": 3},
 }
 
 
@@ -395,21 +457,38 @@ class Command(BaseCommand):
         ))
 
         # 3. Apply structured conditional criteria (engine-consumed fields).
-        # Runs after the prose import so it is authoritative and reseed-safe.
-        # Case-insensitive match; warns (does not fail) on any unmatched name so a
-        # renamed/removed creditor is surfaced rather than silently skipped.
-        applied = 0
+        # Runs after the prose import so it is reseed-safe.
+        # Only sets fields that are still at their unset default (None / False).
+        # If a field has been manually edited in Django admin, it is preserved.
+        # Case-insensitive name match; warns on any unmatched name.
+        applied = skipped = 0
         for crit_name, fields in STRUCTURED_CRITERIA.items():
-            matched = CreditorCriteria.objects.filter(creditor_name__iexact=crit_name).update(**fields)
-            if matched:
-                applied += matched
-            else:
+            objs = list(CreditorCriteria.objects.filter(creditor_name__iexact=crit_name))
+            if not objs:
                 self.stdout.write(self.style.WARNING(
                     f"  [STRUCTURED] no creditor matched '{crit_name}' — criteria not applied"
                 ))
+                continue
+            for obj in objs:
+                patch = {}
+                for field, value in fields.items():
+                    current = getattr(obj, field)
+                    # Treat None and False as "never set" — preserve any other manual value.
+                    if current is None or current is False:
+                        patch[field] = value
+                    else:
+                        skipped += 1
+                        self.stdout.write(
+                            f"  [STRUCTURED] {obj.creditor_name}.{field} = {current!r} "
+                            f"(manually set, seed value {value!r} skipped)"
+                        )
+                if patch:
+                    CreditorCriteria.objects.filter(pk=obj.pk).update(**patch)
+                    applied += 1
         self.stdout.write(self.style.SUCCESS(
             f"Structured criteria applied to {applied} creditor row(s) "
-            f"across {len(STRUCTURED_CRITERIA)} mappings."
+            f"across {len(STRUCTURED_CRITERIA)} mappings "
+            f"({skipped} field(s) skipped — already set in DB)."
         ))
 
         for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS", "NONE"):
