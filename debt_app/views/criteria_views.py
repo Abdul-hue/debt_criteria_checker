@@ -492,7 +492,11 @@ class AssessCaseView(APIView):
                     for i, (mc, bal, acc) in enumerate(cr_list):
                         if i in used_indices:
                             continue
-                        if mc != key_name:
+                        name_match = (
+                            mc == key_name or
+                            (len(mc) >= 5 and (mc in key_name or key_name in mc))
+                        )
+                        if not name_match:
                             continue
                         # Balance match — treat None CR balance as 0
                         cr_bal = bal if bal is not None else 0
@@ -694,11 +698,12 @@ class AssessCaseView(APIView):
                 if i in _used_pc:
                     continue
                 pc_name = (pc.get('creditor_name') or '').lower().strip()
-                # Try exact match against original_aryza_name first, then creditor_name
+                pos_canonical = (pos.get('creditor_name') or '').lower().strip()
                 name_match = (
                     pc_name == pos_name or
-                    pc_name == (pos.get('creditor_name') or '').lower().strip() or
-                    (len(pc_name) >= 5 and (pc_name in pos_name or pos_name in pc_name))
+                    pc_name == pos_canonical or
+                    (len(pc_name) >= 5 and (pc_name in pos_name or pos_name in pc_name)) or
+                    (len(pc_name) >= 5 and (pc_name in pos_canonical or pos_canonical in pc_name))
                 )
                 if not name_match:
                     continue
