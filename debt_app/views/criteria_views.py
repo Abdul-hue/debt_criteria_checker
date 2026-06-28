@@ -31,7 +31,7 @@ from debt_app.permissions import HasFeatureAccess, HasWritePermission, HasReadPe
 from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
-    DepartmentSFSVisibility,
+    DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
 )
 from debt_app.credit_report_extractor import extract_credit_report
 
@@ -93,6 +93,49 @@ def _serialise_value(v):
     if isinstance(v, set):
         return list(v)
     return v
+
+
+def enrich_positions_with_tallies(creditor_positions):
+    """
+    Enriches creditor position objects with outcomes tally data.
+    Does not cause N+1 queries.
+    """
+    from django.db.models import Count, Q
+    from debt_app.models import CreditorOutcome
+
+    criteria_ids = [pos.get("criteria_id") for pos in creditor_positions if pos.get("criteria_id")]
+    
+    tally_map = {}
+    if criteria_ids:
+        outcomes = (
+            CreditorOutcome.objects.filter(creditor_id__in=criteria_ids)
+            .values('creditor_id')
+            .annotate(
+                approved_count=Count('id', filter=Q(outcome='approved')),
+                disapproved_count=Count('id', filter=Q(outcome='disapproved')),
+            )
+        )
+        for row in outcomes:
+            cid = row['creditor_id']
+            app = row['approved_count']
+            dis = row['disapproved_count']
+            tally_map[cid] = {
+                "outcomes_approved": app,
+                "outcomes_disapproved": dis,
+                "outcomes_total": app + dis
+            }
+            
+    for pos in creditor_positions:
+        cid = pos.get("criteria_id")
+        if cid and cid in tally_map:
+            tally = tally_map[cid]
+            pos["outcomes_approved"] = tally["outcomes_approved"]
+            pos["outcomes_disapproved"] = tally["outcomes_disapproved"]
+            pos["outcomes_total"] = tally["outcomes_total"]
+        else:
+            pos["outcomes_approved"] = 0
+            pos["outcomes_disapproved"] = 0
+            pos["outcomes_total"] = 0
 
 
 def build_phase7_response_fields(result: dict) -> dict:
@@ -417,9 +460,61 @@ class AssessCaseView(APIView):
                 f"balance=£{balance_pounds:,.2f} type='{effective_type}'"
             )
 
-        logger.warning(
-            f"[PREPARED] {len(prepared_creditors)} creditors → engine"
-        )
+        # Enrich creditors with type_code and raw_name from credit report
+        # Match by matched_creditor (lower) + balance (pence) for accuracy
+        # Enrich creditors with CR data — match by name+balance (closest), carry all fields
+        try:
+            from debt_app.models import CreditReport
+            cr_obj = CreditReport.objects.filter(
+                aryza_reference=case_data_obj.aryza_reference
+            ).order_by('-created_at').first()
+            if cr_obj and cr_obj.extracted_data:
+                cr_accounts = cr_obj.extracted_data.get('accounts', [])
+
+                # Build list of (normalised_name, balance_pence, full_account)
+                # Include zero-balance accounts (bal=0 or None)
+                cr_list = []
+                for acc in cr_accounts:
+                    mc = (acc.get('matched_creditor') or acc.get('raw_name') or '').lower().strip()
+                    bal = acc.get('current_balance')  # pence, may be None
+                    cr_list.append((mc, bal, acc))
+
+                used_indices = set()
+
+                for cd in prepared_creditors:
+                    key_name = (cd.get('creditor_name') or '').lower().strip()
+                    # Aryza balance is in pounds — convert to pence for comparison
+                    aryza_bal_pence = int(round((cd.get('balance') or 0) * 100))
+
+                    best_idx = None
+                    best_diff = None
+
+                    for i, (mc, bal, acc) in enumerate(cr_list):
+                        if i in used_indices:
+                            continue
+                        if mc != key_name:
+                            continue
+                        # Balance match — treat None CR balance as 0
+                        cr_bal = bal if bal is not None else 0
+                        diff = abs(cr_bal - aryza_bal_pence)
+                        if best_diff is None or diff < best_diff:
+                            best_diff = diff
+                            best_idx = i
+
+                    if best_idx is not None:
+                        used_indices.add(best_idx)
+                        acc = cr_list[best_idx][2]
+                        cd['type_code']         = acc.get('type_code') or ''
+                        cd['cr_raw_name']       = acc.get('raw_name') or ''
+                        cd['cr_balance']        = acc.get('current_balance')  # pence
+                        cd['cr_account_status']            = acc.get('account_status') or ''
+                        cd['cr_account_status_subjective'] = acc.get('account_status_subjective') or ''
+                        cd['cr_credit_limit']   = acc.get('credit_limit')
+                        cd['cr_account_age_months'] = acc.get('account_age_months')
+                        cd['cr_missed_payments_3m'] = acc.get('missed_payments_last_3_months')
+
+        except Exception as e:
+            logger.warning(f"[CR ENRICH] failed: {e}")
 
         # Build the engine payload matching CASE_ASSESSMENT_PAYLOAD.md
         payload = {
@@ -582,6 +677,49 @@ class AssessCaseView(APIView):
         engine_positions = result.get("creditor_positions", [])
         all_creditor_positions = reconcile_creditor_positions(result, prepared_creditors)
 
+        # STEP 7b — stamp CR fields onto engine position dicts, balance-aware dedup
+        _pc_enriched = [
+            pc for pc in prepared_creditors
+            if pc.get('type_code') or pc.get('cr_raw_name')
+        ]
+        _used_pc = set()
+
+        for pos in all_creditor_positions:
+            pos_name = (pos.get('original_aryza_name') or pos.get('creditor_name') or '').lower().strip()
+            pos_bal_pence = int(round((pos.get('balance') or 0) * 100))
+
+            best_idx = None
+            best_diff = None
+            for i, pc in enumerate(_pc_enriched):
+                if i in _used_pc:
+                    continue
+                pc_name = (pc.get('creditor_name') or '').lower().strip()
+                # Try exact match against original_aryza_name first, then creditor_name
+                name_match = (
+                    pc_name == pos_name or
+                    pc_name == (pos.get('creditor_name') or '').lower().strip() or
+                    (len(pc_name) >= 5 and (pc_name in pos_name or pos_name in pc_name))
+                )
+                if not name_match:
+                    continue
+                pc_bal_pence = int(round((pc.get('balance') or 0) * 100))
+                diff = abs(pc_bal_pence - pos_bal_pence)
+                if best_diff is None or diff < best_diff:
+                    best_diff = diff
+                    best_idx = i
+
+            if best_idx is not None:
+                _used_pc.add(best_idx)
+                pc = _pc_enriched[best_idx]
+                pos['type_code']             = pc.get('type_code') or ''
+                pos['cr_raw_name']           = pc.get('cr_raw_name') or ''
+                pos['cr_balance']            = pc.get('cr_balance')
+                pos['cr_account_status']            = pc.get('cr_account_status') or ''
+                pos['cr_account_status_subjective'] = pc.get('cr_account_status_subjective') or ''
+                pos['cr_credit_limit']       = pc.get('cr_credit_limit')
+                pos['cr_account_age_months'] = pc.get('cr_account_age_months')
+                pos['cr_missed_payments_3m'] = pc.get('cr_missed_payments_3m')
+
         # Re-apply representative-body vote mapping over the combined list so any
         # backfilled (engine-missed) WATCH/TIX/EVOLVE creditor reflects its body's
         # outcome. Idempotent for engine positions already mapped in assess_case().
@@ -598,6 +736,7 @@ class AssessCaseView(APIView):
             f"{len(all_creditor_positions)} total"
         )
 
+        enrich_positions_with_tallies(all_creditor_positions)
         result["creditor_positions"] = all_creditor_positions
         
         # Enrich rules with metadata from GlobalCriteria
@@ -914,6 +1053,13 @@ class CreditorDetailView(APIView):
         if creditor is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Snapshot old values before mutation for audit trail
+        _old = {
+            field: str(getattr(creditor, field, ''))
+            for field in _CREDITOR_WRITABLE_FIELDS
+            if field in request.data
+        }
+
         for field in _CREDITOR_WRITABLE_FIELDS:
             if field in request.data:
                 setattr(creditor, field, request.data[field])
@@ -922,6 +1068,21 @@ class CreditorDetailView(APIView):
             creditor.full_clean()
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Audit trail — log every changed field
+        for field in _CREDITOR_WRITABLE_FIELDS:
+            if field in request.data:
+                old_val = _old[field]
+                new_val = str(request.data[field])
+                if old_val != new_val:
+                    CriteriaAuditLog.objects.create(
+                        creditor=creditor,
+                        changed_by=request.user,
+                        field_name=field,
+                        old_value=old_val,
+                        new_value=new_val,
+                        action='update',
+                    )
 
         creditor.updated_by = request.user
         creditor.save()
@@ -2272,3 +2433,140 @@ class MyDepartmentView(APIView):
                 "description": dept.description,
             }
         }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Creditor Outcome Tracker
+# ---------------------------------------------------------------------------
+
+class CreditorOutcomeListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'general_creditors'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
+
+    def get(self, request, id):
+        creditor = CreditorCriteria.objects.filter(id=id).first()
+        if not creditor:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        outcomes = creditor.outcomes.select_related('submitted_by').all()
+        approved = outcomes.filter(outcome='approved').count()
+        disapproved = outcomes.filter(outcome='disapproved').count()
+
+        return Response({
+            "tally": {
+                "approved": approved,
+                "disapproved": disapproved,
+                "total": approved + disapproved,
+            },
+            "outcomes": [
+                {
+                    "id": o.id,
+                    "case_reference": o.case_reference,
+                    "outcome": o.outcome,
+                    "outcome_date": o.outcome_date,
+                    "comment": o.comment,
+                    "submitted_by": o.submitted_by.get_full_name() or o.submitted_by.username if o.submitted_by else None,
+                    "submitted_at": o.submitted_at,
+                }
+                for o in outcomes
+            ]
+        })
+
+    def post(self, request, id):
+        creditor = CreditorCriteria.objects.filter(id=id).first()
+        if not creditor:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        case_reference = request.data.get("case_reference", "").strip()
+        outcome = request.data.get("outcome", "").strip()
+        outcome_date = request.data.get("outcome_date")
+        comment = request.data.get("comment", "").strip()
+
+        if not case_reference:
+            return Response({"detail": "case_reference is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if outcome not in ('approved', 'disapproved'):
+            return Response({"detail": "outcome must be 'approved' or 'disapproved'."}, status=status.HTTP_400_BAD_REQUEST)
+        if not outcome_date:
+            return Response({"detail": "outcome_date is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate the case reference exists in Aryza before saving
+        try:
+            fetch_case_by_reference(case_reference)
+        except AryzaCaseNotFoundError:
+            return Response(
+                {
+                    "detail": f"Case reference '{case_reference}' was not found in Aryza. "
+                              "Please check the reference and try again.",
+                    "field": "case_reference",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (AryzaConnectionError, AryaTimeoutError, AryzaDataError, Exception):
+            return Response(
+                {
+                    "detail": "Unable to validate case reference against Aryza. Please try again.",
+                    "field": "case_reference",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        outcome_obj = CreditorOutcome.objects.create(
+            creditor=creditor,
+            case_reference=case_reference,
+            outcome=outcome,
+            outcome_date=outcome_date,
+            comment=comment,
+            submitted_by=request.user,
+        )
+
+        return Response({
+            "id": outcome_obj.id,
+            "case_reference": outcome_obj.case_reference,
+            "outcome": outcome_obj.outcome,
+            "outcome_date": outcome_obj.outcome_date,
+            "comment": outcome_obj.comment,
+            "submitted_by": request.user.get_full_name() or request.user.username,
+            "submitted_at": outcome_obj.submitted_at,
+        }, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, id):
+        outcome_id = request.data.get("outcome_id")
+        if not outcome_id:
+            return Response({"detail": "outcome_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        outcome = CreditorOutcome.objects.filter(id=outcome_id, creditor__id=id).first()
+        if not outcome:
+            return Response({"detail": "Outcome not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        outcome.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+class CreditorAuditLogView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasReadPermission]
+    required_feature = 'general_creditors'
+
+    def get(self, request, id):
+        creditor = CreditorCriteria.objects.filter(id=id).first()
+        if not creditor:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        logs = creditor.audit_logs.select_related('changed_by').order_by('-changed_at')
+
+        return Response([
+            {
+                "id": log.id,
+                "field_name": log.field_name,
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+                "action": log.action,
+                "changed_by": log.changed_by.get_full_name() or log.changed_by.username if log.changed_by else None,
+                "changed_at": log.changed_at,
+            }
+            for log in logs
+        ])

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { creditorSchema } from '../../schemas/creditorSchema'
-import { useUpdateCreditor } from '../../hooks/useCreditors'
+import { useUpdateCreditor, useCreditorOutcomes, useCreateCreditorOutcome, useDeleteCreditorOutcome, useCreditorAuditLog } from '../../hooks/useCreditors'
 import { useToast } from '../../hooks/useToast'
 import TagInput from './TagInput'
 import Spinner from '../shared/Spinner'
@@ -57,6 +57,68 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
 
   const isBlocked = watch('blocked_until_cleared')
   const isConditionalVoter = watch('conditional_voter')
+
+  const outcomesQuery = useCreditorOutcomes(creditor?.id)
+  const createOutcome = useCreateCreditorOutcome(creditor?.id)
+  const deleteOutcome = useDeleteCreditorOutcome(creditor?.id)
+  const auditLogQuery = useCreditorAuditLog(creditor?.id)
+
+  const [outcomeForm, setOutcomeForm] = React.useState({
+    case_reference: '',
+    outcome: 'approved',
+    outcome_date: '',
+    comment: '',
+  })
+  const [outcomeError, setOutcomeError] = React.useState('')
+  const [aryzaRefError, setAryzaRefError] = React.useState('')
+  const [submitStatus, setSubmitStatus] = React.useState('idle') // 'idle' | 'checking' | 'success' | 'error'
+
+  const handleOutcomeSubmit = () => {
+    setOutcomeError('')
+    setAryzaRefError('')
+
+    // Client-side validation — keep existing logic
+    if (!outcomeForm.case_reference.trim()) {
+      setAryzaRefError('Case reference is required.')
+      return
+    }
+    if (!outcomeForm.outcome_date) {
+      setOutcomeError('Date is required.')
+      return
+    }
+
+    // Enter checking state immediately
+    setSubmitStatus('checking')
+
+    createOutcome.mutate(outcomeForm, {
+      onSuccess: () => {
+        setSubmitStatus('success')
+        // After 2 s: reset form and return button to idle
+        setTimeout(() => {
+          setSubmitStatus('idle')
+          setOutcomeForm({ case_reference: '', outcome: 'approved', outcome_date: '', comment: '' })
+          setAryzaRefError('')
+          setOutcomeError('')
+        }, 2000)
+      },
+      onError: (err) => {
+        setSubmitStatus('error')
+        const field = err?.response?.data?.field
+        const detail = err?.response?.data?.detail
+        if (field === 'case_reference') {
+          // Aryza ref not found
+          setAryzaRefError(detail || 'Case reference not found in Aryza \u2014 please check and try again')
+        } else if (err?.response?.data?.aryza_connection === false) {
+          // Connection / other Aryza error
+          setOutcomeError('Unable to validate against Aryza \u2014 please try again')
+        } else {
+          setOutcomeError(detail || 'Failed to submit outcome.')
+        }
+        // Reset button immediately so user can correct and resubmit
+        setSubmitStatus('idle')
+      },
+    })
+  }
 
   return (
     <>
@@ -359,12 +421,239 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
 
           <div className="mb-4">
             <label className="block text-xs font-medium text-gray-600 mb-1">Updated Criteria (Excel Reference)</label>
-            <input 
-              type="text" 
-              {...register('raw_updated_criteria')} 
+            <input
+              type="text"
+              {...register('raw_updated_criteria')}
               disabled={readOnly}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-500"
             />
+          </div>
+
+          <hr className="my-4 border-gray-100" />
+
+          {/* Group 8 — Case Outcomes */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">Case Outcomes</p>
+
+            {/* Tally */}
+            {outcomesQuery.isLoading && (
+              <p className="text-xs text-gray-400 mb-3">Loading outcomes...</p>
+            )}
+            {outcomesQuery.data && (
+              <div className="flex gap-4 mb-4">
+                <span className="text-sm font-medium text-green-700">
+                  {outcomesQuery.data.tally.approved} Approved
+                </span>
+                <span className="text-sm font-medium text-red-600">
+                  {outcomesQuery.data.tally.disapproved} Disapproved
+                </span>
+                <span className="text-sm text-gray-500">
+                  {outcomesQuery.data.tally.total} Total
+                </span>
+              </div>
+            )}
+
+            {/* Submit form */}
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Case Reference</label>
+              <input
+                type="text"
+                value={outcomeForm.case_reference}
+                onChange={e => {
+                  setAryzaRefError('')
+                  setOutcomeForm(f => ({ ...f, case_reference: e.target.value }))
+                }}
+                className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 ${
+                  aryzaRefError ? 'border-red-400 bg-red-50' : 'border-gray-300'
+                }`}
+                placeholder="e.g. IVA-12345"
+              />
+              {aryzaRefError && (
+                <p className="text-xs text-red-500 mt-1">{aryzaRefError}</p>
+              )}
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Outcome Date</label>
+              <input
+                type="date"
+                value={outcomeForm.outcome_date}
+                onChange={e => setOutcomeForm(f => ({ ...f, outcome_date: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Outcome</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutcomeForm(f => ({ ...f, outcome: 'approved' }))}
+                  className={`px-3 py-1.5 text-sm rounded-md border font-medium transition-colors ${
+                    outcomeForm.outcome === 'approved'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Approved
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutcomeForm(f => ({ ...f, outcome: 'disapproved' }))}
+                  className={`px-3 py-1.5 text-sm rounded-md border font-medium transition-colors ${
+                    outcomeForm.outcome === 'disapproved'
+                      ? 'bg-red-600 text-white border-red-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Disapproved
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Comment (optional)</label>
+              <textarea
+                rows={2}
+                value={outcomeForm.comment}
+                onChange={e => setOutcomeForm(f => ({ ...f, comment: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="Any notes about this outcome..."
+              />
+            </div>
+
+            {outcomeError && (
+              <p className="text-xs text-red-500 mb-2">{outcomeError}</p>
+            )}
+
+            {/* Submit Outcome — status-driven button */}
+            <button
+              type="button"
+              onClick={handleOutcomeSubmit}
+              disabled={submitStatus === 'checking' || submitStatus === 'success'}
+              className={[
+                'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-transparent rounded-md',
+                'focus:outline-none focus:ring-2 focus:ring-offset-1',
+                'transition-all duration-300',
+                submitStatus === 'checking'
+                  ? 'bg-blue-400 text-white cursor-not-allowed focus:ring-blue-300'
+                  : submitStatus === 'success'
+                  ? 'bg-green-600 text-white cursor-default focus:ring-green-400'
+                  : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-400',
+              ].join(' ')}
+            >
+              {submitStatus === 'checking' && (
+                <>
+                  {/* Pulsing dot animation for 'checking' state */}
+                  <span className="flex items-center gap-1" aria-hidden="true">
+                    <span
+                      style={{ animation: 'outcomeCheckPulse 1.1s ease-in-out infinite' }}
+                      className="inline-block w-2 h-2 rounded-full bg-white/70"
+                    />
+                    <span
+                      style={{ animation: 'outcomeCheckPulse 1.1s ease-in-out 0.2s infinite' }}
+                      className="inline-block w-2 h-2 rounded-full bg-white/70"
+                    />
+                    <span
+                      style={{ animation: 'outcomeCheckPulse 1.1s ease-in-out 0.4s infinite' }}
+                      className="inline-block w-2 h-2 rounded-full bg-white/70"
+                    />
+                  </span>
+                  Checking reference in Aryza...
+                </>
+              )}
+              {submitStatus === 'success' && (
+                <>
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Outcome Recorded
+                </>
+              )}
+              {(submitStatus === 'idle' || submitStatus === 'error') && 'Submit Outcome'}
+            </button>
+
+            {/* Keyframes injected inline — avoids needing a separate CSS file */}
+            <style>{`
+              @keyframes outcomeCheckPulse {
+                0%, 100% { opacity: 0.3; transform: scale(0.85); }
+                50%       { opacity: 1;   transform: scale(1.1);  }
+              }
+            `}</style>
+
+            {/* Past outcomes list */}
+            {outcomesQuery.data?.outcomes?.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Past Entries</p>
+                {outcomesQuery.data.outcomes.map(o => (
+                  <div key={o.id} className="p-3 bg-gray-50 rounded-md border border-gray-100 text-xs text-gray-700">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">{o.case_reference}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-semibold ${o.outcome === 'approved' ? 'text-green-700' : 'text-red-600'}`}>
+                          {o.outcome === 'approved' ? 'Approved' : 'Disapproved'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => deleteOutcome.mutate(o.id)}
+                          disabled={deleteOutcome.isPending}
+                          className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          aria-label="Delete outcome"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-gray-500">
+                      {o.outcome_date} · {o.submitted_by}
+                    </div>
+                    {o.comment && <div className="mt-1 text-gray-600 italic">"{o.comment}"</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {outcomesQuery.data?.outcomes?.length === 0 && (
+              <p className="mt-3 text-xs text-gray-400">No outcomes logged yet.</p>
+            )}
+          </div>
+
+          <hr className="my-4 border-gray-100" />
+
+          {/* Group 9 — Audit Trail */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">Audit Trail</p>
+
+            {auditLogQuery.isLoading && (
+              <p className="text-xs text-gray-400">Loading audit log...</p>
+            )}
+
+            {auditLogQuery.data?.length === 0 && (
+              <p className="text-xs text-gray-400">No changes recorded yet.</p>
+            )}
+
+            {auditLogQuery.data?.length > 0 && (
+              <div className="space-y-2">
+                {auditLogQuery.data.map(log => (
+                  <div key={log.id} className="p-3 bg-gray-50 rounded-md border border-gray-100 text-xs text-gray-700">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium capitalize">{log.field_name.replace(/_/g, ' ')}</span>
+                      <span className="text-gray-400">{new Date(log.changed_at).toLocaleString('en-GB')}</span>
+                    </div>
+                    <div className="text-gray-500 mb-1">{log.changed_by}</div>
+                    <div className="flex gap-2 items-center">
+                      <span className="line-through text-red-400">{log.old_value || '—'}</span>
+                      <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <span className="text-green-700">{log.new_value || '—'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </form>
 

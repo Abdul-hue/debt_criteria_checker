@@ -345,28 +345,54 @@ def _parse_missed_payments_last_3_months(lines: list[str]) -> int:
     return missed
 
 
-def _determine_account_status(lines: list[str], default_balance: int | None) -> str:
-    """
-    Determine account status from status line and default balance.
+_KNOWN_SUBJECTIVE_LEVELS = {"Good", "Bad", "Fair", "Poor", "Satisfactory", "Excellent", "Unrated"}
 
-    After pdfplumber, the status line merges as:
-      "Account Status: Default Bad"
-      "Account Status: Late payment Bad"
-      "Account Status: Up to date Good"
-    """
-    if default_balance is not None and default_balance > 0:
-        return "defaulted"
 
-    status_text = _extract_field(lines, "Account Status").lower()
-    if "default" in status_text:
-        return "defaulted"
-    if "late" in status_text:
-        return "late"
-    if "arrangement" in status_text or "dmp" in status_text:
-        return "arrangement"
-    if "closed" in status_text or "settled" in status_text:
-        return "closed"
-    return "open"
+def _determine_account_status(lines: list[str]) -> tuple[str, str]:
+    """
+    Extract raw account_status and account_status_subjective from Aryza Advize lines.
+    Preserves raw labels with original capitalisation (e.g. 'Default', 'Up to date', 'Late payment').
+    """
+    account_status = ""
+    account_status_subjective = ""
+
+    # First pass: look for 'Account Status Subjective Level' in lines
+    for line in lines:
+        if "account status subjective level" in line.lower():
+            low = line.lower()
+            idx = low.find("account status subjective level")
+            parts = line[idx:].split(":", 1)
+            if len(parts) > 1:
+                account_status_subjective = parts[1].strip()
+                break
+
+    # Second pass: extract 'Account Status' line
+    for line in lines:
+        low = line.lower()
+        if "account status:" in low:
+            idx = low.find("account status:")
+            val = line[idx + len("account status:"):].strip()
+
+            if "account status subjective level" in val.lower():
+                subj_idx = val.lower().find("account status subjective level")
+                status_part = val[:subj_idx].strip()
+                account_status = status_part.rstrip(":").strip()
+                if not account_status_subjective:
+                    subj_part = val[subj_idx:]
+                    if ":" in subj_part:
+                        account_status_subjective = subj_part.split(":", 1)[1].strip()
+            else:
+                words = val.split()
+                if len(words) > 1 and words[-1] in _KNOWN_SUBJECTIVE_LEVELS:
+                    if not account_status_subjective:
+                        account_status_subjective = words[-1]
+                    account_status = " ".join(words[:-1])
+                else:
+                    account_status = val
+            break
+
+    return account_status, account_status_subjective
+
 
 
 def _extract_monthly_payment_pence(lines: list[str]) -> int | None:
@@ -570,22 +596,16 @@ def _extract_experian_report_date(text: str) -> str:
 
 def _parse_experian_status(lines: list[str]) -> str:
     """
-    Derive internal status string from Experian "Status:" and "Worst Status:" fields.
-    Experian status values: Default, Active, Settled, Satisfied, Delinquent, etc.
+    Derive raw capitalised status string from Experian fields ("Account Status:", "Status:", "Worst Status:").
+    Preserves raw Experian wording (e.g. Default, Open, Late, Satisfied).
     """
-    worst = _extract_field(lines, "Worst Status").lower()
-    status = _extract_field(lines, "Status").lower()
-    combined = worst + " " + status
-    if "default" in combined:
-        return "defaulted"
-    if "delinquent" in combined:
-        return "late"
-    if "arrangement" in combined or "dmp" in combined:
-        return "arrangement"
-    if ("settled" in status or "satisfied" in status or "closed" in status) \
-            and "default" not in worst:
-        return "closed"
-    return "open"
+    status_raw = _extract_field(lines, "Account Status") or _extract_field(lines, "Status")
+    if status_raw:
+        return status_raw.strip().capitalize()
+    worst = _extract_field(lines, "Worst Status")
+    if "default" in worst.lower():
+        return "Default"
+    return "Open"
 
 
 def _split_experian_accounts(full_text: str) -> list[tuple[str, str]]:
@@ -644,20 +664,15 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
     utilisation_pct = None
 
     account_status = _parse_experian_status(lines)
+    account_status_subjective = _extract_field(lines, "Account Status Subjective Level")
 
     # Apply the same conditional exclusion rules as the Aryza path
 
-    # BD: include only if balance > 0 (Experian rarely uses BD, but guard anyway)
-    if type_code == "BD":
-        if not current_balance or current_balance <= 0:
-            logger.debug(
-                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} — zero balance BD"
-            )
-            return None
+
 
     # CA / UT: include only if the account is derogatory (defaulted/late/arrangement)
     if type_code in {"CA", "UT"}:
-        if account_status not in {"defaulted", "late", "arrangement"}:
+        if account_status.lower() not in {"default", "defaulted", "late", "late payment", "arrangement", "delinquent"}:
             logger.debug(
                 f"[EXPERIAN SKIP] '{raw_name}' type={type_code} status='{account_status}' — clean account excluded"
             )
@@ -669,6 +684,15 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
 
     # Reuse the existing missed-payments parser — grid format is the same
     missed_payments_last_3_months = _parse_missed_payments_last_3_months(lines)
+
+    account_number_raw = _extract_field(lines, "Account Number")
+    account_number = account_number_raw if account_number_raw else None
+
+    start_balance_raw = _extract_field(lines, "Start Balance")
+    start_balance = _parse_amount(start_balance_raw)
+
+    cais_updated_raw = _extract_field(lines, "CAIS Last Updated")
+    cais_last_updated = cais_updated_raw if cais_updated_raw else None
 
     balance_display = round(current_balance / 100) if current_balance else 0
     logger.debug(
@@ -682,13 +706,18 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
         "matched_creditor": matched,
         "account_age_months": account_age_months,
         "missed_payments_last_3_months": missed_payments_last_3_months,
-        "recent_spending": False,   # Payment Amount section absent in Experian format
+        "recent_spending": False,
         "current_balance": current_balance,
+        "start_balance": start_balance,
         "credit_limit": credit_limit,
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
+        "account_status_subjective": account_status_subjective,
         "payment_history_months": 0,
-        "monthly_payment": None,    # Experian does not expose a monthly payment field
+        "monthly_payment": None,
+        "account_number": account_number,
+        "start_date": start_date_str if start_date_str else None,
+        "cais_last_updated": cais_last_updated,
     }
 
 
@@ -886,7 +915,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         utilisation_pct = round((current_balance / credit_limit) * 100, 1)
 
     # --- Status ---
-    account_status = _determine_account_status(lines, default_balance)
+    account_status, account_status_subjective = _determine_account_status(lines)
 
     # --- Payment history depth ---
     year_rows = re.findall(r"^\d{4}\b", block_text, re.MULTILINE)
@@ -910,17 +939,11 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     # MG: mortgage accounts are always included for asset reconciliation
     # (not counted as unsecured IVA debt — separated by caller)
 
-    # BD: include only if balance > 0
-    if type_code == "BD":
-        if not current_balance or current_balance <= 0:
-            logger.debug(
-                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' — excluded from extraction"
-            )
-            return None
+
 
     # CA / UT: include only if defaulted or in arrears (unsecured IVA debt)
     if type_code in {"CA", "UT"}:
-        if account_status not in {"defaulted", "late", "arrangement"}:
+        if account_status.lower() not in {"default", "defaulted", "late", "late payment", "arrangement", "delinquent"}:
             logger.debug(
                 f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' — excluded from extraction"
             )
@@ -943,6 +966,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "credit_limit": credit_limit,
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
+        "account_status_subjective": account_status_subjective,
         "payment_history_months": payment_history_months,
         "monthly_payment": monthly_payment,
     }

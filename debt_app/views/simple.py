@@ -69,6 +69,8 @@ class AssessView(APIView):
             result["creditor_positions"] = reconcile_creditor_positions(
                 result, body.get("creditors") or []
             )
+            from debt_app.views.criteria_views import enrich_positions_with_tallies
+            enrich_positions_with_tallies(result["creditor_positions"])
         except Exception as exc:
             return JsonResponse({'error': f'Engine error: {exc}'}, status=500)
 

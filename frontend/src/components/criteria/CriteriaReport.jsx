@@ -334,6 +334,11 @@ export default function CriteriaReport({ result }) {
     if (activeTab === 'flagged') flags.forEach(r => { expanded[r.rule_id] = true })
     return expanded
   })
+  const outcomesTally = statusPopup?.creditor ? {
+    approved: statusPopup.creditor.outcomes_approved || 0,
+    disapproved: statusPopup.creditor.outcomes_disapproved || 0,
+    total: statusPopup.creditor.outcomes_total || 0,
+  } : null
 
   const handleTabChange = (tab) => {
     setActiveTab(tab)
@@ -514,72 +519,112 @@ export default function CriteriaReport({ result }) {
             <table className="w-full text-sm text-left">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="px-4 pb-3 font-semibold text-gray-500 w-full">Creditor</th>
-                  <th className="px-4 pb-3 font-semibold text-gray-500 w-24 whitespace-nowrap">Rep</th>
-                  <th className="px-4 pb-3 font-semibold text-gray-500 text-right w-36 whitespace-nowrap">Balance</th>
-                  <th className="px-4 pb-3 font-semibold text-gray-500 text-center w-28 whitespace-nowrap">Status</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide w-full">Creditor</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">Balance</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">CR Balance</th>
+                  <th className="px-4 py-3 text-right text-xs text-gray-500 font-medium uppercase tracking-wide">Match</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">CR Status</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">Missed Pmts (3m)</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-center whitespace-nowrap">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {(result?.creditor_positions || []).map((creditor, idx) => (
-                  <tr key={idx}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900">{creditor.original_aryza_name || creditor.creditor_name || creditor.display_name || creditor.name}</span>
-                        {((creditor.effective_status || '').toUpperCase().trim() === 'UNKNOWN')
-                          ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-gray-100 text-gray-500 border border-gray-200">Unmatched</span>
-                          : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-green-50 text-green-700 border border-green-200">Matched</span>}
-                      </div>
-                      {(creditor.original_aryza_name && creditor.creditor_name && creditor.creditor_name !== creditor.original_aryza_name) && (
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          Matched: {creditor.creditor_name}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(() => {
-                        const REP_CHIP = {
-                          'WATCH': 'bg-blue-50 text-blue-600 border-blue-100',
-                          'TIX': 'bg-indigo-50 text-indigo-600 border-indigo-100',
-                          'EVOLVE': 'bg-teal-50 text-teal-600 border-teal-100',
-                          'EVERYDAY_LOANS': 'bg-orange-50 text-orange-600 border-orange-100',
-                        }
-                        const rep = (creditor.representative || 'NONE').toUpperCase().trim()
-                        if (rep === 'NONE' || !REP_CHIP[rep]) {
-                          return <span className="text-gray-300 text-sm">—</span>
-                        }
-                        const chipClass = REP_CHIP[rep]
-                        return (
-                          <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${chipClass}`}>
-                            {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}
+                {(result?.creditor_positions || []).map((creditor, idx) => {
+                  // CR Balance: stored in pence, display as £
+                  const crBalPounds = creditor.cr_balance != null ? creditor.cr_balance / 100 : null
+
+                  return (
+                    <tr key={idx}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">
+                            {creditor.cr_raw_name || creditor.original_aryza_name || creditor.creditor_name || creditor.display_name || creditor.name}
                           </span>
-                        )
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-right">
-                      {formatCurrency(creditor.balance)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {(() => {
-                        const statusKey = (creditor.effective_status || '').toUpperCase().trim()
-                        const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
-                        return (
-                          <button
-                            onClick={() => setStatusPopup({ creditor, idx })}
-                            className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:opacity-80 transition-opacity ${chipClass}`}
-                            title="Click for details"
-                          >
-                            {STATUS_LABEL[statusKey] || statusKey || 'UNKNOWN'}
-                          </button>
-                        )
-                      })()}
-                    </td>
-                  </tr>
-                ))}
+                          {creditor.type_code && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tight bg-cyan-50 text-cyan-600 border border-cyan-100">
+                              {creditor.type_code}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {(() => {
+                            const REP_CHIP = {
+                              'WATCH': 'bg-blue-50 text-blue-600 border-blue-100',
+                              'TIX': 'bg-indigo-50 text-indigo-600 border-indigo-100',
+                              'EVOLVE': 'bg-teal-50 text-teal-600 border-teal-100',
+                              'EVERYDAY_LOANS': 'bg-orange-50 text-orange-600 border-orange-100',
+                            }
+                            const rep = (creditor.representative || 'NONE').toUpperCase().trim()
+                            if (rep !== 'NONE' && REP_CHIP[rep]) {
+                              return (
+                                <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight ${REP_CHIP[rep]}`}>
+                                  {rep === 'EVERYDAY_LOANS' ? 'EV-LOANS' : rep}
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                        </div>
+                      </td>
+                      {/* Balance — Aryza */}
+                      <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                        {formatCurrency(creditor.balance)}
+                      </td>
+                      {/* CR Balance */}
+                      <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                        {crBalPounds != null
+                          ? new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(crBalPounds)
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                      {/* Match */}
+                      <td className="px-4 py-3 text-sm text-right">
+                        {creditor.cr_balance != null ? (
+                          Math.abs((creditor.cr_balance / 100) - creditor.balance) < 0.01 ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">Matched</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">Mismatch</span>
+                          )
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      {/* CR Status */}
+                      <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                        {creditor.cr_account_status || creditor.cr_account_status_subjective ? (
+                          <span>
+                            {creditor.cr_account_status || ''}
+                            {creditor.cr_account_status && creditor.cr_account_status_subjective ? ' / ' : ''}
+                            {creditor.cr_account_status_subjective || ''}
+                          </span>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      {/* Missed Pmts 3m */}
+                      <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                        {creditor.cr_missed_payments_3m != null
+                          ? creditor.cr_missed_payments_3m
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                      {/* Status badge */}
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const statusKey = (creditor.effective_status || '').toUpperCase().trim()
+                          const chipClass = STATUS_CHIP[statusKey] || 'bg-gray-100 text-gray-500'
+                          return (
+                            <button
+                              onClick={() => setStatusPopup({ creditor, idx })}
+                              className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:opacity-80 transition-opacity ${chipClass}`}
+                              title="Click for details"
+                            >
+                              {STATUS_LABEL[statusKey] || statusKey || 'UNKNOWN'}
+                            </button>
+                          )
+                        })()}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan="4" className="px-4 pt-4 pb-1 text-right">
+                  <td colSpan="7" className="px-4 pt-4 pb-1 text-right">
                     <span className="font-semibold text-sm text-gray-500 mr-2">Total Unsecured Debt:</span>
                     <span className="font-semibold text-sm text-gray-900">
                       {formatCurrency((result?.creditor_positions || []).reduce((sum, c) => sum + (c.balance || 0), 0))}
@@ -694,6 +739,16 @@ export default function CriteriaReport({ result }) {
                 </span>
               )}
             </div>
+
+            {outcomesTally && (outcomesTally.total > 0) && (
+              <div className="mt-2 text-xs text-gray-500">
+                <span className="text-green-600 font-semibold">{outcomesTally.approved} approved</span>
+                {' · '}
+                <span className="text-red-500 font-semibold">{outcomesTally.disapproved} disapproved</span>
+                {' · '}
+                {outcomesTally.total} submitted
+              </div>
+            )}
 
             {/* Reason */}
             <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 leading-relaxed">

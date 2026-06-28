@@ -289,6 +289,17 @@ def _gambling_monthly(gold_transactions: list, reference: Optional[date] = None)
     return total
 
 
+def _gambling_all_transactions(gold_transactions: list) -> list:
+    """Return all gambling transactions from bank statements 
+    regardless of date."""
+    results = []
+    for t in gold_transactions:
+        desc = (t.get("description") or "").lower()
+        if any(kw in desc for kw in _GAMBLING_KEYWORDS):
+            results.append(t)
+    return results
+
+
 def _recent_transactions_matching(
     gold_transactions: list,
     keywords: list,
@@ -506,6 +517,7 @@ def _parse_case(case_json: dict) -> dict:
 
     # --- Gambling ---
     gambling_monthly = _gambling_monthly(gold_tx, reference=assessment_date_parsed)
+    gambling_all_transactions = _gambling_all_transactions(gold_tx)
 
     # --- Mortgage / equity ---
     prop_data = case_json.get("property") or {}
@@ -690,6 +702,7 @@ def _parse_case(case_json: dict) -> dict:
         "client_age": client_age,
         # Gambling
         "gambling_monthly": gambling_monthly,
+        "gambling_all_transactions": gambling_all_transactions,
         # Transaction lookups
         "gold_transactions": gold_tx,
         "has_open_banking": gold_tx_raw is not None,
@@ -801,7 +814,17 @@ def _tig_02(c: dict) -> RuleResult:
             message=f"Disposable income £{actual:,.2f}/month is below the £{threshold:,.2f} minimum.",
             threshold=threshold, actual_value=actual,
         )
-    return _pass("TIG-02", f"Disposable income £{actual:,.2f}/month meets the £{threshold:,.2f} minimum.")
+    total_income = c.get("total_income", 0)
+    total_expenses = total_income - actual if total_income > 0 else 0
+    iva_60 = actual * 60
+    dividend_pence = round((iva_60 / c["total_debt"]) * 100, 1) if c.get("total_debt", 0) > 0 else 0
+    income_str = f" (income £{total_income:,.2f}, expenses £{total_expenses:,.2f})" if total_income > 0 else ""
+    return _pass(
+        "TIG-02",
+        f"Disposable income £{actual:,.2f}/month meets £{threshold:,.2f} minimum{income_str}. "
+        f"IVA contribution over 60 months: £{iva_60:,.2f}. "
+        f"Estimated dividend: {dividend_pence}p/£."
+    )
 
 
 def _tig_03(c: dict) -> RuleResult:
@@ -835,11 +858,28 @@ def _tig_03(c: dict) -> RuleResult:
                 breaches.append(category)
 
     if breaches:
+        breach_details = []
+        for item in sfs if isinstance(sfs, list) else []:
+            category = item.get("category", "Unknown")
+            declared = _parse_amount(item.get("monthly_amount", 0))
+            bank = _parse_amount(item.get("bank_proven_amount", 0))
+            guideline = _parse_amount(item.get("sfs_guideline_max", 0))
+            is_breach = (guideline > 0) and ((declared > guideline) or (bank > guideline))
+            if is_breach:
+                effective = max(declared, bank)
+                pct = round(((effective - guideline) / guideline) * 100) if guideline > 0 else 0
+                parts = f"declared £{declared:,.2f}" if declared > 0 else ""
+                if bank > 0:
+                    parts += (", " if parts else "") + f"bank proven £{bank:,.2f}"
+                breach_details.append(
+                    f"{category}: {parts} (guideline £{guideline:,.2f}, {pct}% over limit)"
+                )
+        detail_str = "; ".join(breach_details)
         return RuleResult(
             rule_id="TIG-03", severity="flag", triggered=True,
             message=(
-                f"SFS guideline breaches detected in: {', '.join(breaches)}. "
-                "Expenditure must comply with SFS limits or be justified in the proposal."
+                f"{len(breaches)} SFS breach(es): {detail_str}. "
+                "All must be justified in the proposal."
             ),
             threshold=0.0,
             actual_value=float(len(breaches)),
@@ -1077,46 +1117,90 @@ def _tig_11(c: dict) -> RuleResult:
 
 
 def _tig_11_gambling(c: dict) -> RuleResult:
-    """TIG-11-GAMBLING: Gambling spend — hard block >£1,000/month, GAMSTOP flag >£200/month.
-
-    Runs independently of TIG-11 bank statement check so gambling is always evaluated
-    regardless of whether a bank statement document has been uploaded.
-    """
-    if not c.get("has_open_banking"):
-        return RuleResult(
-            rule_id="TIG-11-GAMBLING",
-            severity="flag",
-            triggered=True,
-            message="No open banking data loaded — gambling transaction check could not be completed. Verify manually.",
-        )
-
-    gm = c["gambling_monthly"]
-    # EXCEL_CRITERIA_REFERENCE.md — TIG Gambling: under £1,000 is allowed; £1,000+ is hard block
+    """TIG-11-GAMBLING: Gambling spend check against bank statements."""
+    gm = c["gambling_monthly"]  # last 30 days
+    all_gtx = c.get("gambling_all_transactions", [])
+    
+    # Build transaction detail string for caseworker
+    def _tx_detail(txs):
+        lines = []
+        for t in txs:
+            date = t.get("transaction_date") or t.get("date") or "unknown date"
+            desc = t.get("description") or ""
+            amt = abs(_parse_amount(t.get("amount", 0)))
+            lines.append(f"{desc} £{amt:.2f} ({date})")
+        return "; ".join(lines) if lines else "none"
+    
+    all_total = sum(
+        abs(_parse_amount(t.get("amount", 0))) for t in all_gtx
+    )
+    
+    # Hard block: last 30 days >= £1,000
     if gm >= 1000:
+        detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="hard_block", triggered=True,
-            message=f"Gambling spend £{gm:,.2f}/month meets or exceeds £1,000 hard block threshold.",
+            message=(
+                f"Gambling spend £{gm:,.2f} in last 30 days meets or exceeds "
+                f"£1,000 hard block threshold. "
+                f"All gambling transactions: {detail}."
+            ),
             threshold=1000.0, actual_value=gm,
         )
+    
+    # Flag: last 30 days > £200
     if gm > 200:
+        detail = _tx_detail(all_gtx)
         if c.get("gamstop_registered"):
             return RuleResult(
                 rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-                message=f"Gambling spend £{gm:,.2f}/month exceeds £200. Client is GAMSTOP registered — confirm registration is active.",
+                message=(
+                    f"Gambling spend £{gm:,.2f} in last 30 days exceeds £200. "
+                    f"Client is GAMSTOP registered — confirm registration is active. "
+                    f"All gambling transactions: {detail}."
+                ),
                 threshold=200.0, actual_value=gm,
             )
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-            message=f"Gambling spend £{gm:,.2f}/month exceeds £200. GAMSTOP registration proof required.",
+            message=(
+                f"Gambling spend £{gm:,.2f} in last 30 days exceeds £200. "
+                f"GAMSTOP registration proof required. "
+                f"All gambling transactions: {detail}."
+            ),
             threshold=200.0, actual_value=gm,
         )
+    
+    # Flag: last 30 days > 0 but under £200
     if gm > 0:
+        detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-            message=f"Gambling transactions detected (£{gm:,.2f}). Review with client.",
+            message=(
+                f"Gambling transactions detected in last 30 days "
+                f"(£{gm:,.2f}). Within acceptable limit. "
+                f"All gambling transactions: {detail}. "
+                f"Review with client."
+            ),
             threshold=0.0, actual_value=gm,
         )
-    return _pass("TIG-11-GAMBLING", "No gambling concerns.")
+    
+    # No gambling in last 30 days — check all time
+    if all_total > 0:
+        detail = _tx_detail(all_gtx)
+        return RuleResult(
+            rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
+            message=(
+                f"Gambling transactions detected in bank statements "
+                f"(total: £{all_total:,.2f}, outside last 30 days). "
+                f"No recent gambling — within acceptable limit. "
+                f"Transactions: {detail}. "
+                f"Review with client."
+            ),
+            threshold=0.0, actual_value=all_total,
+        )
+    
+    return _pass("TIG-11-GAMBLING", "No gambling transactions detected in bank statements.")
 
 
 def _tig_12(c: dict) -> RuleResult:
@@ -1611,13 +1695,16 @@ def _tig_16(c: dict) -> RuleResult:
             )
         pv = _parse_amount(c.get("property_value") or 0)
         if pv <= 0:
+            mb = c.get("mortgage_balance", 0)
             return RuleResult(
                 rule_id="TIG-16",
                 severity="flag",
                 triggered=True,
                 message=(
-                    "Client owns property but no valuation provided — "
-                    "WATCH-22.4 cannot evaluate equity. Manual valuation required before proceeding."
+                    f"Client owns property but no valuation found in system "
+                    f"(mortgage balance: £{mb:,.2f}). "
+                    "WATCH-22.4 cannot evaluate equity until valuation is provided. "
+                    "Manual valuation required before proceeding."
                 ),
             )
         equity = pv - c["mortgage_balance"]
@@ -1635,11 +1722,13 @@ def _tig_16(c: dict) -> RuleResult:
     pv = _parse_amount(c.get("property_value", 0))
     # Owns property but no valuation in the system — can't compute equity → flag.
     if pv <= 0:
+        mb = c.get("mortgage_balance", 0)
         return RuleResult(
             rule_id="TIG-16", severity="flag", triggered=True,
             message=(
-                "Client owns property but no valuation found in system. "
-                "Manual check required before proceeding."
+                f"Client owns property but no valuation found in system "
+                f"(mortgage balance: £{mb:,.2f}). "
+                "Manual valuation required — equity cannot be assessed until provided."
             )
         )
 
@@ -1724,7 +1813,12 @@ def _tig_19(c: dict) -> RuleResult:
             # EXCEL_CRITERIA_REFERENCE.md — TIG Shop Direct: 3-month spend = hard reject
             message=f"{len(c['shop_direct_tx_3mo'])} Shop Direct / Very / Littlewoods transaction(s) in the last 3 months.",
         )
-    return _pass("TIG-19", "No recent Shop Direct transactions.")
+    return _pass(
+        "TIG-19",
+        "No Shop Direct / Very / Littlewoods / JD Williams / Simply Be / "
+        "Jacamo / Fashion World / Marisota transactions found in bank statements "
+        "in last 3 months. TIG-19 clear."
+    )
 
 
 def _tig_19_review(c: dict) -> RuleResult:
@@ -1803,11 +1897,20 @@ def _tig_21_1(c: dict) -> RuleResult:
     """TIG-21.1: Link Financial creditor — must confirm Mid SFS guidelines used."""
     if not c["link_is_creditor"]:
         return _pass("TIG-21.1", "Link Financial is not a creditor.")
+    link_bal = c["link_balance"]
+    total_debt = c.get("total_debt", 0)
+    debt_ok = "satisfied" if total_debt >= 12000 else f"NOT satisfied (total debt £{total_debt:,.2f})"
     return RuleResult(
         rule_id="TIG-21.1", severity="flag", triggered=True,
-        message="Link Financial is a creditor. Confirm Mid SFS guidelines have been applied.",
+        message=(
+            f"Link Financial is a creditor (balance: £{link_bal:,.2f}). "
+            f"Mid SFS guidelines must be applied. "
+            f"Minimum debt £12,000 — {debt_ok}. "
+            "Benefits must not exceed 10% of income. "
+            "Manual equity check required if client owns property."
+        ),
         threshold=0.0,
-        actual_value=float(c["link_balance"]),
+        actual_value=float(link_bal),
     )
 
 
@@ -2216,9 +2319,22 @@ def _watch_22_12(c: dict) -> RuleResult:
     """WATCH-22.12: Previous IVA proposed — I&E/assets/liabilities must be consistent or explained."""
     if not c["previous_iva"]:
         return _pass("WATCH-22.12", "No previous IVA — WATCH-22.12 not applicable.")
+    failed = c.get("previous_iva_failed", False)
+    reason = c.get("previous_iva_failed_reason") or ""
+    if failed and reason:
+        failure_str = f"Failure reason on record: {reason}. "
+    elif failed:
+        failure_str = "Previous IVA marked as failed — no reason recorded. "
+    else:
+        failure_str = "No failure reason detected. "
     return RuleResult(
         rule_id="WATCH-22.12", severity="flag", triggered=True,
-        message="Previous IVA on record. I&E, assets, and liabilities must be consistent with the previous proposal or a written explanation provided.",
+        message=(
+            f"Previous IVA on record. {failure_str}"
+            "WATCH requires I&E, assets and liabilities to be consistent with "
+            "the previous proposal or written explanation provided. "
+            "Termination report required."
+        ),
         threshold=0.0,
         actual_value=1.0,
     )
@@ -2227,10 +2343,15 @@ def _watch_22_12(c: dict) -> RuleResult:
 def _watch_22_13(c: dict) -> RuleResult:
     """WATCH-22.13: Antecedent transactions identified — hard block, no exceptions."""
     at = c["antecedent_transactions"]
-    if at:
+    if at is True:
         return RuleResult(
             rule_id="WATCH-22.13", severity="hard_block", triggered=True,
             message="Antecedent transactions identified — case cannot proceed.",
+        )
+    if at is None:
+        return RuleResult(
+            rule_id="WATCH-22.13", severity="flag", triggered=True,
+            message="[RULE-CANNOT-EVALUATE] Antecedent transaction check failed — verify manually before proceeding.",
         )
     if not c.get("has_open_banking"):
         return RuleResult(
@@ -2763,7 +2884,7 @@ def _build_council_reason(rule, cr: dict, case: dict, effective_status: str) -> 
     return " ".join(parts)
 
 
-def _check_creditor_individual(case: dict) -> list[dict]:
+def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[int] = None) -> list[dict]:
     """
     Evaluate each non-council creditor against its CreditorCriteria DB row.
 
@@ -2778,6 +2899,9 @@ def _check_creditor_individual(case: dict) -> list[dict]:
     from debt_app.models import CreditorCriteria, CreditorResolutionMiss
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
+
+    if estimated_dividend_pence is None:
+        estimated_dividend_pence = calculate_estimated_dividend_pence(case)
 
     # Resolve council name set — use pre-loaded value from assess_case() when available
     # (one DB query for the whole assessment); fall back to loading here for standalone calls.
@@ -2847,6 +2971,21 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         findings = []
         reject_level = False
 
+        min_div = criteria.min_dividend_pence
+        if min_div is not None and min_div > 0:
+            if estimated_dividend_pence >= min_div:
+                findings.append({
+                    "code": "DIVIDEND-CHECK-PASS",
+                    "reason": f"Minimum dividend met: {estimated_dividend_pence}p/£ ≥ {min_div}p/£",
+                    "severity": "pass",
+                })
+            else:
+                findings.append({
+                    "code": "DIVIDEND-CHECK-FAIL",
+                    "reason": f"Minimum dividend NOT met: {estimated_dividend_pence}p/£ < {min_div}p/£",
+                    "severity": "flag",
+                })
+
         if criteria.blocked_until_cleared:
             findings.append({
                 "code": "CREDITOR-BLOCKED",
@@ -2854,34 +2993,35 @@ def _check_creditor_individual(case: dict) -> list[dict]:
             })
             reject_level = True
 
-        if criteria.reject_if_never_made_payment and not cr.get("first_payment_made", False):
-            findings.append({
-                "code": "CREDITOR-NO-PAYMENT",
-                "reason": "No payment ever made — creditor requires at least one payment before proposing",
-            })
-            reject_level = True
+        if criteria.reject_if_never_made_payment:
+            _fpm = cr.get("first_payment_made")
+            if _fpm is False:
+                findings.append({"code": "CREDITOR-NO-PAYMENT", "reason": f"{name}: no payment ever made — creditor requires at least one payment before proposing"})
+                reject_level = True
+            elif _fpm is None:
+                findings.append({"code": "CREDITOR-PAYMENT-UNVERIFIED", "reason": f"{name} rejects if no payment has ever been made — confirm with client that at least one payment has been made before proposing", "severity": "flag"})
 
         arrears_threshold = criteria.vehicle_arrears_repossession_months
         arrears_months = cr.get("vehicle_arrears_months")
-        if arrears_threshold is not None and arrears_months is not None and arrears_months >= arrears_threshold:
-            findings.append({
-                "code": "CREDITOR-REPOSSESSION-RISK",
-                "reason": (
-                    f"Vehicle is {arrears_months} month(s) in arrears "
-                    f"(threshold: {arrears_threshold}) — repossession risk"
-                ),
-            })
+        if arrears_threshold is not None:
+            if arrears_months is not None and arrears_months >= arrears_threshold:
+                findings.append({"code": "CREDITOR-REPOSSESSION-RISK", "reason": f"{name}: vehicle is {arrears_months} month(s) in arrears — meets or exceeds {arrears_threshold}-month repossession threshold"})
+            elif arrears_months is not None:
+                findings.append({"code": "CREDITOR-ARREARS-OK", "reason": f"{name}: vehicle {arrears_months} month(s) in arrears — below {arrears_threshold}-month repossession threshold", "severity": "pass"})
+            else:
+                findings.append({"code": "CREDITOR-ARREARS-UNVERIFIED", "reason": f"{name} may repossess vehicle if arrears reach {arrears_threshold} month(s) — confirm current arrears status before proposing", "severity": "flag"})
 
         # General Creditor: financed asset must be returned before proposing —
         # otherwise the creditor rejects (e.g. Advantage Finance "car needs to
         # have gone back"). Own branch (not chained to the arrears flag above)
         # and a REJECT, not just a flag.
-        if criteria.reject_if_client_still_has_asset and cr.get("client_still_has_asset_in_possession", False):
-            findings.append({
-                "code": "CREDITOR-ASSET-NOT-RETURNED-REJECT",
-                "reason": "Client still holds the financed asset — creditor requires it be returned before proposing",
-            })
-            reject_level = True
+        if criteria.reject_if_client_still_has_asset:
+            _asset = cr.get("client_still_has_asset_in_possession")
+            if _asset is True:
+                findings.append({"code": "CREDITOR-ASSET-NOT-RETURNED-REJECT", "reason": f"{name}: client still holds the financed asset — creditor requires it be returned before proposing"})
+                reject_level = True
+            elif _asset is None:
+                findings.append({"code": "CREDITOR-ASSET-STATUS-UNVERIFIED", "reason": f"{name} requires the financed asset to have been returned — confirm with client whether asset is still in their possession before proposing", "severity": "flag"})
 
         if criteria.requires_arrangement_call_before_proposing and not cr.get("arrangement_confirmed_before_proposing", False):
             findings.append({
@@ -3108,16 +3248,23 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         # re-accessing the criteria object — making the function idempotent on
         # a second call from the view layer.
         # Surface unmappable criteria_notes as a caseworker warning.
-        # Fires when criteria_notes is non-empty. Caseworkers must
-        # read and manually apply any conditions described here that
-        # are not covered by structured fields above.
-        if criteria.criteria_notes and criteria.criteria_notes.strip():
+        # Fires when criteria_notes contains conditions not covered by structured fields.
+        # If min_dividend_pence is set, strip any pure dividend-minimum text from the
+        # notes before checking — that condition is already evaluated automatically.
+        _manual_notes = (criteria.criteria_notes or "").strip()
+        if criteria.min_dividend_pence is not None and _manual_notes:
+            _manual_notes = re.sub(
+                r'(?i)require[sd]?\s+(?:a\s+)?minimum\s+dividend\s+of\s+\d+\s*p(?:ence)?'
+                r'(?:\s*/\s*[£$])?[^.;]*[.;]?\s*',
+                '', _manual_notes,
+            ).strip().strip('.,;- ').strip()
+        if _manual_notes:
             findings.append({
                 "code": "CREDITOR-MANUAL-CHECK-REQUIRED",
                 "reason": (
                     f"{name}: additional criteria must be checked "
                     f"manually before proposing — "
-                    f"{criteria.criteria_notes.strip()}"
+                    f"{_manual_notes}"
                 ),
                 "severity": "flag",
             })
@@ -3198,6 +3345,7 @@ def _check_creditor_individual(case: dict) -> list[dict]:
         _checks_description = _build_creditor_reason(criteria, cr, case)
 
         positions.append({
+            "criteria_id": criteria.id,
             "creditor_name": canonical,
             "display_name": None,  # UI will fallback to creditor_name (canonical)
             "original_aryza_name": original_name if original_name != canonical else None,
@@ -4250,6 +4398,21 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     }
 
 
+def calculate_estimated_dividend_pence(case: dict) -> int:
+    """Calculate overall estimated dividend in pence per pound for a case."""
+    from debt_app.helpers import _SECURED_TYPES
+    creditors = case.get("creditors", [])
+    monthly_di = max(Decimal("0"), Decimal(str(case.get("monthly_di") or "0")))
+    iva_term_months = case.get("iva_term_months", 60)
+    total = sum(
+        c["crm_balance"] for c in creditors
+        if c.get("debt_type_normalised", "") not in _SECURED_TYPES
+    )
+    if total > 0:
+        return int((monthly_di * iva_term_months / total) * 100)
+    return 0
+
+
 def _compute_dividend_analysis(case: dict, positions: list) -> dict:
     """Estimate dividend pence-per-pound and flag creditors whose minimums aren't met."""
     from debt_app.models import CreditorCriteria, CouncilRule
@@ -4260,21 +4423,8 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
 
-    from debt_app.helpers import _SECURED_TYPES
-
     creditors = case.get("creditors", [])
-    # Clamp to zero: negative DI means £0 available for dividend, not a negative payout.
-    monthly_di = max(Decimal("0"), Decimal(str(case.get("monthly_di") or "0")))
-    iva_term_months = case.get("iva_term_months", 60)
-    # Exclude secured types (mortgage, hire_purchase) — same set as _parse_case.
-    total = sum(
-        c["crm_balance"] for c in creditors
-        if c.get("debt_type_normalised", "") not in _SECURED_TYPES
-    )
-    if total > 0:
-        estimated_pence = int((monthly_di * iva_term_months / total) * 100)
-    else:
-        estimated_pence = 0
+    estimated_pence = calculate_estimated_dividend_pence(case)
     below_min = []
     max_min_required = 0
     for cr in creditors:
@@ -4450,10 +4600,10 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
     # Require both a live status AND a positive balance: a "late" account with
     # zero balance is ambiguous, and a "closed" account with a residual pence
     # balance is an extraction artefact. Both conditions together are unambiguous.
-    _ACTIVE_MORTGAGE_STATUSES = {"open", "late", "defaulted", "arrangement"}
+    _ACTIVE_MORTGAGE_STATUSES = {"open", "active", "up to date", "late", "late payment", "defaulted", "default", "arrangement"}
     cr_active_mortgages = [
         acct for acct in cr_mortgage_accounts
-        if acct.get("account_status") in _ACTIVE_MORTGAGE_STATUSES
+        if (acct.get("account_status") or "").lower() in _ACTIVE_MORTGAGE_STATUSES
         and (acct.get("current_balance") or 0) > 0
     ]
     if not cr_active_mortgages:
@@ -4729,8 +4879,8 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                 # Upgrade-only: never overwrite Aryza True with False
                 _fpm_before = best_creditor.get("first_payment_made")
                 if not best_creditor.get("first_payment_made"):
-                    _acct_status = account.get("account_status", "")
-                    if _acct_status in {"defaulted", "arrangement", "late"}:
+                    _acct_status = (account.get("account_status") or "").lower()
+                    if _acct_status in {"defaulted", "default", "arrangement", "late", "late payment"}:
                         best_creditor["first_payment_made"] = True
 
                 # Inject evidence entries keyed by linked_creditor AND name so
@@ -4966,7 +5116,8 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         logger.warning("Could not pre-load CouncilRule names: %s", _e)
         c["_council_rule_names_lower"] = frozenset()
 
-    _all_creditor_positions = _check_creditor_individual(c)
+    estimated_pence = calculate_estimated_dividend_pence(c)
+    _all_creditor_positions = _check_creditor_individual(c, estimated_dividend_pence=estimated_pence)
     for _pos in _all_creditor_positions:
         for _finding in _pos.get("findings", []):
             if _finding.get("code") == "CREDITOR-BLOCKED":

@@ -163,6 +163,69 @@ class CreditorCriteria(models.Model):
         return self.creditor_name
 
 
+class CreditorOutcome(models.Model):
+    OUTCOME_CHOICES = [
+        ('approved', 'Approved'),
+        ('disapproved', 'Disapproved'),
+    ]
+
+    creditor = models.ForeignKey(
+        CreditorCriteria,
+        on_delete=models.CASCADE,
+        related_name='outcomes'
+    )
+    case_reference = models.CharField(max_length=50)
+    outcome = models.CharField(max_length=20, choices=OUTCOME_CHOICES)
+    outcome_date = models.DateField()
+    comment = models.TextField(blank=True, default='')
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='creditor_outcomes'
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+
+    def __str__(self):
+        return f"{self.creditor.creditor_name} — {self.outcome} — {self.case_reference}"
+
+
+class CriteriaAuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('create', 'Create'),
+        ('update', 'Update'),
+        ('delete', 'Delete'),
+    ]
+
+    creditor = models.ForeignKey(
+        CreditorCriteria,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs'
+    )
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='criteria_audit_logs'
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+    field_name = models.CharField(max_length=100)
+    old_value = models.TextField(blank=True, default='')
+    new_value = models.TextField(blank=True, default='')
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES, default='update')
+
+    class Meta:
+        ordering = ['-changed_at']
+
+    def __str__(self):
+        return f"{self.creditor} — {self.field_name} — {self.changed_at}"
+
+
 class CreditorResolutionMiss(models.Model):
     raw_name = models.CharField(max_length=500)  # exact string Aryza sent
     normalised_name = models.CharField(max_length=500, blank=True)  # after normalisation

@@ -86,6 +86,9 @@ class DirectAssessView(APIView):
                 result.get("representative_outcomes") or {},
             )
 
+            from debt_app.views.criteria_views import enrich_positions_with_tallies
+            enrich_positions_with_tallies(result["creditor_positions"])
+
             # Determine decision and get recommendation
             hard_blocks = result.get("hard_blocks", [])
             flags = result.get("flags", [])
@@ -140,6 +143,7 @@ class DirectAssessView(APIView):
                 # ── creditor positions ────────────────────────────────────
                 "creditor_positions": [
                     {
+                        "criteria_id":            c.get("criteria_id"),
                         "creditor_name":          c.get("creditor_name", ""),
                         "display_name":           c.get("display_name"),
                         "original_aryza_name":    c.get("original_aryza_name"),
@@ -157,6 +161,17 @@ class DirectAssessView(APIView):
                         "reason":                  c.get("reason", ""),
                         "rule_ids":                c.get("rule_ids") or [],
                         "findings":                c.get("findings") or [],
+                        "type_code":               c.get("type_code") or "",
+                        "cr_raw_name":             c.get("cr_raw_name") or "",
+                        "cr_balance":              c.get("cr_balance"),
+                        "cr_account_status":            c.get("cr_account_status") or "",
+                        "cr_account_status_subjective": c.get("cr_account_status_subjective") or "",
+                        "cr_credit_limit":         c.get("cr_credit_limit"),
+                        "cr_account_age_months":   c.get("cr_account_age_months"),
+                        "cr_missed_payments_3m":   c.get("cr_missed_payments_3m"),
+                        "outcomes_approved":      c.get("outcomes_approved", 0),
+                        "outcomes_disapproved":   c.get("outcomes_disapproved", 0),
+                        "outcomes_total":         c.get("outcomes_total", 0),
                     }
                     for c in (result.get("creditor_positions") or [])
                 ],
