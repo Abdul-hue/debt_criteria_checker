@@ -3253,11 +3253,14 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
         # notes before checking — that condition is already evaluated automatically.
         _manual_notes = (criteria.criteria_notes or "").strip()
         if criteria.min_dividend_pence is not None and _manual_notes:
+            # Strip "Note:" / "Note :" labels immediately before the dividend sentence
             _manual_notes = re.sub(
-                r'(?i)require[sd]?\s+(?:a\s+)?minimum\s+dividend\s+of\s+\d+\s*p(?:ence)?'
+                r'(?i)(?:note\s*:\s*)?require[sd]?\s+(?:a\s+)?minimum\s+dividend\s+of\s+\d+\s*p(?:ence)?'
                 r'(?:\s*/\s*[£$])?[^.;]*[.;]?\s*',
                 '', _manual_notes,
-            ).strip().strip('.,;- ').strip()
+            ).strip().strip('.,;-').strip()
+            # Also strip any dangling "Note:" / "Note :" that was the sole remaining token
+            _manual_notes = re.sub(r'(?i)^note\s*:\s*$', '', _manual_notes).strip()
         if _manual_notes:
             findings.append({
                 "code": "CREDITOR-MANUAL-CHECK-REQUIRED",
