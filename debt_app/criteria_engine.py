@@ -2965,7 +2965,6 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
                 "reason": "No criteria row for this creditor",
                 "rule_ids": ["CREDITOR-UNKNOWN"],
                 "balance": balance,
-                "type_code": cr.get("creditor_type") or cr.get("type_code") or "",
             })
             continue
 
@@ -3363,7 +3362,6 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
             "balance": balance,
             "criteria_notes": criteria.criteria_notes or "",
             "dividend_notes": criteria.dividend_notes or "",
-            "type_code": cr.get("creditor_type") or cr.get("type_code") or "",
         })
 
     return positions
@@ -3741,7 +3739,6 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "reason": reason,
                 "rule_ids": [f.get("code", "") for f in findings],
                 "balance": balance,
-                "type_code": c.get("creditor_type") or c.get("type_code") or "",
             })
         else:
             backfilled.append({
@@ -3754,7 +3751,6 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "reason": CREDITOR_NOT_ASSESSED_REASON,
                 "rule_ids": ["CREDITOR-NOT-ASSESSED"],
                 "balance": balance,
-                "type_code": c.get("creditor_type") or c.get("type_code") or "",
             })
 
     return engine_positions + backfilled
