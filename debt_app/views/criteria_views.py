@@ -290,29 +290,34 @@ class AssessCaseView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
 
-    def _prepare_engine_payload(self, case_data_obj):
+    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None):
         """
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
-        
+
         Converts pence (int) to pounds (float).
         Excludes secured debt types (mortgage, hp, etc).
         Deduplicates on (creditor_name, debt_type, reference) — same name + type + reference = skip.
         Applies CREDITOR_ALIAS_MAP to resolve names BEFORE passing to engine.
         This ensures detect_representatives() matches correctly.
-        
+
+        credit_report_id: when given, pins credit-report enrichment to this EXACT
+          CreditReport row (e.g. the id returned by upload-credit-report) instead of
+          re-selecting among every historical extraction for this aryza_reference.
+
         Returns: (payload, prepared_creditors)
           payload: dict for assess_case()
           prepared_creditors: list of creditor dicts, used for ACCEPT creditor restoration
         """
         from rapidfuzz import fuzz, process as rfprocess
-        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
+        from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name, normalise_debt_type, _SECURED_TYPES
         from debt_app.models import CountyCouncilRouting
 
-        # Secured debt types — exclude ONLY if debt type confirms it
-        _SECURED_DEBT_TYPES = frozenset({
-            'mortgage', 'hire_purchase', 'hp', 'secured_loan',
-            'secured', 'charge', 'second_charge', 'secured loan'
-        })
+        # Secured/unsecured classification uses the SAME normalise_debt_type()
+        # helper the engine uses everywhere else (helpers.py) — this used to be
+        # a hand-rolled exact-match set here that missed real Aryza values like
+        # "Car HP" (space-separated, not the literal string "hp"), which let a
+        # £17,007 secured car-finance debt get counted into the unsecured total.
+        # One classifier, one place it can go wrong, instead of three.
 
         # Convert pence to pounds for all financial fields.
         # Never produce a negative DI — income=0 means fact find is incomplete,
@@ -345,23 +350,20 @@ class AssessCaseView(APIView):
             if not raw_name:
                 continue
 
-            raw_lower = raw_name.lower()
             debt_type = (creditor.get('type') or creditor.get('creditor_type') or '').strip().lower()
             ref = (creditor.get('ref') or creditor.get('reference') or '').strip().lower()
 
-            # STEP 4 — HP Exclusion: ONLY if debt_type confirms it is secured
-            if debt_type in _SECURED_DEBT_TYPES:
+            # STEP 4 — secured/unsecured classification. The creditor is still
+            # KEPT in prepared_creditors (so it shows up in the Creditor
+            # Positions table, e.g. as "Does Not Vote") — it's just excluded
+            # from unsecured_debt_pounds below. This mirrors how the
+            # case-assessment tool sends secured debts: visible, tagged,
+            # excluded from the unsecured total — rather than silently
+            # disappearing from the creditor list.
+            is_secured = normalise_debt_type(debt_type) in _SECURED_TYPES
+            if is_secured:
                 logger.warning(
-                    f"[EXCLUDE SECURED] '{raw_name}' type='{debt_type}'"
-                )
-                continue
-
-            # Log anomaly: HP in name but unsecured type — keep it
-            is_hp_name = 'hp' in raw_lower.split()
-            if is_hp_name and debt_type not in _SECURED_DEBT_TYPES:
-                logger.warning(
-                    f"[KEEP HP NAME UNSECURED] '{raw_name}' "
-                    f"type='{debt_type}' — name has HP but type is unsecured"
+                    f"[SECURED — excluded from unsecured total] '{raw_name}' type='{debt_type}'"
                 )
 
             # --- 5-check name resolution waterfall ---
@@ -439,7 +441,8 @@ class AssessCaseView(APIView):
             seen_keys.add(dedup_key)
 
             # Only count unsecured debts toward total
-            unsecured_debt_pounds += balance_pounds
+            if not is_secured:
+                unsecured_debt_pounds += balance_pounds
 
             effective_type = debt_type_override if debt_type_override else debt_type
             creditor_dict = {
@@ -452,6 +455,7 @@ class AssessCaseView(APIView):
                 # regardless of which field name Aryza used in the original payload.
                 'creditor_type': effective_type,
                 'debt_type_normalised': effective_type,
+                'is_secured': is_secured,
             }
             prepared_creditors.append(creditor_dict)
 
@@ -465,11 +469,51 @@ class AssessCaseView(APIView):
         # Enrich creditors with CR data — match by name+balance (closest), carry all fields
         try:
             from debt_app.models import CreditReport
-            cr_obj = CreditReport.objects.filter(
-                aryza_reference=case_data_obj.aryza_reference
-            ).order_by('-created_at').first()
+            cr_obj = None
+            if credit_report_id:
+                # Caller (e.g. the frontend, right after upload-credit-report)
+                # knows exactly which extraction to use — pin to that row
+                # instead of re-deriving "best" from history. Scoped to this
+                # aryza_reference so a stray/mistyped id can't pull another
+                # case's report.
+                cr_obj = CreditReport.objects.filter(
+                    id=credit_report_id,
+                    aryza_reference=case_data_obj.aryza_reference,
+                ).first()
+                if not cr_obj:
+                    logger.warning(
+                        "[CR ENRICH] credit_report_id=%s not found for reference=%s — "
+                        "falling back to most-recent extraction",
+                        credit_report_id, case_data_obj.aryza_reference,
+                    )
+            if cr_obj is None:
+                # No explicit id given (or it didn't resolve) — fall back to the
+                # most recent extraction for this reference. Previously this
+                # picked the extraction with the MOST accounts across ALL
+                # history, which can silently resurrect a stale report: case
+                # 349223 had four old extractions with 29 accounts each, then a
+                # fresh, correct re-upload with only 26 — "most accounts wins"
+                # kept serving the six-day-old 29-account report instead of the
+                # one just uploaded. Recency is the right default; passing
+                # credit_report_id explicitly is the reliable fix.
+                recent_reports = CreditReport.objects.filter(
+                    aryza_reference=case_data_obj.aryza_reference,
+                    extraction_status="extracted",
+                ).order_by('-created_at')
+                cr_obj = next(
+                    (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
+                    None,
+                )
             if cr_obj and cr_obj.extracted_data:
-                cr_accounts = cr_obj.extracted_data.get('accounts', [])
+                # Mortgages are extracted into a SEPARATE list from unsecured/HP
+                # accounts (mortgage_accounts vs accounts) — folding both in here
+                # means a case's mortgage debt (e.g. "HBOS LLOYDS MORTGAGE") can
+                # still be cross-checked against the credit report instead of
+                # always showing no CR match.
+                cr_accounts = (
+                    (cr_obj.extracted_data.get('accounts', []) or []) +
+                    (cr_obj.extracted_data.get('mortgage_accounts', []) or [])
+                )
 
                 # Build list of (normalised_name, balance_pence, full_account)
                 # Include zero-balance accounts (bal=0 or None)
@@ -481,10 +525,34 @@ class AssessCaseView(APIView):
 
                 used_indices = set()
 
+                # Tolerance on how far apart an Aryza balance and a credit-report
+                # balance can be and still count as "the same account". A flat
+                # £50 cap rejected genuine matches on larger balances that had
+                # simply moved between the credit-report pull date and the
+                # Aryza factfind date (e.g. a £9,760 debt vs an £8,791 CR
+                # balance — £969 apart, clearly the same loan). Scaling with
+                # the balance (20%, floor £50) keeps the original protection —
+                # a shared/generic resolved name (e.g. two distinct Aryza debts
+                # both aliased to "Monzo") still can't grab a wildly different
+                # same-named CR account, since a wrong account is typically off
+                # by far more than 20% — while tolerating normal balance drift.
+                def _cr_match_tolerance_pence(aryza_bal_pence):
+                    return max(5000, round(aryza_bal_pence * 0.20))
+
                 for cd in prepared_creditors:
+                    # Match on BOTH the resolved/representative name AND the
+                    # raw Aryza name — a case creditor is often resolved to a
+                    # representative-body brand (e.g. "Admiral Loans", "HBOS -
+                    # Halifax - IVA", "Zopa - IVA or BKY") that shares no
+                    # substring with the credit report's actual legal-entity
+                    # name ("ADMIRAL FINANCIAL SERVICES LTD", "HALIFAX CREDIT
+                    # CARD", "ZOPA LIMITED"). The raw Aryza name is much closer
+                    # to the credit-bureau name, so trying both recovers these.
                     key_name = (cd.get('creditor_name') or '').lower().strip()
+                    orig_name = (cd.get('original_name') or '').lower().strip()
                     # Aryza balance is in pounds — convert to pence for comparison
                     aryza_bal_pence = int(round((cd.get('balance') or 0) * 100))
+                    tolerance_pence = _cr_match_tolerance_pence(aryza_bal_pence)
 
                     best_idx = None
                     best_diff = None
@@ -493,14 +561,22 @@ class AssessCaseView(APIView):
                         if i in used_indices:
                             continue
                         name_match = (
-                            mc == key_name or
-                            (len(mc) >= 5 and (mc in key_name or key_name in mc))
+                            mc == key_name or mc == orig_name or
+                            (len(mc) >= 5 and (
+                                mc in key_name or key_name in mc or
+                                mc in orig_name or orig_name in mc
+                            ))
                         )
                         if not name_match:
                             continue
                         # Balance match — treat None CR balance as 0
                         cr_bal = bal if bal is not None else 0
                         diff = abs(cr_bal - aryza_bal_pence)
+                        # Only cap when the CR balance is actually known — if
+                        # it's None there's nothing to compare, so fall back to
+                        # the pre-existing name-only behaviour for that case.
+                        if bal is not None and diff > tolerance_pence:
+                            continue
                         if best_diff is None or diff < best_diff:
                             best_diff = diff
                             best_idx = i
@@ -519,6 +595,25 @@ class AssessCaseView(APIView):
 
         except Exception as e:
             logger.warning(f"[CR ENRICH] failed: {e}")
+
+        # Disambiguate duplicate creditor_name labels AFTER credit-report
+        # matching (so the CR-enrich step above still matches against the
+        # clean base name). Aryza's `creditor` table is one master record
+        # per legal entity — a bank's current-account overdraft and its
+        # separate credit card both join to the SAME creditorid, so
+        # `creditor_name` is legitimately identical for two distinct debts
+        # (confirmed: "Monzo Bank Limited" for both a Current Account and a
+        # Credit Card debt in a live case). That's correct data, not a bug —
+        # but showing two identically-labelled rows in the UI makes them
+        # impossible to tell apart. Suffix the display name with its debt
+        # type ONLY when it collides with another row in this same case.
+        from collections import Counter
+        _name_counts = Counter(cd.get('creditor_name') for cd in prepared_creditors)
+        for cd in prepared_creditors:
+            if _name_counts.get(cd.get('creditor_name'), 0) > 1:
+                _type_label = (cd.get('debt_type_normalised') or cd.get('creditor_type') or '').replace('_', ' ').strip().title()
+                if _type_label:
+                    cd['creditor_name'] = f"{cd['creditor_name']} ({_type_label})"
 
         # Build the engine payload matching CASE_ASSESSMENT_PAYLOAD.md
         payload = {
@@ -599,11 +694,12 @@ class AssessCaseView(APIView):
                 "MISSING_REFERENCE",
                 status.HTTP_422_UNPROCESSABLE_ENTITY
             )
+        credit_report_id = request.data.get("credit_report_id")
 
         # Step 2 — Fetch from Aryza
         try:
             case_data_obj = fetch_case_by_reference(aryza_reference)
-            case_data, prepared_creditors = self._prepare_engine_payload(case_data_obj)
+            case_data, prepared_creditors = self._prepare_engine_payload(case_data_obj, credit_report_id)
         except AryzaCaseNotFoundError:
             return error_response(
                 f"Case {aryza_reference} not found in Aryza",

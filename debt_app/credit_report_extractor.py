@@ -345,6 +345,50 @@ def _parse_missed_payments_last_3_months(lines: list[str]) -> int:
     return missed
 
 
+def _parse_worst_status_from_grid(lines: list[str]) -> str | None:
+    """
+    Aryza Advize has no labelled "Worst Status:" field like Experian does —
+    it only reports the current "Account Status:". This scans the FULL
+    payment-history grid (every year found, not just the most recent 3
+    months used by _parse_missed_payments_last_3_months) to derive the same
+    kind of worst-ever-recorded signal, so an account that is "Up to date"
+    today but defaulted or ran up arrears earlier isn't waved through as
+    clean just because its current status looks fine.
+
+    Returns a string in the same vocabulary as Experian's Worst Status
+    ("Default", "N Months Delinquent", "Satisfactory"), or None if no grid
+    data was found at all.
+    """
+    payment_row_re = re.compile(r"^[\s\d D\-]+$")
+    year_re = re.compile(r"^\d{4}$")
+
+    current_year = None
+    year_data: dict[int, list[str]] = {}
+
+    for line in lines:
+        stripped = line.strip()
+        if year_re.match(stripped):
+            current_year = int(stripped)
+        elif current_year and payment_row_re.match(stripped):
+            tokens = stripped.split()
+            clean = [t for t in tokens if t == "D" or (t.isdigit() and int(t) <= 6)]
+            if 1 <= len(clean) <= 12:
+                if current_year not in year_data:
+                    year_data[current_year] = clean
+
+    all_values = [v for values in year_data.values() for v in values]
+    if not all_values:
+        return None
+
+    if "D" in all_values:
+        return "Default"
+
+    worst = max(int(v) for v in all_values)
+    if worst == 0:
+        return "Satisfactory"
+    return f"{worst} Month{'s' if worst != 1 else ''} Delinquent"
+
+
 _KNOWN_SUBJECTIVE_LEVELS = {"Good", "Bad", "Fair", "Poor", "Satisfactory", "Excellent", "Unrated"}
 
 
@@ -608,6 +652,20 @@ def _parse_experian_status(lines: list[str]) -> str:
     return "Open"
 
 
+# Keyword substrings (not an exact-value set) so real-world wording variants
+# all match: "Month Delinquent" (missing its digit), "1 Month Delinquent",
+# "2 Months Delinquent", "Late Payment", "Arrangement to Pay", etc.
+_DEROGATORY_KEYWORDS = ("default", "delinquent", "late", "arrangement", "arrears", "collections")
+
+
+def _is_derogatory_status(text: str) -> bool:
+    """True if any derogatory/arrears keyword appears in the status text."""
+    if not text:
+        return False
+    low = text.lower()
+    return any(kw in low for kw in _DEROGATORY_KEYWORDS)
+
+
 def _split_experian_accounts(full_text: str) -> list[tuple[str, str]]:
     """
     Split Experian CAIS report text into (header_line, block_text) tuples.
@@ -665,16 +723,21 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
 
     account_status = _parse_experian_status(lines)
     account_status_subjective = _extract_field(lines, "Account Status Subjective Level")
+    worst_status = _extract_field(lines, "Worst Status")
 
     # Apply the same conditional exclusion rules as the Aryza path
 
-
-
-    # CA / UT: include only if the account is derogatory (defaulted/late/arrangement)
+    # CA / UT: include only if the account is derogatory (defaulted/late/arrangement).
+    # Check BOTH the current status ("Status:") and the worst-ever status
+    # ("Worst Status:") — a utility account can show "Active" today while its
+    # Worst Status field still records unresolved arrears history (e.g.
+    # "Month Delinquent" with a real, growing balance), which is exactly the
+    # kind of account this rule exists to surface.
     if type_code in {"CA", "UT"}:
-        if account_status.lower() not in {"default", "defaulted", "late", "late payment", "arrangement", "delinquent"}:
+        if not (_is_derogatory_status(account_status) or _is_derogatory_status(worst_status)):
             logger.debug(
-                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} status='{account_status}' — clean account excluded"
+                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} status='{account_status}' "
+                f"worst_status='{worst_status}' — clean account excluded"
             )
             return None
 
@@ -713,6 +776,7 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
         "account_status_subjective": account_status_subjective,
+        "worst_status": worst_status or None,
         "payment_history_months": 0,
         "monthly_payment": None,
         "account_number": account_number,
@@ -916,6 +980,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
 
     # --- Status ---
     account_status, account_status_subjective = _determine_account_status(lines)
+    worst_status = _parse_worst_status_from_grid(lines)
 
     # --- Payment history depth ---
     year_rows = re.findall(r"^\d{4}\b", block_text, re.MULTILINE)
@@ -941,11 +1006,15 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
 
 
 
-    # CA / UT: include only if defaulted or in arrears (unsecured IVA debt)
+    # CA / UT: include only if defaulted or in arrears (unsecured IVA debt).
+    # Check both the current status AND the full-grid worst-ever status —
+    # same "check all the fields" fix already applied to the Experian path,
+    # since Aryza doesn't expose a separate Worst Status field to read.
     if type_code in {"CA", "UT"}:
-        if account_status.lower() not in {"default", "defaulted", "late", "late payment", "arrangement", "delinquent"}:
+        if not (_is_derogatory_status(account_status) or _is_derogatory_status(worst_status or "")):
             logger.debug(
-                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' — excluded from extraction"
+                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' "
+                f"worst_status='{worst_status}' — excluded from extraction"
             )
             return None
 
@@ -967,6 +1036,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
         "account_status_subjective": account_status_subjective,
+        "worst_status": worst_status,
         "payment_history_months": payment_history_months,
         "monthly_payment": monthly_payment,
     }

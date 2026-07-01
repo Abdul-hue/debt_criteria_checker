@@ -202,7 +202,7 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "Halifax", "balance": 1000.0, "parent_group": "Lloyds Banking Group"},
             {"name": "Bank of Scotland", "balance": 1000.0, "parent_group": "Lloyds Banking Group"},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 1)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 1)
         self.assertTrue(_evolve_02({"creditors": creditors}).triggered)
         self.assertTrue(_watch_22_5({"creditors": creditors}).triggered)
 
@@ -211,7 +211,7 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "Halifax", "balance": 1000.0, "parent_group": "Lloyds Banking Group"},
             {"name": "Barclays", "balance": 1000.0, "parent_group": "Barclays Group"},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 2)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 2)
         self.assertFalse(_evolve_02({"creditors": creditors}).triggered)
 
     def test_below_threshold_ignored(self):
@@ -219,14 +219,14 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "A", "balance": 100.0},
             {"name": "B", "balance": 2000.0},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 1)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 1)
 
     def test_no_parent_group_falls_back_to_name(self):
         creditors = [
             {"name": "Lender One", "balance": 1000.0},
             {"name": "Lender Two", "balance": 1000.0},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 2)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 2)
 
     def test_multiple_small_entries_one_lender_sum_above_threshold(self):
         # Two £400 accounts with ONE lender total £800 (> £500) → that lender
@@ -235,7 +235,7 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "NatWest", "balance": 400.0, "parent_group": "NatWest Group"},
             {"name": "NatWest Credit Card", "balance": 400.0, "parent_group": "NatWest Group"},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 1)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 1)
 
     def test_two_lenders_each_summed_above_threshold(self):
         # NatWest £800 (2x£400) and Barclays £600 → two qualifying lenders → pass.
@@ -244,7 +244,7 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "NatWest Card", "balance": 400.0, "parent_group": "NatWest Group"},
             {"name": "Barclays", "balance": 600.0, "parent_group": "Barclays Group"},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 2)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 2)
         self.assertFalse(_evolve_02({"creditors": creditors}).triggered)
 
     def test_small_fragments_below_threshold_still_excluded(self):
@@ -253,7 +253,7 @@ class BankingGroupLenderCountTests(TestCase):
             {"name": "Tiny", "balance": 200.0, "parent_group": "Tiny Group"},
             {"name": "Tiny Card", "balance": 200.0, "parent_group": "Tiny Group"},
         ]
-        self.assertEqual(_count_qualifying_lenders(creditors, 500.0), 0)
+        self.assertEqual(len(_count_qualifying_lenders(creditors, 500.0)), 0)
 
 
 def _loan_age_case(name, *, age_months):
@@ -425,15 +425,18 @@ from debt_app.criteria_engine import _tig_10  # noqa: E402
 
 
 def _pod_case(creditors, total_debt):
-    """Minimal case for TIG-10 (proof of debt). No evidence ledger → every
-    creditor is unverified."""
+    """Minimal case for TIG-10 (proof of debt)."""
     return {"creditors": creditors, "evidence_ledger": [], "total_debt": total_debt}
 
 
 def _unverified(name, balance):
-    # No linked_creditor → no evidence → treated as unverified by _tig_10.
+    # _tig_10 is deliberately lenient: any creditor with a real Aryza name is
+    # treated as verified, and only a literal "Unknown Creditor" placeholder
+    # (Aryza couldn't identify the creditor at all) counts as genuinely
+    # unverified. `original_name` preserves the human-readable label for the
+    # message even though `name` must be the placeholder to trigger the check.
     return {
-        "name": name, "original_name": name,
+        "name": "Unknown Creditor", "original_name": name,
         "debt_type_normalised": "personal_loan", "balance": balance,
     }
 

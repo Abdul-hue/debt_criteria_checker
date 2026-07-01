@@ -459,8 +459,18 @@ export default function CriteriaReport({ result }) {
       {/* SECTION B — KEY METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
         <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
-          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Debt</label>
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1 flex items-center gap-1.5">
+            Total Debt
+            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100">
+              Unsecured
+            </span>
+          </label>
           <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.total_unsecured_debt)}</div>
+          {result?.total_secured_debt > 0 && (
+            <p className="text-[10px] text-gray-400 mt-1">
+              + {formatCurrency(result.total_secured_debt)} secured (excluded)
+            </p>
+          )}
         </div>
         <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Disposable Income</label>
@@ -627,7 +637,11 @@ export default function CriteriaReport({ result }) {
                   <td colSpan="7" className="px-4 pt-4 pb-1 text-right">
                     <span className="font-semibold text-sm text-gray-500 mr-2">Total Unsecured Debt:</span>
                     <span className="font-semibold text-sm text-gray-900">
-                      {formatCurrency((result?.creditor_positions || []).reduce((sum, c) => sum + (c.balance || 0), 0))}
+                      {formatCurrency(
+                        (result?.creditor_positions || [])
+                          .filter(c => !c.is_secured)
+                          .reduce((sum, c) => sum + (c.balance || 0), 0)
+                      )}
                     </span>
                   </td>
                 </tr>

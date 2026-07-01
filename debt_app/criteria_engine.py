@@ -407,10 +407,22 @@ def _parse_case(case_json: dict) -> dict:
     # --- Creditors ---
     from debt_app.helpers import normalise_debt_type, _SECURED_TYPES
     creditors = []
-    for c in creditors_raw:
+    for _idx, c in enumerate(creditors_raw):
         raw_type = c.get("creditor_type", "") or c.get("debt_type", "") or c.get("debt_type_normalised", "")
         debt_type = normalise_debt_type(raw_type)
         balance = _parse_amount(c.get("balance", 0))
+
+        # Prefer the caller's own secured/unsecured classification when it
+        # sends one — the case-assessment tool already resolves Aryza's
+        # inconsistent type codes ("car_hp", "hp", plural variants, an
+        # explicit hp flag, and a creditor-name fallback) more robustly
+        # than a single string-match here ever will. Only re-derive from
+        # debt_type_normalised when the caller doesn't provide is_secured
+        # at all (e.g. direct API callers, tests). This caught a live case
+        # where "car_hp" wasn't recognised by normalise_debt_type and a
+        # £17,007 secured car-finance debt was counted as unsecured.
+        _is_secured_raw = c.get("is_secured")
+        is_secured = bool(_is_secured_raw) if _is_secured_raw is not None else (debt_type in _SECURED_TYPES)
 
         # months_since_last_payment relative to assessment_date
         lpd_raw = c.get("last_payment_date")
@@ -424,12 +436,14 @@ def _parse_case(case_json: dict) -> dict:
                 pass
 
         creditors.append({
+            "_idx": _idx,
             "name": c.get("creditor_name") or c.get("name", ""),
             "original_name": c.get("original_name") or c.get("original_aryza_name") or c.get("name", ""),
             "balance": balance,
             "crm_balance": Decimal(str(balance)),
             "creditor_type": raw_type,
             "debt_type_normalised": debt_type,
+            "is_secured": is_secured,
             "account_age_months": c.get("account_age_months"),
             "last_transaction_date": c.get("last_transaction_date"),
             # Phase 3 per-creditor fields
@@ -444,16 +458,32 @@ def _parse_case(case_json: dict) -> dict:
             "guarantee_called_up": c.get("guarantee_called_up"),
             "months_since_last_payment": months_since_lp,
             "linked_creditor": c.get("linked_creditor"),
+            # Credit-report cross-check fields (populated upstream by the
+            # caller's CR-enrichment step, e.g. criteria_views.py matching
+            # Aryza creditors to CreditReport accounts). These were being
+            # silently dropped here — computed upstream, sent in the
+            # payload, but never carried into the parsed creditor dict —
+            # so the UI's CR Balance/Match/CR Status/Missed Pmts columns
+            # were always empty regardless of whether the enrichment
+            # actually found a match.
+            "cr_raw_name": c.get("cr_raw_name"),
+            "type_code": c.get("type_code"),
+            "cr_balance": c.get("cr_balance"),
+            "cr_account_status": c.get("cr_account_status"),
+            "cr_account_status_subjective": c.get("cr_account_status_subjective"),
+            "cr_credit_limit": c.get("cr_credit_limit"),
+            "cr_account_age_months": c.get("cr_account_age_months"),
+            "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
         })
 
     # --- Total debt: always computed from creditors (unsecured only) ---
     total_debt = sum(
         c["balance"] for c in creditors
-        if c["debt_type_normalised"] not in _SECURED_TYPES
+        if not c["is_secured"]
     )
     total_secured_debt = sum(
         c["balance"] for c in creditors
-        if c["debt_type_normalised"] in _SECURED_TYPES
+        if c["is_secured"]
     )
 
     # --- Disposable income ---
@@ -1037,13 +1067,27 @@ def _tig_09(c: dict) -> RuleResult:
 
 
 def _tig_10(c: dict) -> RuleResult:
-    """TIG-10: Debts must be verifiable via Aryza name, credit report match, or verbal for sub-£1,000."""
+    """TIG-10: Debts must be verifiable via Aryza name, credit report match, or verbal for sub-£1,000.
+
+    "Unverified" means the creditor could not be identified at all — Aryza
+    left it as a generic "Unknown Creditor" placeholder — AND no credit
+    report match confirms it. Any creditor with a real name from Aryza's own
+    CRM is treated as adequately sourced (deliberately lenient: Aryza's own
+    debt list is itself a form of proof, and richer evidence types the Excel
+    rule allows — creditor letters, 3-way calls, CCJs — aren't modelled by
+    this engine, so we don't second-guess a named entry). Escalation only
+    fires for genuinely unidentified debts, per Excel: "Debts under £1,000
+    can be verbal if not able to get a POD (unless it's a debt level issue)".
+    """
     creditors = c.get("creditors", [])
+    total_debt = float(c.get("total_debt") or 0)
+    MIN_DEBT = 6000.0  # mirrors TIG-01's minimum unsecured debt threshold
 
     # Names that indicate the creditor could not be identified from Aryza
     _UNKNOWN_NAMES = frozenset({"unknown", "unknown creditor"})
 
-    unverified = []
+    hard_block_unverified = []  # >= £1,000, unidentified — always hard_block
+    sub_1k_unverified = []      # < £1,000, unidentified — flag, unless load-bearing
 
     for creditor in creditors:
         balance = creditor.get("balance", 0)
@@ -1058,26 +1102,55 @@ def _tig_10(c: dict) -> RuleResult:
         # Verified if the debt came from the credit report
         has_credit_report = bool(creditor.get("from_credit_report"))
 
-        # Verbal confirmation acceptable for sub-£1,000 debts
-        is_sub_1k = balance < 1000
-
-        if is_aryza_sourced or has_credit_report or is_sub_1k:
+        if is_aryza_sourced or has_credit_report:
             continue
 
-        # Unverified: UNKNOWN name, no credit report match, balance >= £1,000
-        unverified.append((name, balance))
+        # Genuinely unidentified. Prefer original_name for the message so a
+        # caseworker can still tell debts apart even though Aryza couldn't
+        # classify the name.
+        display_name = creditor.get("original_name") or name
+        if balance >= 1000:
+            hard_block_unverified.append((display_name, balance))
+        else:
+            sub_1k_unverified.append((display_name, balance))
 
-    if not unverified:
+    if not hard_block_unverified and not sub_1k_unverified:
         return _pass("TIG-10", "All debts verified via Aryza or credit report.")
 
-    lines = [
-        f"{name} — balance £{balance:,.0f} cannot be verified from Aryza or credit report. "
-        "Obtain proof of debt before proposing."
-        for name, balance in unverified
-    ]
+    severity = "flag"
+    lines = []
+
+    for name, balance in hard_block_unverified:
+        lines.append(
+            f"{name} — balance £{balance:,.0f} cannot be verified from Aryza or credit report. "
+            "Obtain proof of debt before proposing."
+        )
+    if hard_block_unverified:
+        severity = "hard_block"
+
+    if sub_1k_unverified:
+        sub_1k_total = sum(balance for _, balance in sub_1k_unverified)
+        provable = total_debt - sub_1k_total
+        load_bearing = provable < MIN_DEBT
+        for name, balance in sub_1k_unverified:
+            if load_bearing:
+                lines.append(
+                    f"{name} — balance £{balance:,.0f} is unverified and under £1,000. "
+                    "Verbal would normally be acceptable, but excluding sub-£1,000 "
+                    f"unverified debts drops total debt to £{provable:,.0f} (below the "
+                    "£6,000 minimum) — this is a debt level issue, so proof of debt is "
+                    "required rather than verbal confirmation."
+                )
+                severity = "hard_block"
+            else:
+                lines.append(
+                    f"{name} — balance £{balance:,.0f} is unverified and under £1,000; "
+                    "verbal confirmation is acceptable if a POD cannot be obtained."
+                )
+
     return RuleResult(
         rule_id="TIG-10",
-        severity="flag",
+        severity=severity,
         triggered=True,
         message="\n".join(lines),
     )
@@ -2965,6 +3038,15 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
                 "reason": "No criteria row for this creditor",
                 "rule_ids": ["CREDITOR-UNKNOWN"],
                 "balance": balance,
+                "is_secured": bool(cr.get("is_secured", False)),
+                "debt_type_normalised": cr.get("debt_type_normalised"),
+                "_creditor_idx": cr.get("_idx"),
+                "cr_raw_name": cr.get("cr_raw_name"),
+                "type_code": cr.get("type_code"),
+                "cr_balance": cr.get("cr_balance"),
+                "cr_account_status": cr.get("cr_account_status"),
+                "cr_account_status_subjective": cr.get("cr_account_status_subjective"),
+                "cr_missed_payments_3m": cr.get("cr_missed_payments_3m"),
             })
             continue
 
@@ -3362,6 +3444,15 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
             "balance": balance,
             "criteria_notes": criteria.criteria_notes or "",
             "dividend_notes": criteria.dividend_notes or "",
+            "is_secured": bool(cr.get("is_secured", False)),
+            "debt_type_normalised": cr.get("debt_type_normalised"),
+            "_creditor_idx": cr.get("_idx"),
+            "cr_raw_name": cr.get("cr_raw_name"),
+            "type_code": cr.get("type_code"),
+            "cr_balance": cr.get("cr_balance"),
+            "cr_account_status": cr.get("cr_account_status"),
+            "cr_account_status_subjective": cr.get("cr_account_status_subjective"),
+            "cr_missed_payments_3m": cr.get("cr_missed_payments_3m"),
         })
 
     return positions
@@ -3648,6 +3739,7 @@ def _check_council_rules(case: dict) -> list[dict]:
             "effective_status": effective_status,
             "findings": findings,
             "reason": reason,
+            "_creditor_idx": cr.get("_idx"),
         })
 
     return positions
@@ -4269,7 +4361,6 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
     from debt_app.helpers import get_creditor_by_trading_name
 
     creditors = case.get("creditors", [])
-    balance_by_name = {c["name"]: c["crm_balance"] for c in creditors}
 
     # Merge council_positions into a unified position list so councils count toward the majority.  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
     # _check_council_rules() uses "council_name"; normalise to "creditor_name" for unified lookup.  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
@@ -4281,34 +4372,79 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
             # case creditor when the council canonical name differs (e.g. '&'/'and').
             "original_aryza_name": cp.get("original_aryza_name"),
             "effective_status": cp.get("effective_status", "DO_NOT_VOTE"),
+            "_creditor_idx": cp.get("_creditor_idx"),
         })
 
+    # Match positions to case creditors by the stable per-creditor index
+    # (_creditor_idx, set in _parse_case) wherever available — NOT by name
+    # string. Two distinct debts can resolve to (or simply be entered under)
+    # the exact same display name — e.g. two "Monzo Credit Card" rows that
+    # are actually a current-account overdraft and a separate credit card —
+    # and name-based set membership let one creditor's YES/DO_NOT_VOTE vote
+    # silently leak onto an unrelated creditor sharing that string, corrupting
+    # both the voting-pool denominator and the yes-vote numerator. Falls back
+    # to the old name-matching behaviour only for positions that don't carry
+    # an index (hand-built positions, e.g. in tests).
+    position_by_idx = {}
+    name_positions = []
+    for pos in all_positions:
+        idx = pos.get("_creditor_idx")
+        if idx is not None:
+            position_by_idx[idx] = pos
+        else:
+            name_positions.append(pos)
+
+    def _names_from_position(pos):
+        return [pos.get("creditor_name"), pos.get("original_aryza_name")]
+
     # Exclude DO_NOT_VOTE creditors from the denominator (total voting pool).  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
-    do_not_vote_names = {  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
-        pos["creditor_name"]
-        for pos in all_positions
+    do_not_vote_idxs = {
+        idx for idx, pos in position_by_idx.items()
         if pos.get("effective_status") == "DO_NOT_VOTE"
+    }
+    do_not_vote_names = {  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
+        n for pos in name_positions if pos.get("effective_status") == "DO_NOT_VOTE"
+        for n in _names_from_position(pos) if n
     }
     # WATCH-22.8: client aged 80+ — WATCH creditors abstain, remove from denominator
     client_age = case.get("client_age") or 0
     if client_age >= 80:
-        for pos in all_positions:
-            if pos["creditor_name"] in do_not_vote_names:
+        for idx, pos in position_by_idx.items():
+            if idx in do_not_vote_idxs:
                 continue
             try:
                 from debt_app.helpers import get_creditor_by_trading_name
                 from debt_app.models import CreditorCriteria
-                criteria = get_creditor_by_trading_name(pos["creditor_name"])
+                criteria = get_creditor_by_trading_name(pos.get("creditor_name"))
                 if criteria.representative == "WATCH":
-                    do_not_vote_names.add(pos["creditor_name"])
+                    do_not_vote_idxs.add(idx)
             except CreditorCriteria.DoesNotExist:
                 pass
+        for pos in name_positions:
+            names = [n for n in _names_from_position(pos) if n]
+            if any(n in do_not_vote_names for n in names):
+                continue
+            try:
+                from debt_app.helpers import get_creditor_by_trading_name
+                from debt_app.models import CreditorCriteria
+                criteria = get_creditor_by_trading_name(pos.get("creditor_name"))
+                if criteria.representative == "WATCH":
+                    do_not_vote_names.update(names)
+            except CreditorCriteria.DoesNotExist:
+                pass
+
+    def _is_do_not_vote(c):
+        idx = c.get("_idx")
+        if idx is not None and idx in position_by_idx:
+            return idx in do_not_vote_idxs
+        return c["name"] in do_not_vote_names
+
     # Voting pool: creditors who can actually vote (excludes DO_NOT_VOTE).
     # Used to determine which balances count toward voting_debt.
     total = sum(  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
         c["crm_balance"]
         for c in creditors
-        if c["name"] not in do_not_vote_names
+        if not _is_do_not_vote(c)
     )
     # The 75% threshold is calculated against ALL unsecured debt, not just the
     # voting pool — a large non-voting creditor (e.g. council) reduces the
@@ -4346,16 +4482,14 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         return (pos.get("effective_status") or "").upper() == "UNKNOWN"
 
     if all_positions:
-        # Match case creditors to positions by ANY name (resolved canonical,
-        # original_aryza_name) — councils' canonical name differs from the raw
-        # '&'/'and' form, so matching only the raw name silently dropped them.
-        def _names_from_position(pos):
-            return [pos.get("creditor_name"), pos.get("original_aryza_name")]
-
+        # Name-based fallback sets, used ONLY for positions with no
+        # _creditor_idx (councils' canonical name differs from the raw
+        # '&'/'and' form, but they now carry an idx too — this path is
+        # mainly for hand-built positions in tests).
         yes_names: set = set()
         unknown_names: set = set()
         all_positioned_names: set = set()
-        for pos in all_positions:
+        for pos in name_positions:
             names = [n for n in _names_from_position(pos) if n]
             all_positioned_names.update(names)
             if _counts_as_yes(pos):
@@ -4369,7 +4503,18 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         voting_debt = Decimal("0")
         unknown_debt = Decimal("0")
         for c in creditors:
-            if c["name"] in do_not_vote_names:
+            if _is_do_not_vote(c):
+                continue
+            idx = c.get("_idx")
+            if idx is not None and idx in position_by_idx:
+                # Authoritative: this creditor row was resolved to a specific
+                # position by identity, not by a name it might share with an
+                # unrelated creditor.
+                pos = position_by_idx[idx]
+                if _counts_as_yes(pos):
+                    voting_debt += c["crm_balance"]
+                elif _is_unknown(pos):
+                    unknown_debt += c["crm_balance"]
                 continue
             names = _creditor_names(c)
             if any(n in yes_names for n in names):
@@ -4409,10 +4554,13 @@ def calculate_estimated_dividend_pence(case: dict) -> int:
     iva_term_months = case.get("iva_term_months", 60)
     total = sum(
         c["crm_balance"] for c in creditors
-        if c.get("debt_type_normalised", "") not in _SECURED_TYPES
+        if not c.get("is_secured", c.get("debt_type_normalised", "") in _SECURED_TYPES)
     )
     if total > 0:
-        return int((monthly_di * iva_term_months / total) * 100)
+        # total is a plain float (summed from crm_balance) — Decimal can't be
+        # divided by float directly, so bring it into the same Decimal domain
+        # as monthly_di before dividing.
+        return int((monthly_di * iva_term_months / Decimal(str(total))) * 100)
     return 0
 
 
@@ -4646,6 +4794,32 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
             cr_mortgage_balance,
         )
 
+        # Surface this to the caseworker — the state mutation above (silently)
+        # flips has_property to True from credit-report data alone, with no
+        # property valuation available, so every equity rule downstream will
+        # short-circuit via [RULE-CANNOT-EVALUATE] instead of computing a real
+        # figure. Without a visible flag, a caseworker has no way to know that
+        # happened (this was the actual Theresa Topp gap — the mutation existed,
+        # the visibility didn't).
+        lender_names = ", ".join(sorted({
+            (acct.get("raw_name") or "").strip()
+            for acct in cr_active_mortgages if acct.get("raw_name")
+        }))
+        findings.append(RuleResult(
+            rule_id="PROPERTY-DATA-FROM-CREDIT-REPORT",
+            severity="flag",
+            triggered=True,
+            message=(
+                f"Aryza property tables are empty, but the credit report shows an "
+                f"active mortgage with {lender_names or 'an unidentified lender'} "
+                f"(balance £{cr_mortgage_balance:,.2f}). Using the credit report as a "
+                f"fallback source for mortgage_balance — property_value is unknown "
+                f"(credit reports show debt, not valuation), so equity cannot be "
+                f"computed automatically. Caseworker must verify property ownership "
+                f"and obtain a valuation."
+            ),
+        ))
+
     elif cr_mortgage_balance > 0:
         # Case 3 — both sources have mortgage data: check for significant disagreement.
         diff = abs(aryza_mortgage_balance - cr_mortgage_balance)
@@ -4813,6 +4987,7 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                         search_names,
                         scorer=fuzz.token_sort_ratio,
                         score_cutoff=80,
+                        processor=lambda s: s.lower(),
                     )
                     if r and (best_result is None or r[1] > best_result[1]):
                         best_result = r
@@ -4875,15 +5050,37 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                 best_creditor["recent_spending"] = account.get("recent_spending")
                 best_creditor["credit_report_balance"] = account.get("current_balance")
                 best_creditor["payment_history_months"] = account.get("payment_history_months")
+                best_creditor["worst_status"] = account.get("worst_status")
 
-                # Infer first_payment_made from account_status
+                # Infer first_payment_made from account_status OR worst_status.
+                # worst_status (Experian only) can show derogatory history even
+                # when account_status reads "Active" (e.g. an account that
+                # defaulted then recovered) — same "check both fields" fix
+                # already applied to the extraction-time inclusion filter.
                 # "defaulted" and "arrangement" require prior billing history — strong signal
                 # "late" implies active account with arrears — sufficient signal
                 # Upgrade-only: never overwrite Aryza True with False
                 _fpm_before = best_creditor.get("first_payment_made")
                 if not best_creditor.get("first_payment_made"):
                     _acct_status = (account.get("account_status") or "").lower()
-                    if _acct_status in {"defaulted", "default", "arrangement", "late", "late payment"}:
+                    _worst_status = (account.get("worst_status") or "").lower()
+                    _status_derog = _acct_status in {"defaulted", "default", "arrangement", "late", "late payment"}
+                    _worst_derog = any(
+                        kw in _worst_status
+                        for kw in ("default", "delinquent", "arrangement", "late", "arrears", "collections")
+                    )
+                    if _status_derog or _worst_derog:
+                        best_creditor["first_payment_made"] = True
+
+                # Infer first_payment_made from a real balance reduction — catches
+                # a clean/Active account that has genuinely paid down (the
+                # status-based check above never fires for Active). Only
+                # Experian accounts carry start_balance; Aryza-format accounts
+                # don't, so this is a no-op there. Same upgrade-only safety.
+                if not best_creditor.get("first_payment_made"):
+                    _start_bal = account.get("start_balance")
+                    _cur_bal = account.get("current_balance")
+                    if _start_bal is not None and _cur_bal is not None and _cur_bal < _start_bal:
                         best_creditor["first_payment_made"] = True
 
                 # Inject evidence entries keyed by linked_creditor AND name so
@@ -5345,6 +5542,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "overall_status": overall.upper(),
         "disposable_income": float(c["disposable_income"]),
         "total_unsecured_debt": float(c["total_debt"]),
+        "total_secured_debt": float(c.get("total_secured_debt") or 0),
         "passes_all_hard_blocks": tig_eligible,
         "recommended_solution": recommended_solution,
         "tig_eligible": tig_eligible,

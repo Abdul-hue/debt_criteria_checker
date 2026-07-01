@@ -39,7 +39,16 @@ export default function CaseSearch({ onResult, onError }) {
   const { refetch: fetchHistory, isLoading: isHistoryLoading } = useAssessHistory(reference)
 
   const onSubmit = (values) => {
-    runAssessment(values, {
+    // Pin the assessment to the exact credit report just uploaded for this
+    // reference — without this, the backend re-derives "the" credit report
+    // from history, which can silently pick a stale extraction over the one
+    // the user just uploaded.
+    const creditReportId =
+      uploadResult?.aryza_reference === values.aryza_reference
+        ? uploadResult?.credit_report_id
+        : undefined
+
+    runAssessment({ ...values, credit_report_id: creditReportId }, {
       onSuccess: (data) => {
         setLastRun(new Date().toLocaleTimeString())
         onResult(data)

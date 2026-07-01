@@ -12,9 +12,10 @@ export function useAssessCase() {
   const resultRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: async ({ aryza_reference }) => {
+    mutationFn: async ({ aryza_reference, credit_report_id }) => {
       const { data: response } = await axiosInstance.post('/api/v1/criteria/assess/', {
         aryza_reference,
+        ...(credit_report_id ? { credit_report_id } : {}),
       })
       
       // Map to standardized shape for CriteriaReport

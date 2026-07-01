@@ -92,7 +92,24 @@ def normalise_debt_type(raw: str) -> str:
     s = raw.lower()
     if "council tax" in s or "council_tax" in s or "ctax" in s:
         return DEBT_TYPE_COUNCIL_TAX
-    if "hire purchase" in s or "vehicle finance" in s:
+    # Hire purchase / car finance is sent by upstream systems under a lot
+    # of shorthand codes ("Car HP", "car_hp", "HP", "Vehicle HP") as well
+    # as the full words. Missing a variant here means a genuinely secured
+    # car finance debt silently falls through to DEBT_TYPE_UNKNOWN, which
+    # is NOT in _SECURED_TYPES — so it gets counted as unsecured debt in
+    # total_unsecured_debt. Caught a live case where Aryza's raw value
+    # was literally "Car HP" (space-separated, not "car_hp") — an
+    # underscore/suffix-only check misses this real-world format, so "hp"
+    # is matched as a standalone WORD regardless of the separator
+    # (space, underscore, hyphen, or none) around it.
+    _tokens = set(re.findall(r"[a-z0-9]+", s))
+    if (
+        "hire purchase" in s or "hire-purchase" in s or "hire_purchase" in s
+        or "vehicle finance" in s or "vehicle_finance" in s or "car finance" in s
+        or "car_finance" in s or "conditional sale" in s or "logbook" in s
+        or "log book" in s
+        or "hp" in _tokens
+    ):
         return DEBT_TYPE_HP
     if "housing benefit" in s:
         return DEBT_TYPE_HOUSING_BENEFIT
