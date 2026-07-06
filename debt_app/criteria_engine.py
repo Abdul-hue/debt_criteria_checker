@@ -2693,7 +2693,7 @@ def _phase4_dmp_reject(c: dict, criteria_map: dict) -> RuleResult:
 def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
     """PHASE4-COUNTY-COUNCIL: County council routing found — resolve district and evaluate its CouncilRule."""
     from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX
-    from debt_app.models import CountyCouncilRouting, CouncilRule  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
+    from debt_app.models import CountyCouncilRouting, CouncilRule, CountyCouncil  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
 
     council_tax_creditors = [
         cr for cr in c["creditors"]
@@ -2710,7 +2710,7 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
         county_name = cr["name"]
         routings = list(
             CountyCouncilRouting.objects.filter(county_name__iexact=county_name)
-            .select_related("council_rule")
+            .select_related("council_rule", "county")
         )
         if not routings:
             continue
@@ -2720,6 +2720,30 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
             + ", ".join(r.district_name for r in routings)
             + "."
         )
+
+        # The district vote below is calculated the normal way regardless — this
+        # only surfaces a flag when the COUNTY ITSELF (not any of its districts)
+        # has recorded criteria of its own (e.g. Buckinghamshire's accept/reject
+        # note). Almost every county has none — they delegate council tax to
+        # their districts entirely — so this fires rarely by design. It is
+        # deliberately NOT auto-applied: the recorded criteria is often a
+        # one-off historical case note rather than a clean general rule, so a
+        # human should read it and decide rather than the engine guessing.
+        county_obj = routings[0].county or CountyCouncil.objects.filter(
+            county_name__iexact=county_name
+        ).first()
+        if county_obj is not None and county_obj.status != 'NO_CRITERIA':
+            extra_results.append(RuleResult(
+                rule_id="COUNTY-COUNCIL-OWN-CRITERIA",
+                severity="flag",
+                triggered=True,
+                message=(
+                    f"{county_obj.county_name} County Council has its own recorded "
+                    f"criteria (status: {county_obj.get_status_display()}) — review "
+                    f"before finalising the district-level vote below. "
+                    f"Notes: {county_obj.blocked_reason or '(none recorded)'}"
+                ),
+            ))
 
         for routing in routings:  # EXCEL_CRITERIA_REFERENCE.md — County Councils: district rules must be evaluated
             district_name = routing.district_name

@@ -32,6 +32,7 @@ from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
+    CountyCouncil,
 )
 from debt_app.credit_report_extractor import extract_credit_report
 
@@ -467,6 +468,7 @@ class AssessCaseView(APIView):
         # Enrich creditors with type_code and raw_name from credit report
         # Match by matched_creditor (lower) + balance (pence) for accuracy
         # Enrich creditors with CR data — match by name+balance (closest), carry all fields
+        _cr_unmatched = []  # accounts in CR not matched to any declared creditor
         try:
             from debt_app.models import CreditReport
             cr_obj = None
@@ -593,6 +595,17 @@ class AssessCaseView(APIView):
                         cd['cr_account_age_months'] = acc.get('account_age_months')
                         cd['cr_missed_payments_3m'] = acc.get('missed_payments_last_3_months')
 
+                # Collect CR accounts that were NOT matched to any case creditor.
+                # These will be backfilled into all_creditor_positions later so
+                # caseworkers can see ALL accounts from the credit report regardless
+                # of whether the client declared them in the case payload.
+                _cr_unmatched = [
+                    acc
+                    for i, (_mc, _bal, acc) in enumerate(cr_list)
+                    if i not in used_indices
+                    and "application type" not in (acc.get('raw_name') or '').lower()
+                ]
+
         except Exception as e:
             logger.warning(f"[CR ENRICH] failed: {e}")
 
@@ -616,6 +629,11 @@ class AssessCaseView(APIView):
                     cd['creditor_name'] = f"{cd['creditor_name']} ({_type_label})"
 
         # Build the engine payload matching CASE_ASSESSMENT_PAYLOAD.md
+        property_data = case_data_obj.property or {}
+        vehicle_data = case_data_obj.vehicle or {}
+        income_data = case_data_obj.income or {}
+        expenditure_data = case_data_obj.expenditure or {}
+        flags_data = case_data_obj.flags or {}
         payload = {
             "application_id": case_data_obj.aryza_reference,
             "client_name": case_data_obj.client_name,
@@ -628,21 +646,21 @@ class AssessCaseView(APIView):
             "total_unsecured_debt": unsecured_debt_pounds,
             "financial_summary": {
                 "net_balance": di_pounds,
-                "total_income": case_data_obj.income["total"] / 100.0,
+                "total_income": (income_data.get("total") or 0) / 100.0,
                 "income_source": case_data_obj.employment_status,
             },
             "crm_data": {
                 "total_unsecured_debt": unsecured_debt_pounds,
             },
             "creditors": prepared_creditors,
-            "income": {k: v/100.0 for k, v in case_data_obj.income.items()},
-            "expenditure": {k: v/100.0 for k, v in case_data_obj.expenditure.items()},
-            "third_party_contribution": case_data_obj.income.get("third_party_contribution", 0) / 100.0,
+            "income": {k: v/100.0 for k, v in income_data.items()},
+            "expenditure": {k: v/100.0 for k, v in expenditure_data.items()},
+            "third_party_contribution": (income_data.get("third_party_contribution", 0) or 0) / 100.0,
             "property": {
-                "owns_property": case_data_obj.property.get("owns_property", False),
-                "property_value": (case_data_obj.property.get("property_value") or 0) / 100.0 if case_data_obj.property.get("property_value") is not None else 0.0,
+                "owns_property": property_data.get("owns_property", False),
+                "property_value": (property_data.get("property_value") or 0) / 100.0 if property_data.get("property_value") is not None else 0.0,
                 "mortgage_balance": (
-                    (case_data_obj.property.get("mortgage_balance") or 0) / 100.0
+                    (property_data.get("mortgage_balance") or 0) / 100.0
                     or sum(
                         float(cr.get("balance") or 0) / 100.0
                         for cr in (case_data_obj.creditors or [])
@@ -650,36 +668,36 @@ class AssessCaseView(APIView):
                         in {"mortgage", "secured", "secured_loan", "second_charge"}
                     )
                 ),
-                "equity": (case_data_obj.property.get("equity") or 0) / 100.0 if case_data_obj.property.get("equity") is not None else 0.0,
+                "equity": (property_data.get("equity") or 0) / 100.0 if property_data.get("equity") is not None else 0.0,
             },
             "vehicle": {
-                "has_vehicle": case_data_obj.vehicle.get("has_vehicle", False),
-                "vehicle_value": (case_data_obj.vehicle.get("vehicle_value") or 0) / 100.0 if case_data_obj.vehicle.get("vehicle_value") else None,
-                "hp_monthly_payment": (case_data_obj.vehicle.get("hp_monthly_payment") or 0) / 100.0 if case_data_obj.vehicle.get("hp_monthly_payment") else None,
+                "has_vehicle": vehicle_data.get("has_vehicle", False),
+                "vehicle_value": (vehicle_data.get("vehicle_value") or 0) / 100.0 if vehicle_data.get("vehicle_value") else None,
+                "hp_monthly_payment": (vehicle_data.get("hp_monthly_payment") or 0) / 100.0 if vehicle_data.get("hp_monthly_payment") else None,
             },
             "sfs_expenditure_breakdown": case_data_obj.sfs_expenditure_breakdown,
             "gold_transactions": case_data_obj.gold_transactions,
-            "flags": case_data_obj.flags,
-            "previous_iva_failed_reason": case_data_obj.flags.get("previous_iva_failed_reason"),
+            "flags": flags_data,
+            "previous_iva_failed_reason": flags_data.get("previous_iva_failed_reason"),
             "dependants": case_data_obj.dependants,
         }
 
         # Step 6 — Calculate aggregated benefit income for TIG-21.4
         # Rule TIG-21.4 requires the sum of all benefit components
         benefit_income_pence = (
-            case_data_obj.income.get("universal_credit", 0) or 0
+            income_data.get("universal_credit", 0) or 0
         ) + (
-            case_data_obj.income.get("dla", 0) or 0
+            income_data.get("dla", 0) or 0
         ) + (
-            case_data_obj.income.get("pip", 0) or 0
+            income_data.get("pip", 0) or 0
         ) + (
-            case_data_obj.income.get("other_benefits", 0) or 0
+            income_data.get("other_benefits", 0) or 0
         )
 
         benefit_income_pounds = benefit_income_pence / 100.0
         payload["benefit_income_amount"] = benefit_income_pounds if benefit_income_pounds > 0 else None
              
-        return payload, prepared_creditors
+        return payload, prepared_creditors, _cr_unmatched
 
 
     def post(self, request):
@@ -699,7 +717,7 @@ class AssessCaseView(APIView):
         # Step 2 — Fetch from Aryza
         try:
             case_data_obj = fetch_case_by_reference(aryza_reference)
-            case_data, prepared_creditors = self._prepare_engine_payload(case_data_obj, credit_report_id)
+            case_data, prepared_creditors, _cr_unmatched = self._prepare_engine_payload(case_data_obj, credit_report_id)
         except AryzaCaseNotFoundError:
             return error_response(
                 f"Case {aryza_reference} not found in Aryza",
@@ -836,6 +854,67 @@ class AssessCaseView(APIView):
             f"{restored_count} restored = "
             f"{len(all_creditor_positions)} total"
         )
+
+        # STEP 7c — Backfill credit-report-only accounts.
+        # Any CR account that was NOT matched to a case creditor is appended as
+        # an informational "CREDITOR-CR-ONLY" row so caseworkers see the full
+        # picture of the client's credit file, including undeclared accounts.
+        if _cr_unmatched:
+            # Build a set of cr_raw_names already stamped onto engine positions
+            # (from Step 7b enrichment) so we never double-append.
+            _already_stamped = {
+                (pos.get('cr_raw_name') or '').lower().strip()
+                for pos in all_creditor_positions
+                if pos.get('cr_raw_name')
+            }
+            for _acc in _cr_unmatched:
+                _raw = ((_acc.get('raw_name') or '')).strip()
+                if not _raw:
+                    continue
+                if _raw.lower() in _already_stamped:
+                    continue
+                _cr_bal_pence = _acc.get('current_balance')
+                _cr_only_pos = {
+                    'criteria_id': None,
+                    'creditor_name': _acc.get('matched_creditor') or _raw,
+                    'display_name': None,
+                    'original_aryza_name': _raw if _raw != (_acc.get('matched_creditor') or _raw) else None,
+                    'resolved_canonical_name': _acc.get('matched_creditor') or _raw,
+                    'representative': 'NONE',
+                    'effective_status': 'UNKNOWN',
+                    'findings': [{
+                        'code': 'CREDITOR-CR-ONLY',
+                        'reason': (
+                            'Account is present in the credit report but has not '
+                            'been declared in the case payload.'
+                        ),
+                        'severity': 'info',
+                    }],
+                    'reason': (
+                        'Account is present in the credit report but has not '
+                        'been declared in the case payload.'
+                    ),
+                    'rule_ids': ['CREDITOR-CR-ONLY'],
+                    'balance': 0.0,  # £0 — not declared in case
+                    'criteria_notes': '',
+                    'dividend_notes': '',
+                    'is_secured': False,
+                    'debt_type_normalised': None,
+                    '_creditor_idx': None,
+                    'cr_raw_name': _raw,
+                    'type_code': _acc.get('type_code') or '',
+                    'cr_balance': _cr_bal_pence,
+                    'cr_account_status': _acc.get('account_status') or '',
+                    'cr_account_status_subjective': _acc.get('account_status_subjective') or '',
+                    'cr_credit_limit': _acc.get('credit_limit'),
+                    'cr_account_age_months': _acc.get('account_age_months'),
+                    'cr_missed_payments_3m': _acc.get('missed_payments_last_3_months'),
+                }
+                all_creditor_positions.append(_cr_only_pos)
+                logger.info(
+                    f"[CR-ONLY] Backfilled undeclared account: {_raw!r} "
+                    f"(CR balance: {_cr_bal_pence}p, status: {_acc.get('account_status')!r})"
+                )
 
         enrich_positions_with_tallies(all_creditor_positions)
         result["creditor_positions"] = all_creditor_positions
@@ -1594,6 +1673,151 @@ class CouncilRuleDetailView(APIView):
         if council is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         council.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# County Council CRUD
+#
+# A CountyCouncil is the two-tier parent authority (e.g. Buckinghamshire
+# County Council) — distinct from CouncilRule, which represents the
+# council-tax-collecting district/borough/city/unitary authorities. Most
+# county councils delegate council tax to their districts (routed via
+# CountyCouncilRouting) but can still carry their own IVA voting criteria.
+# ---------------------------------------------------------------------------
+
+def _county_council_to_dict(c, include_districts=False):
+    data = {
+        "id": c.id,
+        "county_name": c.county_name,
+        "status": c.status,
+        "deals_with_council_tax": c.deals_with_council_tax,
+        "min_dividend_pence": c.min_dividend_pence,
+        "blocked_reason": c.blocked_reason,
+        "contact_name": c.contact_name,
+        "contact_number": c.contact_number,
+        "last_reviewed": c.last_reviewed.isoformat() if c.last_reviewed else None,
+    }
+    if include_districts:
+        districts = [
+            {
+                "id": d.id,
+                "district_name": d.district_name,
+                "council_rule_id": d.council_rule_id,
+                "council_rule_name": d.council_rule.council_name if d.council_rule_id else None,
+                "council_rule_status": d.council_rule.status if d.council_rule_id else None,
+            }
+            for d in sorted(c.districts.all(), key=lambda d: d.district_name)
+        ]
+        data["districts"] = districts
+        data["district_count"] = len(districts)
+    else:
+        data["district_count"] = c.districts.count()
+    return data
+
+
+_COUNTY_COUNCIL_WRITABLE_FIELDS = [
+    'county_name', 'status', 'deals_with_council_tax', 'min_dividend_pence',
+    'blocked_reason', 'contact_name', 'contact_number', 'last_reviewed',
+]
+
+
+class CountyCouncilListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'councils'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
+
+    def get(self, request):
+        page = int(request.query_params.get('page', 1))
+        page_size = min(int(request.query_params.get('page_size', 100)), 500)
+        search = request.query_params.get('search', '')
+
+        queryset = CountyCouncil.objects.all().order_by('county_name').prefetch_related(
+            'districts', 'districts__council_rule',
+        )
+        if search:
+            queryset = queryset.filter(county_name__icontains=search)
+
+        from django.core.paginator import Paginator
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+
+        return Response({
+            "count": paginator.count,
+            "next": f"{request.build_absolute_uri(request.path)}?page={page + 1}" if page_obj.has_next() else None,
+            "previous": f"{request.build_absolute_uri(request.path)}?page={page - 1}" if page_obj.has_previous() else None,
+            "results": [_county_council_to_dict(c, include_districts=True) for c in page_obj],
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        data = request.data
+        if not data.get('county_name'):
+            return Response({"detail": "county_name is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if CountyCouncil.objects.filter(county_name=data['county_name']).exists():
+            return Response({"detail": "A county council with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        county = CountyCouncil()
+        for field in _COUNTY_COUNCIL_WRITABLE_FIELDS:
+            if field in data:
+                setattr(county, field, data[field])
+
+        try:
+            county.full_clean()
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        county.save()
+        return Response(_county_council_to_dict(county), status=status.HTTP_201_CREATED)
+
+
+class CountyCouncilDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'councils'
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), HasReadPermission()]
+        return [IsAuthenticated(), HasWritePermission()]
+
+    def _get_object(self, pk):
+        try:
+            return CountyCouncil.objects.get(id=pk)
+        except CountyCouncil.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        county = self._get_object(pk)
+        if county is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_county_council_to_dict(county, include_districts=True), status=status.HTTP_200_OK)
+
+    def put(self, request, pk):
+        county = self._get_object(pk)
+        if county is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in _COUNTY_COUNCIL_WRITABLE_FIELDS:
+            if field in request.data:
+                setattr(county, field, request.data[field])
+
+        try:
+            county.full_clean()
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        county.save()
+        return Response(_county_council_to_dict(county, include_districts=True), status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        county = self._get_object(pk)
+        if county is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        county.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2401,7 +2625,13 @@ class _InternalKeyOrAuthenticated(BasePermission):
 
 
 class CreditReportUploadView(APIView):
-    permission_classes = [_InternalKeyOrAuthenticated]
+    """
+    POST /api/v1/criteria/credit-report/upload/
+    Open endpoint — no JWT required. The CA backend can upload credit
+    report PDFs without a token, matching /api/v1/assess/ behaviour.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):

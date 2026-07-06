@@ -6,8 +6,27 @@ __pycache__/
 db.sqlite3
 .git/
 .vscode/
+.claude/
 scratch/
 docs/
 tests/
 frontend/node_modules/
 frontend/dist/
+
+# Dev / debug scripts — not needed in the image
+temp_check.py
+debug_issues.py
+check_representative.py
+test_api.py
+list_active_rules.py
+verify_criteria.py
+verify_extraction.py
+inspect_pdf.py
+
+# Data exports / audit artefacts
+active_rules_list.txt
+audit_criteria_notes.csv
+sfs_export.json
+reconciliation_output/
+data/*.bak*
+data/*.sqlite3

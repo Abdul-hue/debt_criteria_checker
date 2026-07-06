@@ -29,3 +29,21 @@ media/
 # OS
 .DS_Store
 Thumbs.db
+
+# Dev / debug scripts (not for production)
+temp_check.py
+debug_issues.py
+check_representative.py
+test_api.py
+list_active_rules.py
+verify_criteria.py
+verify_extraction.py
+inspect_pdf.py
+
+# Data exports / audit artefacts (not for production)
+active_rules_list.txt
+audit_criteria_notes.csv
+sfs_export.json
+reconciliation_output/
+data/*.bak*
+data/*.sqlite3

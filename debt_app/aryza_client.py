@@ -219,6 +219,13 @@ class AryzaClient:
         except OperationalError as e:
             logger.error(f"Failed to connect to Aryza database: {e}")
             _handle_operational_error(e)
+        except Exception as e:
+            # Misconfigured settings (e.g. HOST/USER/PASSWORD unset) can raise
+            # driver-level errors (AttributeError, TypeError, etc.) before Django
+            # wraps them as OperationalError. Surface these as AryzaConnectionError
+            # too, so callers get a clean 503 instead of an unhandled 500.
+            logger.error(f"Failed to connect to Aryza database: {e}")
+            raise AryzaConnectionError(str(e)) from e
     
     def fetch_case_by_reference(self, reference: str) -> CaseData:
         """

@@ -23,7 +23,11 @@ def _council_default_reason(name: str, status: str) -> str:
 
 
 class DirectAssessView(APIView):
-    """POST /api/v1/assess/"""
+    """
+    POST /api/v1/assess/
+    Open endpoint — no JWT required. The CA backend and any authorised
+    service-to-service caller can POST raw case JSON without a token.
+    """
 
     authentication_classes = []
     permission_classes = [AllowAny]

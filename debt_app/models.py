@@ -466,6 +466,51 @@ class CouncilRule(models.Model):
         return self.council_name
 
 
+class CountyCouncil(models.Model):
+    """
+    The county-tier authority itself (e.g. Buckinghamshire County Council).
+
+    Distinct from CouncilRule: a CouncilRule is a council-tax-collecting
+    authority (district/borough/city/unitary). A CountyCouncil is the
+    two-tier parent — in most cases it does NOT collect council tax itself
+    (that's delegated to its districts, see CountyCouncilRouting) but can
+    still have its own IVA voting criteria for other debt types.
+    """
+
+    # Most county councils have no voting behaviour of their own at all —
+    # they delegate council tax entirely to their districts and are never
+    # themselves a creditor. NO_CRITERIA reflects that honestly; the other
+    # choices are only used for the rare county (e.g. Buckinghamshire) whose
+    # ground-truth notes state actual accept/reject criteria.
+    STATUS_CHOICES = [
+        ('NO_CRITERIA', 'No Direct Criteria — delegates to districts'),
+    ] + CouncilRule.STATUS_CHOICES
+
+    county_name = models.CharField(max_length=255, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='NO_CRITERIA',
+    )
+    deals_with_council_tax = models.BooleanField(
+        default=False,
+        help_text='Most county councils delegate council tax collection to their districts.',
+    )
+    min_dividend_pence = models.IntegerField(blank=True, null=True)
+    blocked_reason = models.TextField(blank=True, default='')
+    contact_name = models.CharField(max_length=255, blank=True, default='')
+    contact_number = models.CharField(max_length=255, blank=True, default='')
+    last_reviewed = models.DateField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = 'County Council'
+        verbose_name_plural = 'County Councils'
+        ordering = ['county_name']
+
+    def __str__(self):
+        return self.county_name
+
+
 class CountyCouncilRouting(models.Model):
     """Routes a county+district combination to a CouncilRule."""
 
@@ -477,6 +522,13 @@ class CountyCouncilRouting(models.Model):
         null=True,
         on_delete=models.PROTECT,
         related_name='county_routings',
+    )
+    county = models.ForeignKey(
+        CountyCouncil,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='districts',
     )
 
     class Meta:

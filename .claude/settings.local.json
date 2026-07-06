@@ -54,7 +54,24 @@
       "PowerShell(Get-ChildItem \"C:\\\\\" -Directory -ErrorAction SilentlyContinue | ForEach-Object { try { $s = \\(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum\\).Sum; [PSCustomObject]@{Name=$_.FullName; SizeGB=[math]::Round\\($s/1GB,2\\)} } catch {} } | Sort-Object SizeGB -Descending | Select-Object -First 8)",
       "PowerShell(npm cache clean --force 2>&1)",
       "Bash(grep -rn \"\\\\.first_name\\\\|\\\\.last_name\" \"C:\\\\Users\\\\Canyon Computers\\\\Desktop\\\\case-assessment-staging\\\\case-assessment-backend\\\\case_assesment\\\\accounts\" --include=\"*.py\" | grep \"request.data\\\\|POST\\\\|PUT\\\\|PATCH\")",
-      "Read(//c/Users/Canyon Computers/Desktop/case-assessment-staging/case-assessment-backend/case_assesment/**)"
+      "Read(//c/Users/Canyon Computers/Desktop/case-assessment-staging/case-assessment-backend/case_assesment/**)",
+      "Bash(xargs grep -lE \"class.*Creditor|Representative\" --include=*.py)",
+      "Bash(ls .venv/Scripts/python.exe)",
+      "Bash(ls .venv/bin/python)",
+      "Bash(which python *)",
+      "Bash(python --version)",
+      "Bash(./.venv/Scripts/python.exe manage.py shell -c ' *)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(rm -f stage2_run_query_tmp.py stage2_extract_local_tmp.py)",
+      "Bash(wc -l \"C:\\\\Users\\\\abdul.wasay\\\\Desktop\\\\debt_criteria_checker\\\\Excel Criteria\\\\General_Creditors.md\" \"C:\\\\Users\\\\abdul.wasay\\\\Desktop\\\\debt_criteria_checker\\\\Excel Criteria\\\\Which_Representative_Criteria.md\" \"C:\\\\Users\\\\abdul.wasay\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-abdul-wasay-Desktop-debt-criteria-checker\\\\660fa582-2fe8-4b7e-a438-bb11e0074459\\\\scratchpad\\\\stage2\\\\crm_votes.csv\")",
+      "Read(//c/Users/abdul.wasay/AppData/Local/Temp/claude/c--Users-abdul-wasay-Desktop-debt-criteria-checker/660fa582-2fe8-4b7e-a438-bb11e0074459/scratchpad/stage2/**)",
+      "Bash(\".venv/Scripts/python.exe\" \"C:\\\\Users\\\\ABDUL~1.WAS\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-abdul-wasay-Desktop-debt-criteria-checker\\\\78a414cf-8ea3-4135-bc43-ddd91be82b24\\\\scratchpad\\\\reconcile\\\\reconcile.py\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(python manage.py shell)",
+      "Bash(./.venv/Scripts/python manage.py shell)",
+      "Bash(\".venv/Scripts/python.exe\" \"C:\\\\Users\\\\ABDUL~1.WAS\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-abdul-wasay-Desktop-debt-criteria-checker\\\\78a414cf-8ea3-4135-bc43-ddd91be82b24\\\\scratchpad\\\\reconcile\\\\db_reconcile.py\")",
+      "Bash(./.venv/Scripts/python.exe \"C:\\\\Users\\\\ABDUL~1.WAS\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-abdul-wasay-Desktop-debt-criteria-checker\\\\a545c8eb-6178-4bca-9a48-3bf0ad0063a9\\\\scratchpad\\\\extract_fresh_crm_votes.py\")",
+      "Bash(./.venv/Scripts/python.exe \"C:\\\\Users\\\\ABDUL~1.WAS\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-abdul-wasay-Desktop-debt-criteria-checker\\\\a545c8eb-6178-4bca-9a48-3bf0ad0063a9\\\\scratchpad\\\\rep_comparison.py\")"
     ]
   }
 }

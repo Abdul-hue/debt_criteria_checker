@@ -69,13 +69,21 @@ class DirectAssessViewAuthTests(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(username="testuser_direct", password="pass")
 
-    def test_unauthenticated_returns_401(self):
+    def test_unauthenticated_returns_200(self):
+        """
+        /api/v1/assess/ is an open endpoint (AllowAny) — no JWT required.
+        The CA backend calls this without a token so unauthenticated POSTs
+        must succeed with 200 and a valid response shape.
+        """
         resp = self.client.post(
             "/api/v1/assess/",
             data=json.dumps(MINIMAL_PAYLOAD),
             content_type="application/json",
         )
-        self.assertEqual(resp.status_code, 401, f"Expected 401, got {resp.status_code}")
+        self.assertEqual(resp.status_code, 200, f"Expected 200, got {resp.status_code}: {resp.content}")
+        body = json.loads(resp.content)
+        for key in EXPECTED_TOP_LEVEL_KEYS:
+            self.assertIn(key, body, f"Response missing key '{key}'")
 
     def test_authenticated_returns_200_with_expected_shape(self):
         self.client.force_authenticate(user=self.user)

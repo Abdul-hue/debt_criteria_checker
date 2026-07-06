@@ -559,6 +559,10 @@ _EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
     "student loan": "UL",
     "motor insurance": "OT",
     "insurance": "OT",
+    "credit card / store card": "CC",
+    "car insurance": "OT",
+    "public utility": "UT",
+    "utility": "UT",
 }
 
 # Matches Experian CAIS account header lines: "{CREDITOR NAME} - {Category}"
@@ -566,13 +570,13 @@ _EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
 _EXPERIAN_HEADER_RE = re.compile(
     r"^(.+?)\s+-\s+("
     # Utilities
-    r"Water|Electricity|Gas|"
+    r"Water|Electricity|Gas|Public Utility|Utility|"
     # Telecoms
     r"Communications?|Telecoms?|Telecommunications|"
     # Bank accounts
     r"Current Accounts?|Savings Accounts?|"
     # Credit / revolving
-    r"Credit Cards?|Store Cards?|Charge Cards?|Running Account Credit|Revolving Credit|"
+    r"Credit Cards?|Store Cards?|Credit Card / Store Card|Charge Cards?|Running Account Credit|Revolving Credit|"
     # Loans — includes Experian's "Unsecured Loan (Personal Loan)" parenthetical form
     r"Personal Loans?|Unsecured Loans?\s*(?:\([^)]*\))?|Secured Loans?|"
     # HP / conditional sale
@@ -580,7 +584,7 @@ _EXPERIAN_HEADER_RE = re.compile(
     # Property
     r"Mortgages?|"
     # Other consumer
-    r"Home Credit|Mail Order|Student Loans?|Motor Insurance|Insurance"
+    r"Home Credit|Mail Order|Student Loans?|Motor Insurance|Car Insurance|Insurance"
     r")$",
     re.IGNORECASE,
 )
@@ -589,14 +593,14 @@ _EXPERIAN_HEADER_RE = re.compile(
 # Catches lines of the form "{CREDITOR NAME} - {Title Case Category}" that the
 # primary regex missed. Safety constraints that prevent false positives on inner
 # account-block lines:
-#   - Group 1 starts with [A-Z] (excludes bullet chars like •)
+#   - Group 1 starts with [A-Z0-9] (excludes bullet chars like •, allows numbers)
 #   - Group 1 must NOT contain ':' (excludes field labels like "Status: Active - Default")
 #   - Group 2 starts with [A-Z] and is 2–40 chars
 # Accounts matched only by this fallback receive type_code "OT" (Other) because
 # their category won't be in _EXPERIAN_CATEGORY_TO_TYPE — they pass all existing
 # inclusion/exclusion filters unchanged, so they always surface for caseworker review.
 _EXPERIAN_HEADER_FALLBACK_RE = re.compile(
-    r"^([A-Z][^:\n]{1,59}?)\s+-\s+([A-Z][A-Za-z0-9 /()\-]{1,39})$"
+    r"^([A-Z0-9][^:\n]{1,59}?)\s+-\s+([A-Z][A-Za-z0-9 /()\-]{1,39})$"
 )
 
 
@@ -707,6 +711,9 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
     raw_name = m.group(1).strip()
     category = m.group(2).strip()
     type_code = _EXPERIAN_CATEGORY_TO_TYPE.get(category.lower(), "OT")
+
+    if "application type" in raw_name.lower():
+        return None
 
     lines = block_text.split("\n")
 

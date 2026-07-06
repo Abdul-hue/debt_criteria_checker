@@ -5,15 +5,17 @@ import { useDepartment } from '../hooks/useDepartment'
 import CreditorsList from '../components/rules/CreditorsList'
 import RulesList from '../components/rules/RulesList'
 import CouncilsList from '../components/rules/CouncilsList'
+import CountyCouncilsList from '../components/rules/CountyCouncilsList'
 import DividendsList from '../components/rules/DividendsList'
 import GeneralCreditorsList from '../components/rules/GeneralCreditorsList'
 
 const ALL_TABS = [
-  { id: 'general',   label: 'General Creditors',   featureKey: 'general_creditors' },
-  { id: 'creditors', label: 'Which Representative', featureKey: 'representative_creditors' },
-  { id: 'rules',     label: 'Global Rules',         featureKey: 'global_rules' },
-  { id: 'councils',  label: 'Councils',             featureKey: 'councils' },
-  { id: 'dividends', label: 'Dividends',            featureKey: 'dividends' },
+  { id: 'general',        label: 'General Creditors',   featureKey: 'general_creditors' },
+  { id: 'creditors',      label: 'Which Representative', featureKey: 'representative_creditors' },
+  { id: 'rules',          label: 'Global Rules',         featureKey: 'global_rules' },
+  { id: 'councils',       label: 'Councils',             featureKey: 'councils' },
+  { id: 'county_councils',label: 'County Councils',      featureKey: 'councils' },
+  { id: 'dividends',      label: 'Dividends',            featureKey: 'dividends' },
 ]
 
 export default function RulesPage() {
@@ -80,6 +82,7 @@ export default function RulesPage() {
             {resolvedTab === 'creditors' && <CreditorsList />}
             {resolvedTab === 'rules'     && <RulesList />}
             {resolvedTab === 'councils'  && <CouncilsList />}
+            {resolvedTab === 'county_councils' && <CountyCouncilsList />}
             {resolvedTab === 'dividends' && <DividendsList />}
           </div>
         </>
