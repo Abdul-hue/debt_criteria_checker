@@ -3855,6 +3855,14 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "reason": reason,
                 "rule_ids": [f.get("code", "") for f in findings],
                 "balance": balance,
+                "cr_raw_name": c.get("cr_raw_name"),
+                "type_code": c.get("type_code"),
+                "cr_balance": c.get("cr_balance"),
+                "cr_account_status": c.get("cr_account_status"),
+                "cr_account_status_subjective": c.get("cr_account_status_subjective"),
+                "cr_credit_limit": c.get("cr_credit_limit"),
+                "cr_account_age_months": c.get("cr_account_age_months"),
+                "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
             })
         else:
             backfilled.append({
@@ -3867,6 +3875,14 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "reason": CREDITOR_NOT_ASSESSED_REASON,
                 "rule_ids": ["CREDITOR-NOT-ASSESSED"],
                 "balance": balance,
+                "cr_raw_name": c.get("cr_raw_name"),
+                "type_code": c.get("type_code"),
+                "cr_balance": c.get("cr_balance"),
+                "cr_account_status": c.get("cr_account_status"),
+                "cr_account_status_subjective": c.get("cr_account_status_subjective"),
+                "cr_credit_limit": c.get("cr_credit_limit"),
+                "cr_account_age_months": c.get("cr_account_age_months"),
+                "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
             })
 
     return engine_positions + backfilled
