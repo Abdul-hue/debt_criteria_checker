@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { useUpdateCouncil } from '../../hooks/useCouncils'
+import { useCreditorVoteSummary } from '../../hooks/useCreditors'
 import { useToast } from '../../hooks/useToast'
 import Spinner from '../shared/Spinner'
+import CrmVoteSummary from '../shared/CrmVoteSummary'
 
 const STATUS_OPTIONS = [
   { value: 'ACCEPT',            label: 'Accepts — votes to approve IVAs'         },
@@ -51,6 +53,8 @@ export default function CouncilEditDrawer({ council, onClose, readOnly }) {
   }, [council, reset])
 
   if (!council) return null
+  
+  const voteSummaryQuery = useCreditorVoteSummary('councils', council?.id)
 
   const onSubmit = (data) => {
     if (readOnly) return
@@ -176,6 +180,10 @@ export default function CouncilEditDrawer({ council, onClose, readOnly }) {
             />
           </Field>
 
+          <hr className="my-4 border-gray-100" />
+          
+          <CrmVoteSummary summary={voteSummaryQuery.data} isLoading={voteSummaryQuery.isLoading} />
+          
           <hr className="my-4 border-gray-100" />
 
           {/* ── Flags ── */}

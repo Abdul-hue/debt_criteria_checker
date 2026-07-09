@@ -132,3 +132,18 @@
       staleTime: 0,
     })
   }
+
+  /**
+   * Hook to fetch CRM vote summary for a creditor (any type: creditors, councils, county-councils)
+   */
+  export function useCreditorVoteSummary(type, id) {
+    return useQuery({
+      queryKey: ['creditor-vote-summary', type, id],
+      queryFn: async () => {
+        const { data } = await api.get(`/api/v1/criteria/${type}/${id}/vote-summary/`)
+        return data
+      },
+      enabled: !!type && !!id,
+      staleTime: 0,
+    })
+  }

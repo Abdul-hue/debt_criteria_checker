@@ -5,6 +5,7 @@ from .models import (
     Department, UserProfile,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, DepartmentFeatureAccess, DepartmentFeaturePermission,
+    CreditorVoteSummary,
 )
 
 
@@ -188,3 +189,20 @@ class DepartmentFeaturePermissionAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+
+@admin.register(CreditorVoteSummary)
+class CreditorVoteSummaryAdmin(admin.ModelAdmin):
+    list_display = [
+        'creditor_criteria', 'council_rule', 'county_council',
+        'total_votes', 'accepted_count', 'rejected_count',
+        'latest_vote_date', 'latest_vote_outcome',
+        'crm_rows_covered', 'last_synced_at'
+    ]
+    list_filter = ['latest_vote_outcome', 'last_synced_at']
+    search_fields = [
+        'creditor_criteria__creditor_name',
+        'council_rule__council_name',
+        'county_council__county_name'
+    ]
+    readonly_fields = ['last_synced_at']

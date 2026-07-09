@@ -32,7 +32,7 @@ from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
-    CountyCouncil,
+    CountyCouncil, CreditorVoteSummary,
 )
 from debt_app.credit_report_extractor import extract_credit_report
 
@@ -2901,3 +2901,62 @@ class CreditorAuditLogView(APIView):
             }
             for log in logs
         ])
+
+
+# ---------------------------------------------------------------------------
+# Creditor Vote Summary
+# ---------------------------------------------------------------------------
+
+def _vote_summary_to_dict(summary) -> dict:
+    if not summary:
+        return None
+    return {
+        "id": summary.id,
+        "total_votes": summary.total_votes,
+        "accepted_count": summary.accepted_count,
+        "rejected_count": summary.rejected_count,
+        "modified_count": summary.modified_count,
+        "pod_count": summary.pod_count,
+        "latest_vote_date": summary.latest_vote_date.isoformat() if summary.latest_vote_date else None,
+        "latest_vote_outcome": summary.latest_vote_outcome,
+        "crm_rows_covered": summary.crm_rows_covered,
+        "last_synced_at": summary.last_synced_at.isoformat(),
+    }
+
+
+class CreditorVoteSummaryView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasReadPermission]
+
+    def get_permissions(self):
+        # Determine required feature based on creditor type
+        creditor_type = self.kwargs.get('type', '')
+        if creditor_type == 'councils':
+            self.required_feature = 'councils'
+        elif creditor_type == 'county-councils':
+            self.required_feature = 'councils'
+        else:  # general creditors, which representative, etc.
+            self.required_feature = 'general_creditors'
+        return [IsAuthenticated(), HasReadPermission()]
+
+    def get(self, request, type, id):
+        creditor_obj = None
+        if type == 'creditors':
+            creditor_obj = CreditorCriteria.objects.filter(id=id).first()
+            if not creditor_obj:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            summary = creditor_obj.vote_summaries.first()
+        elif type == 'councils':
+            creditor_obj = CouncilRule.objects.filter(id=id).first()
+            if not creditor_obj:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            summary = creditor_obj.vote_summaries.first()
+        elif type == 'county-councils':
+            creditor_obj = CountyCouncil.objects.filter(id=id).first()
+            if not creditor_obj:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            summary = creditor_obj.vote_summaries.first()
+        else:
+            return Response({"detail": "Invalid creditor type."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(_vote_summary_to_dict(summary))

@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { useUpdateCountyCouncil, useCountyCouncil } from '../../hooks/useCountyCouncils'
+import { useCreditorVoteSummary } from '../../hooks/useCreditors'
 import { useToast } from '../../hooks/useToast'
 import Spinner from '../shared/Spinner'
+import CrmVoteSummary from '../shared/CrmVoteSummary'
 
 const STATUS_OPTIONS = [
   { value: 'NO_CRITERIA',       label: 'No Direct Criteria — delegates to districts, not a creditor' },
@@ -96,6 +98,8 @@ export default function CountyCouncilEditDrawer({ county, onClose, readOnly }) {
   }, [county, reset])
 
   if (!county) return null
+  
+  const voteSummaryQuery = useCreditorVoteSummary('county-councils', county?.id)
 
   const onSubmit = (data) => {
     if (readOnly) return
@@ -220,6 +224,10 @@ export default function CountyCouncilEditDrawer({ county, onClose, readOnly }) {
             />
           </Field>
 
+          <hr className="my-4 border-gray-100" />
+          
+          <CrmVoteSummary summary={voteSummaryQuery.data} isLoading={voteSummaryQuery.isLoading} />
+          
           <hr className="my-4 border-gray-100" />
 
           {/* ── Districts routed to this county ── */}

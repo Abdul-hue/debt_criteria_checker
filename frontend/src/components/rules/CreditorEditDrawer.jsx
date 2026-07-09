@@ -2,10 +2,11 @@ import React, { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { creditorSchema } from '../../schemas/creditorSchema'
-import { useUpdateCreditor, useCreditorOutcomes, useCreateCreditorOutcome, useDeleteCreditorOutcome, useCreditorAuditLog } from '../../hooks/useCreditors'
+import { useUpdateCreditor, useCreditorOutcomes, useCreateCreditorOutcome, useDeleteCreditorOutcome, useCreditorAuditLog, useCreditorVoteSummary } from '../../hooks/useCreditors'
 import { useToast } from '../../hooks/useToast'
 import TagInput from './TagInput'
 import Spinner from '../shared/Spinner'
+import CrmVoteSummary from '../shared/CrmVoteSummary'
 
 /**
  * Slide-in panel for viewing and editing a creditor
@@ -62,6 +63,7 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
   const createOutcome = useCreateCreditorOutcome(creditor?.id)
   const deleteOutcome = useDeleteCreditorOutcome(creditor?.id)
   const auditLogQuery = useCreditorAuditLog(creditor?.id)
+  const voteSummaryQuery = useCreditorVoteSummary('creditors', creditor?.id)
 
   const [outcomeForm, setOutcomeForm] = React.useState({
     case_reference: '',
@@ -428,6 +430,11 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-500"
             />
           </div>
+
+          <hr className="my-4 border-gray-100" />
+
+          {/* Group 7.5 — CRM Vote Summary */}
+          <CrmVoteSummary summary={voteSummaryQuery.data} isLoading={voteSummaryQuery.isLoading} />
 
           <hr className="my-4 border-gray-100" />
 

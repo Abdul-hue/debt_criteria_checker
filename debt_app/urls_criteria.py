@@ -28,6 +28,7 @@ from debt_app.views.criteria_views import (
     MyDepartmentView,
     CreditorOutcomeListView,
     CreditorAuditLogView,
+    CreditorVoteSummaryView,
 )
 from debt_app.views.evaluate_view import EvaluateCaseView
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
@@ -61,6 +62,9 @@ urlpatterns = [
     path("creditors/<int:id>/",             CreditorDetailView.as_view()),
     path('creditors/<int:id>/outcomes/',        CreditorOutcomeListView.as_view(),   name='creditor-outcomes'),
     path('creditors/<int:id>/audit-log/',       CreditorAuditLogView.as_view(),      name='creditor-audit-log'),
+    path('creditors/<int:id>/vote-summary/', CreditorVoteSummaryView.as_view(), {'type': 'creditors'}, name='creditor-vote-summary'),
+    path('councils/<int:id>/vote-summary/', CreditorVoteSummaryView.as_view(), {'type': 'councils'}, name='council-vote-summary'),
+    path('county-councils/<int:id>/vote-summary/', CreditorVoteSummaryView.as_view(), {'type': 'county-councils'}, name='county-council-vote-summary'),
     path("rules/",                          RulesListView.as_view()),
     path("rules/<str:rule_key>/",           RulesDetailView.as_view()),
     path("rules/<str:rule_key>/history/", RuleHistoryView.as_view()),

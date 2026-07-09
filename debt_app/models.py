@@ -193,6 +193,9 @@ class CreditorOutcome(models.Model):
         return f"{self.creditor.creditor_name} — {self.outcome} — {self.case_reference}"
 
 
+
+
+
 class CriteriaAuditLog(models.Model):
     ACTION_CHOICES = [
         ('create', 'Create'),
@@ -509,6 +512,76 @@ class CountyCouncil(models.Model):
 
     def __str__(self):
         return self.county_name
+
+
+class CreditorVoteSummary(models.Model):
+    # Choices for latest_vote_outcome
+    VOTE_OUTCOME_CHOICES = [
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected'),
+        ('modified', 'Modified'),
+        ('pod', 'POD'),
+    ]
+
+    # Links to each of the three creditor types - exactly one should be set
+    creditor_criteria = models.ForeignKey(
+        CreditorCriteria,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='vote_summaries'
+    )
+    council_rule = models.ForeignKey(
+        CouncilRule,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='vote_summaries'
+    )
+    county_council = models.ForeignKey(
+        CountyCouncil,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='vote_summaries'
+    )
+
+    total_votes = models.IntegerField(default=0)
+    rejected_count = models.IntegerField(null=True, blank=True)
+    accepted_count = models.IntegerField(null=True, blank=True)
+    modified_count = models.IntegerField(null=True, blank=True)
+    pod_count = models.IntegerField(null=True, blank=True)
+    latest_vote_date = models.DateField(null=True, blank=True)
+    latest_vote_outcome = models.CharField(
+        max_length=20,
+        choices=VOTE_OUTCOME_CHOICES,
+        null=True,
+        blank=True
+    )
+    crm_rows_covered = models.IntegerField(default=0)
+    last_synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Creditor Vote Summaries"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(creditor_criteria__isnull=False) & models.Q(council_rule__isnull=True) & models.Q(county_council__isnull=True)) |
+                    (models.Q(creditor_criteria__isnull=True) & models.Q(council_rule__isnull=False) & models.Q(county_council__isnull=True)) |
+                    (models.Q(creditor_criteria__isnull=True) & models.Q(council_rule__isnull=True) & models.Q(county_council__isnull=False))
+                ),
+                name='exactly_one_creditor_type_set'
+            )
+        ]
+
+    def __str__(self):
+        if self.creditor_criteria:
+            return f"Vote Summary: {self.creditor_criteria.creditor_name}"
+        elif self.council_rule:
+            return f"Vote Summary: {self.council_rule.council_name}"
+        elif self.county_council:
+            return f"Vote Summary: {self.county_council.county_name}"
+        return "Vote Summary (unlinked)"
 
 
 class CountyCouncilRouting(models.Model):
