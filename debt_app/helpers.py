@@ -289,7 +289,7 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'klarna': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'klarna uk ltd': 'Klarna',
     'klarna pay later and pay in 3': 'Klarna',
-    'zilch': 'NewDay',
+    'zilch': 'Zilch',
     'zilch technology limited': 'Zilch',
     'zable': 'NewDay',
     'lendable limited t/a zable': 'Zable',
