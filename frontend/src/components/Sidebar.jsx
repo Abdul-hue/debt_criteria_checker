@@ -80,7 +80,7 @@ export default function Sidebar() {
   const showOperations = isAdmin || ['run_assessment', 'decisions'].some(k => hasFeature(k))
 
   return (
-    <aside className="w-56 bg-slate-900 flex flex-col py-4 shrink-0 overflow-hidden">
+    <aside className="w-56 bg-brand-navy flex flex-col py-4 shrink-0 overflow-hidden">
       <nav className="flex-1 space-y-1 px-2 overflow-y-auto">
         {isAdmin ? (
           <>

@@ -32,9 +32,11 @@ from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
-    CountyCouncil, CreditorVoteSummary,
+    CountyCouncil, CreditorVoteSummary, CrmSyncRun,
 )
 from debt_app.credit_report_extractor import extract_credit_report
+from debt_app.services.crm_vote_sync import run_crm_vote_sync
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -886,13 +888,13 @@ class AssessCaseView(APIView):
                         'code': 'CREDITOR-CR-ONLY',
                         'reason': (
                             'Account is present in the credit report but has not '
-                            'been declared in the case payload.'
+                            'been declared in the database.'
                         ),
                         'severity': 'info',
                     }],
                     'reason': (
                         'Account is present in the credit report but has not '
-                        'been declared in the case payload.'
+                        'been declared in the database.'
                     ),
                     'rule_ids': ['CREDITOR-CR-ONLY'],
                     'balance': 0.0,  # £0 — not declared in case
@@ -2960,3 +2962,112 @@ class CreditorVoteSummaryView(APIView):
             return Response({"detail": "Invalid creditor type."}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(_vote_summary_to_dict(summary))
+
+
+def _crm_sync_run_to_dict(run) -> dict:
+    duration_seconds = None
+    if run.finished_at:
+        duration_seconds = (run.finished_at - run.started_at).total_seconds()
+    return {
+        "id": run.id,
+        "status": run.status,
+        "stage": run.stage,
+        "trigger_source": run.trigger_source,
+        "started_at": run.started_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "duration_seconds": duration_seconds,
+        "dry_run": run.dry_run,
+        "crm_rows_fetched": run.crm_rows_fetched,
+        "records_created": run.records_created,
+        "records_updated": run.records_updated,
+        "creditor_criteria_count": run.creditor_criteria_count,
+        "council_rule_count": run.council_rule_count,
+        "county_council_count": run.county_council_count,
+        "error_message": run.error_message,
+        "triggered_by": run.triggered_by.username if run.triggered_by else None,
+    }
+
+
+def _run_crm_sync_in_background(run_id):
+    """
+    Thread target: runs the CRM vote sync for the given CrmSyncRun id and updates
+    its status on completion/failure. Runs in its own thread, so it must close its
+    own DB connections when done (this isn't a request-response cycle).
+    """
+    from django.db import connections
+    try:
+        run = CrmSyncRun.objects.get(pk=run_id)
+        try:
+            run_crm_vote_sync(run=run, dry_run=run.dry_run)
+            run.status = "SUCCESS"
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "finished_at"])
+        except Exception as e:
+            run.status = "FAILED"
+            run.finished_at = timezone.now()
+            run.error_message = str(e)
+            run.save(update_fields=["status", "finished_at", "error_message"])
+    finally:
+        connections.close_all()
+
+
+class CrmSyncTriggerView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasWritePermission()]
+
+    def post(self, request):
+        existing = CrmSyncRun.objects.filter(status='RUNNING').first()
+        if existing:
+            return Response(
+                {"detail": "A sync is already running.", "id": existing.id, "status": existing.status},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        run = CrmSyncRun.objects.create(trigger_source='MANUAL', triggered_by=request.user)
+
+        thread = threading.Thread(target=_run_crm_sync_in_background, args=(run.id,), daemon=True)
+        thread.start()
+
+        return Response({"id": run.id, "status": "RUNNING"}, status=status.HTTP_202_ACCEPTED)
+
+
+class CrmSyncStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasReadPermission()]
+
+    def get(self, request, pk):
+        run = CrmSyncRun.objects.filter(pk=pk).first()
+        if not run:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_crm_sync_run_to_dict(run))
+
+
+class CrmSyncHistoryView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasReadPermission()]
+
+    def get(self, request):
+        page = int(request.query_params.get('page', 1))
+        page_size = min(int(request.query_params.get('page_size', 100)), 500)
+
+        queryset = CrmSyncRun.objects.all()
+
+        from django.core.paginator import Paginator
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+
+        return Response({
+            "count": paginator.count,
+            "next": f"{request.build_absolute_uri(request.path)}?page={page + 1}" if page_obj.has_next() else None,
+            "previous": f"{request.build_absolute_uri(request.path)}?page={page - 1}" if page_obj.has_previous() else None,
+            "results": [_crm_sync_run_to_dict(r) for r in page_obj],
+        }, status=status.HTTP_200_OK)

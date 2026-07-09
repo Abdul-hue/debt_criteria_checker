@@ -44,7 +44,7 @@ export default function DepartmentPage() {
         </div>
         <button
           onClick={() => setAddOpen(true)}
-          className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-800 transition-colors"
+          className="inline-flex items-center gap-2 bg-brand-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-800 transition-colors"
         >
           <Plus size={16} />
           Add Department

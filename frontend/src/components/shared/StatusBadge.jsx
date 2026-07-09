@@ -31,9 +31,9 @@ const statusMap = {
     border: 'border-purple-200',
   },
   UNKNOWN: {
-    bg: 'bg-white',
-    text: 'text-gray-500',
-    border: 'border-gray-300',
+    bg: 'bg-blue-50',
+    text: 'text-blue-700',
+    border: 'border-blue-200',
   },
   blocked: {
     bg: 'bg-red-600',

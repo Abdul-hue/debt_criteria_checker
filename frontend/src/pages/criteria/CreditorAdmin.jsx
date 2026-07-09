@@ -102,7 +102,7 @@ export default function CreditorAdmin() {
           <div className="flex items-end gap-3">
             <button
               type="button"
-              className="inline-flex w-full items-center justify-center rounded-3xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="inline-flex w-full items-center justify-center rounded-3xl bg-brand-navy px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
               onClick={fetchCreditors}
             >
               Update list
@@ -145,7 +145,7 @@ export default function CreditorAdmin() {
                   <td className="px-6 py-4">
                     <button
                       type="button"
-                      className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      className="rounded-2xl bg-brand-navy px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                       onClick={() => openEditor(creditor)}
                     >
                       Edit
@@ -167,7 +167,7 @@ export default function CreditorAdmin() {
             </div>
             <button
               type="button"
-              className="rounded-3xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="rounded-3xl bg-brand-navy px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
               onClick={() => {
                 setActiveCreditor(null)
                 setEditableCreditor(null)
@@ -229,7 +229,7 @@ export default function CreditorAdmin() {
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-3xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
+              className="inline-flex items-center justify-center rounded-3xl bg-brand-navy px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"
               onClick={handleSave}
               disabled={saving}
             >

@@ -584,6 +584,32 @@ class CreditorVoteSummary(models.Model):
         return "Vote Summary (unlinked)"
 
 
+class CrmSyncRun(models.Model):
+    STATUS_CHOICES = [('RUNNING', 'Running'), ('SUCCESS', 'Success'), ('FAILED', 'Failed')]
+    TRIGGER_CHOICES = [('MANUAL', 'Manual'), ('SCHEDULED', 'Scheduled/Cron'), ('CLI', 'CLI')]
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='RUNNING')
+    stage = models.CharField(max_length=100, blank=True, default='')
+    trigger_source = models.CharField(max_length=10, choices=TRIGGER_CHOICES, default='CLI')
+    triggered_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='crm_sync_runs')
+    dry_run = models.BooleanField(default=False)
+    crm_rows_fetched = models.IntegerField(null=True, blank=True)
+    records_created = models.IntegerField(default=0)
+    records_updated = models.IntegerField(default=0)
+    creditor_criteria_count = models.IntegerField(default=0)
+    council_rule_count = models.IntegerField(default=0)
+    county_council_count = models.IntegerField(default=0)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return f"CrmSyncRun {self.id} ({self.status}) {self.started_at}"
+
+
 class CountyCouncilRouting(models.Model):
     """Routes a county+district combination to a CouncilRule."""
 

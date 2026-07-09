@@ -207,7 +207,7 @@ export default function UserCreateDrawer({ isOpen, onClose }) {
           <label className="text-sm font-medium text-slate-700">Active</label>
           <label className="relative inline-flex items-center cursor-pointer">
             <input {...register('is_active')} type="checkbox" className="sr-only peer" defaultChecked />
-            <div className="w-11 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-slate-400 rounded-full peer peer-checked:bg-slate-900 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
+            <div className="w-11 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-slate-400 rounded-full peer peer-checked:bg-brand-navy after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
           </label>
         </div>
 
@@ -223,7 +223,7 @@ export default function UserCreateDrawer({ isOpen, onClose }) {
           <button
             type="submit"
             disabled={isLoading}
-            className="px-4 py-2 text-sm rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="px-4 py-2 text-sm rounded-md bg-brand-navy text-white hover:bg-slate-800 disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {isLoading && <Loader2 size={14} className="animate-spin" />}
             {isLoading ? 'Creating...' : 'Create User'}

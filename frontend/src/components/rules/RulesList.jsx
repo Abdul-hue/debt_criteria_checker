@@ -177,7 +177,7 @@ export default function RulesList() {
                 key={s}
                 onClick={() => toggleFilter(criteriaFilter, setCriteriaFilter, s)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  criteriaFilter.includes(s) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  criteriaFilter.includes(s) ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                 }`}
               >
                 {s}
@@ -193,7 +193,7 @@ export default function RulesList() {
                 key={s}
                 onClick={() => toggleFilter(severityFilter, setSeverityFilter, s)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  severityFilter.includes(s) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  severityFilter.includes(s) ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                 }`}
               >
                 {SEVERITY_MAP[s].label}
@@ -209,7 +209,7 @@ export default function RulesList() {
                 key={c}
                 onClick={() => toggleFilter(categoryFilter, setCategoryFilter, c)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  categoryFilter.includes(c) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  categoryFilter.includes(c) ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
                 }`}
               >
                 {c}

@@ -136,7 +136,7 @@ export default function CaseSearch({ onResult, onError }) {
         <button
           type="submit"
           disabled={isPending}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-md py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="w-full bg-brand-navy hover:bg-slate-800 text-white rounded-md py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {isPending ? (
             <>

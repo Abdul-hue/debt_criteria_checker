@@ -58,7 +58,7 @@ const formatPence = (val) => `${(val || 0).toFixed(2)}p`
 const STATUS_CHIP = {
   'ACCEPT':           'bg-emerald-100 text-emerald-700',
   'REJECT':           'bg-red-100 text-red-700',
-  'UNKNOWN':          'bg-gray-100 text-gray-500',
+  'UNKNOWN':          'bg-blue-100 text-blue-700',
   'REVIEW':           'bg-amber-100 text-amber-700',
   'WILL_CONSIDER':    'bg-amber-100 text-amber-700',
   'DO_NOT_VOTE':      'bg-gray-100 text-gray-600',
@@ -68,7 +68,7 @@ const STATUS_CHIP = {
 const STATUS_LABEL = {
   'ACCEPT':           'Accept',
   'REJECT':           'Reject',
-  'UNKNOWN':          'Unknown',
+  'UNKNOWN':          'Unidentified',
   'REVIEW':           'Needs Review',
   'WILL_CONSIDER':    'Will Consider',
   'DO_NOT_VOTE':      'Does Not Vote',
@@ -81,7 +81,7 @@ const STATUS_DEFAULT_REASON = {
   'WILL_CONSIDER':    'This creditor will consider the proposal subject to conditions or modifications.',
   'DO_NOT_VOTE':      'This creditor does not participate in the creditor vote.',
   'CONDITIONAL_VOTER':'This creditor votes case by case — outcome depends on specific case factors.',
-  'UNKNOWN':          'No criteria record found for this creditor.',
+  'UNKNOWN':          'This creditor has no matching record in our database.',
 }
 
 const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
@@ -407,9 +407,11 @@ export default function CriteriaReport({ result }) {
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 font-sans text-gray-600">
       {/* SECTION A — CLIENT HEADER CARD */}
-      <div className="bg-white rounded-2xl shadow-md p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border border-gray-100">
+      <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+        <div className="h-1 w-full bg-gradient-to-r from-brand-navy via-brand-gold to-brand-red" />
+        <div className="p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="space-y-3">
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
+          <h1 className="font-display text-3xl font-bold text-brand-navy tracking-tight">
             {result?.client_name || 'Theresa Topp'}
           </h1>
           <p className="text-sm text-gray-400">
@@ -454,31 +456,32 @@ export default function CriteriaReport({ result }) {
             {solutionRationale}
           </p>
         </div>
+        </div>
       </div>
 
       {/* SECTION B — KEY METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 border-t-4 border-t-brand-navy p-4">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1 flex items-center gap-1.5">
             Total Debt
-            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100">
+            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-slate-100 text-brand-navy border border-slate-200">
               Unsecured
             </span>
           </label>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.total_unsecured_debt)}</div>
+          <div className="font-display text-2xl font-bold text-brand-navy">{formatCurrency(result?.total_unsecured_debt)}</div>
           {result?.total_secured_debt > 0 && (
             <p className="text-[10px] text-gray-400 mt-1">
               + {formatCurrency(result.total_secured_debt)} secured (excluded)
             </p>
           )}
         </div>
-        <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4">
+        <div className="rounded-xl bg-white shadow-sm border border-gray-100 border-t-4 border-t-brand-gold p-4">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Disposable Income</label>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(result?.disposable_income)}</div>
+          <div className="font-display text-2xl font-bold text-brand-navy">{formatCurrency(result?.disposable_income)}</div>
         </div>
-        <div className="rounded-xl shadow-sm border p-4 bg-white border-gray-100">
+        <div className="rounded-xl shadow-sm border p-4 bg-white border-gray-100 border-t-4 border-t-emerald-800">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Est. Dividend</label>
-          <div className="text-2xl font-bold text-gray-900">{formatPence(estDividend)}</div>
+          <div className="font-display text-2xl font-bold text-brand-navy">{formatPence(estDividend)}</div>
           {result?.dividend_analysis && (
             <div className="mt-2">
               {result.dividend_analysis.below_min?.length > 0 ? (
@@ -491,15 +494,15 @@ export default function CriteriaReport({ result }) {
             </div>
           )}
         </div>
-        <div className="rounded-xl shadow-sm border p-4 bg-white border-gray-100">
+        <div className={`rounded-xl shadow-sm border p-4 bg-white border-gray-100 border-t-4 ${isAchievable ? 'border-t-emerald-800' : 'border-t-brand-red'}`}>
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Majority</label>
           <div className="flex items-center gap-2">
             {isAchievable ? (
-              <Check className="w-6 h-6 text-emerald-500 stroke-[3]" />
+              <Check className="w-6 h-6 text-emerald-600 stroke-[3]" />
             ) : (
-              <X className="w-6 h-6 text-red-500 stroke-[3]" />
+              <X className="w-6 h-6 text-brand-red stroke-[3]" />
             )}
-            <div className="text-2xl font-bold text-gray-900">{isAchievable ? 'Yes' : 'No'}</div>
+            <div className="font-display text-2xl font-bold text-brand-navy">{isAchievable ? 'Yes' : 'No'}</div>
           </div>
           {result?.majority_analysis && (
             <div className="mt-2 space-y-0.5">
@@ -512,7 +515,7 @@ export default function CriteriaReport({ result }) {
               {result.majority_analysis.achievable ? (
                 <div className="text-xs font-medium text-green-600">Majority Achievable</div>
               ) : (
-                <div className="text-xs font-medium text-red-500">
+                <div className="text-xs font-medium text-brand-red">
                   Shortfall: £{new Intl.NumberFormat('en-GB').format(Math.round(result.majority_analysis.shortfall || 0))}
                 </div>
               )}
@@ -523,8 +526,8 @@ export default function CriteriaReport({ result }) {
 
       {/* CASE SUMMARY section */}
       <div className="mt-8 space-y-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Creditor Positions</h2>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 border-t-4 border-t-brand-navy p-6">
+          <h2 className="text-sm font-bold text-brand-navy uppercase tracking-wide mb-4">Creditor Positions</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead>
@@ -772,7 +775,32 @@ export default function CriteriaReport({ result }) {
             </div>
 
             {/* Checks run on this case */}
-            {(statusPopup.creditor.findings || []).length > 0 && (
+            {(() => {
+              const statusKey = (statusPopup.creditor.effective_status || '').toUpperCase().trim()
+              const findings = statusPopup.creditor.findings || []
+              const isUnidentified = statusKey === 'UNKNOWN' &&
+                findings.every(f => f.code === 'CREDITOR-UNKNOWN')
+
+              if (isUnidentified) {
+                return (
+                  <div className="mt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                        Checks run on this case
+                      </span>
+                      <div className="flex-1 h-px bg-gray-100" />
+                    </div>
+                    <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
+                      <span className="mt-0.5 font-bold text-sm leading-none text-blue-500">i</span>
+                      <span className="leading-snug">
+                        This creditor has no matching record in our database, so no criteria checks apply.
+                      </span>
+                    </div>
+                  </div>
+                )
+              }
+
+              return findings.length > 0 && (
               <div className="mt-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
@@ -780,11 +808,11 @@ export default function CriteriaReport({ result }) {
                   </span>
                   <div className="flex-1 h-px bg-gray-100" />
                   <span className="text-[11px] text-gray-400">
-                    {(statusPopup.creditor.findings || []).filter(f => f.severity === 'pass').length} passed
+                    {findings.filter(f => f.severity === 'pass').length} passed
                     {' · '}
-                    {(statusPopup.creditor.findings || []).filter(f => f.code.endsWith('-REJECT')).length} failed
+                    {findings.filter(f => f.code.endsWith('-REJECT')).length} failed
                     {' · '}
-                    {(statusPopup.creditor.findings || []).filter(f => !f.severity?.match(/pass/) && !f.code.endsWith('-REJECT')).length} flagged
+                    {findings.filter(f => !f.severity?.match(/pass/) && !f.code.endsWith('-REJECT')).length} flagged
                   </span>
                 </div>
                 <div className="space-y-2">
@@ -838,7 +866,8 @@ export default function CriteriaReport({ result }) {
                   })()}
                 </div>
               </div>
-            )}
+              )
+            })()}
 
             {/* Balance */}
             <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">

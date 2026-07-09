@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { useFeatureAccess } from '../hooks/useFeatureAccess'
+import { useFeatureAccess, useMyPermissions } from '../hooks/useFeatureAccess'
 import { useDepartment } from '../hooks/useDepartment'
 import CreditorsList from '../components/rules/CreditorsList'
 import RulesList from '../components/rules/RulesList'
@@ -8,6 +8,7 @@ import CouncilsList from '../components/rules/CouncilsList'
 import CountyCouncilsList from '../components/rules/CountyCouncilsList'
 import DividendsList from '../components/rules/DividendsList'
 import GeneralCreditorsList from '../components/rules/GeneralCreditorsList'
+import CrmSyncButton from '../components/rules/CrmSyncButton'
 
 const ALL_TABS = [
   { id: 'general',        label: 'General Creditors',   featureKey: 'general_creditors' },
@@ -21,11 +22,19 @@ const ALL_TABS = [
 export default function RulesPage() {
   const { isAdmin } = useAuth()
   const { hasFeature } = useFeatureAccess()
+  const { hasWritePermission } = useMyPermissions()
   const { data: myDepartment } = useDepartment()
 
   const visibleTabs = useMemo(
     () => ALL_TABS.filter(tab => isAdmin || hasFeature(tab.featureKey)),
     [isAdmin, hasFeature]
+  )
+
+  // The CRM sync affects rule-management data broadly, so show the trigger button
+  // if the user can write to at least one rule-management feature.
+  const canTriggerCrmSync = useMemo(
+    () => isAdmin || ALL_TABS.some(tab => hasWritePermission(tab.featureKey)),
+    [isAdmin, hasWritePermission]
   )
 
   const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.id ?? null)
@@ -39,18 +48,21 @@ export default function RulesPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-gray-900">Rule Management</h1>
-        {!isAdmin && myDepartment && (
-          <div className="flex flex-col items-end gap-0.5">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
-              Viewing as: {myDepartment.name}
-            </span>
-            {myDepartment.description && (
-              <span className="text-[11px] text-gray-400 max-w-xs text-right truncate" title={myDepartment.description}>
-                {myDepartment.description}
+        <div className="flex items-center gap-4">
+          {canTriggerCrmSync && <CrmSyncButton />}
+          {!isAdmin && myDepartment && (
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                Viewing as: {myDepartment.name}
               </span>
-            )}
-          </div>
-        )}
+              {myDepartment.description && (
+                <span className="text-[11px] text-gray-400 max-w-xs text-right truncate" title={myDepartment.description}>
+                  {myDepartment.description}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {visibleTabs.length === 0 ? (

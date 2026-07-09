@@ -6,9 +6,14 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        display: ['"Merriweather"', 'Georgia', 'serif'],
+      },
       colors: {
         'brand-navy': '#0F172A',
         'brand-slate': '#1E293B',
+        'brand-gold': '#A87C1F',
+        'brand-red': '#8B1538',
         'block-red': '#FEF2F2',
         'block-red-border': '#EF4444',
         'flag-amber': '#FFFBEB',

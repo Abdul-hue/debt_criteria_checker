@@ -24,7 +24,7 @@ export default function ConfirmDialog({
       case 'warning':
         return 'bg-amber-500 hover:bg-amber-600 focus:ring-amber-400'
       default:
-        return 'bg-slate-900 hover:bg-slate-800 focus:ring-slate-700'
+        return 'bg-brand-navy hover:bg-slate-800 focus:ring-slate-700'
     }
   }
 
