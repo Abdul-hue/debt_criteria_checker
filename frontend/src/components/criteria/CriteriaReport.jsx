@@ -1,14 +1,20 @@
 import React, { useState, useMemo } from 'react'
-import { 
-  ChevronDown, 
-  ChevronUp, 
-  X, 
-  Lightbulb, 
-  CheckCircle2, 
-  AlertCircle, 
+import {
+  ChevronDown,
+  ChevronUp,
+  X,
+  Lightbulb,
+  CheckCircle2,
+  AlertCircle,
   Info,
-  Check
+  Check,
+  Users,
+  ThumbsUp,
+  ThumbsDown,
+  Pencil,
+  FileText
 } from 'lucide-react'
+import { useCreditorVoteSummary } from '../../hooks/useCreditors'
 
 const REPRESENTATIVE_META = { 
   "WATCH": { 
@@ -334,11 +340,7 @@ export default function CriteriaReport({ result }) {
     if (activeTab === 'flagged') flags.forEach(r => { expanded[r.rule_id] = true })
     return expanded
   })
-  const outcomesTally = statusPopup?.creditor ? {
-    approved: statusPopup.creditor.outcomes_approved || 0,
-    disapproved: statusPopup.creditor.outcomes_disapproved || 0,
-    total: statusPopup.creditor.outcomes_total || 0,
-  } : null
+  const voteSummaryQuery = useCreditorVoteSummary('creditors', statusPopup?.creditor?.criteria_id)
 
   const handleTabChange = (tab) => {
     setActiveTab(tab)
@@ -757,14 +759,34 @@ export default function CriteriaReport({ result }) {
               )}
             </div>
 
-            {outcomesTally && (outcomesTally.total > 0) && (
-              <div className="mt-2 text-xs text-gray-500">
-                <span className="text-green-600 font-semibold">{outcomesTally.approved} approved</span>
-                {' · '}
-                <span className="text-red-500 font-semibold">{outcomesTally.disapproved} disapproved</span>
-                {' · '}
-                {outcomesTally.total} submitted
+            {/* CRM Voter Summary */}
+            {voteSummaryQuery.isLoading ? (
+              <p className="text-xs text-gray-400 mb-4">Loading CRM vote summary...</p>
+            ) : voteSummaryQuery.data ? (
+              <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-4">
+                <span className="flex items-center gap-1 text-gray-700" title="Total votes">
+                  <Users className="w-3.5 h-3.5 text-gray-400" />
+                  <span className="text-xs font-semibold">{voteSummaryQuery.data.total_votes}</span>
+                </span>
+                <span className="flex items-center gap-1 text-green-600" title="Accepted">
+                  <ThumbsUp className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold">{voteSummaryQuery.data.accepted_count ?? '—'}</span>
+                </span>
+                <span className="flex items-center gap-1 text-red-500" title="Rejected">
+                  <ThumbsDown className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold">{voteSummaryQuery.data.rejected_count ?? '—'}</span>
+                </span>
+                <span className="flex items-center gap-1 text-amber-600" title="Modified">
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold">{voteSummaryQuery.data.modified_count ?? '—'}</span>
+                </span>
+                <span className="flex items-center gap-1 text-blue-600" title="POD">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold">{voteSummaryQuery.data.pod_count ?? '—'}</span>
+                </span>
               </div>
+            ) : (
+              <p className="text-xs text-gray-400 mb-4">No CRM vote summary available.</p>
             )}
 
             {/* Reason */}
