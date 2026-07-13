@@ -304,6 +304,9 @@ class DirectAssessView(APIView):
                         "crm_rejected_count":     c.get("crm_rejected_count", 0),
                         "crm_modified_count":     c.get("crm_modified_count", 0),
                         "crm_pod_count":          c.get("crm_pod_count", 0),
+                        "latest_vote_outcome":    c.get("latest_vote_outcome"),
+                        "latest_vote_date":       c.get("latest_vote_date"),
+                        "last_5_tally":           c.get("last_5_tally"),
                     }
                     for c in (result.get("creditor_positions") or [])
                 ],
