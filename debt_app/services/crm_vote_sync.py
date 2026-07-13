@@ -404,9 +404,23 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
     # last) come back as the "most recent" votes even when the real latest vote (found
     # via meeting_date in vote_data) was actually "rejected". Only genuine incremental
     # deltas on later syncs represent real observed vote transitions worth logging.
+    # Multiple statuses can each gain votes within the same sync run (e.g. one
+    # creditor's rejected_count AND modified_count both increase between polls),
+    # and all those events land on this run's shared detected_at instant. To
+    # keep get_last_5_tally()'s -detected_at, -id ordering from arbitrarily
+    # crowning whichever status happens to iterate last, the status matching
+    # this run's confirmed latest_vote_outcome (the single true latest vote,
+    # independently computed from CRM meeting_date - see vote_data above) is
+    # always appended last, so its row gets the highest id and wins ties.
+    latest_status = new_values.get("latest_vote_outcome")
+    ordered_statuses = sorted(
+        (status_value for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES),
+        key=lambda status_value: status_value == latest_status,
+    )
+
     events_to_create = []
     if not created:
-        for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES:
+        for status_value in ordered_statuses:
             count_field = f"{status_value}_count"
             old_count = old_values[count_field] or 0
             new_count = new_values[count_field] or 0
