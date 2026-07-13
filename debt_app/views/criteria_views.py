@@ -102,16 +102,19 @@ def _serialise_value(v):
 
 def enrich_positions_with_tallies(creditor_positions):
     """
-    Enriches creditor position objects with outcomes tally data.
+    Enriches creditor position objects with outcomes tally data
+    and CRM vote summary statistics.
     Does not cause N+1 queries.
     """
     from django.db.models import Count, Q
-    from debt_app.models import CreditorOutcome
+    from debt_app.models import CreditorOutcome, CreditorVoteSummary
 
     criteria_ids = [pos.get("criteria_id") for pos in creditor_positions if pos.get("criteria_id")]
     
     tally_map = {}
+    summary_map = {}
     if criteria_ids:
+        # Outcomes from manual tracking
         outcomes = (
             CreditorOutcome.objects.filter(creditor_id__in=criteria_ids)
             .values('creditor_id')
@@ -129,9 +132,22 @@ def enrich_positions_with_tallies(creditor_positions):
                 "outcomes_disapproved": dis,
                 "outcomes_total": app + dis
             }
+
+        # CRM vote summaries
+        summaries = CreditorVoteSummary.objects.filter(creditor_criteria_id__in=criteria_ids)
+        for s in summaries:
+            summary_map[s.creditor_criteria_id] = {
+                "crm_total_votes": s.total_votes or 0,
+                "crm_accepted_count": s.accepted_count or 0,
+                "crm_rejected_count": s.rejected_count or 0,
+                "crm_modified_count": s.modified_count or 0,
+                "crm_pod_count": s.pod_count or 0,
+            }
             
     for pos in creditor_positions:
         cid = pos.get("criteria_id")
+        
+        # Populate Outcomes
         if cid and cid in tally_map:
             tally = tally_map[cid]
             pos["outcomes_approved"] = tally["outcomes_approved"]
@@ -141,6 +157,21 @@ def enrich_positions_with_tallies(creditor_positions):
             pos["outcomes_approved"] = 0
             pos["outcomes_disapproved"] = 0
             pos["outcomes_total"] = 0
+
+        # Populate CRM vote summaries
+        if cid and cid in summary_map:
+            summary = summary_map[cid]
+            pos["crm_total_votes"] = summary["crm_total_votes"]
+            pos["crm_accepted_count"] = summary["crm_accepted_count"]
+            pos["crm_rejected_count"] = summary["crm_rejected_count"]
+            pos["crm_modified_count"] = summary["crm_modified_count"]
+            pos["crm_pod_count"] = summary["crm_pod_count"]
+        else:
+            pos["crm_total_votes"] = 0
+            pos["crm_accepted_count"] = 0
+            pos["crm_rejected_count"] = 0
+            pos["crm_modified_count"] = 0
+            pos["crm_pod_count"] = 0
 
 
 def build_phase7_response_fields(result: dict) -> dict:

@@ -298,6 +298,12 @@ class DirectAssessView(APIView):
                         "outcomes_approved":      c.get("outcomes_approved", 0),
                         "outcomes_disapproved":   c.get("outcomes_disapproved", 0),
                         "outcomes_total":         c.get("outcomes_total", 0),
+                        # CRM aggregate vote history from CreditorVoteSummary
+                        "crm_total_votes":        c.get("crm_total_votes", 0),
+                        "crm_accepted_count":     c.get("crm_accepted_count", 0),
+                        "crm_rejected_count":     c.get("crm_rejected_count", 0),
+                        "crm_modified_count":     c.get("crm_modified_count", 0),
+                        "crm_pod_count":          c.get("crm_pod_count", 0),
                     }
                     for c in (result.get("creditor_positions") or [])
                 ],
