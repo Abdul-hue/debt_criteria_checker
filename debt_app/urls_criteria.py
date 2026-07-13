@@ -32,6 +32,8 @@ from debt_app.views.criteria_views import (
     CrmSyncTriggerView,
     CrmSyncStatusView,
     CrmSyncHistoryView,
+    CrmSyncRunCreditorBreakdownView,
+    CrmSyncTodayView,
 )
 from debt_app.views.evaluate_view import EvaluateCaseView
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
@@ -71,6 +73,8 @@ urlpatterns = [
     path('crm-sync/trigger/', CrmSyncTriggerView.as_view(), name='crm-sync-trigger'),
     path('crm-sync/status/<int:pk>/', CrmSyncStatusView.as_view(), name='crm-sync-status'),
     path('crm-sync/history/', CrmSyncHistoryView.as_view(), name='crm-sync-history'),
+    path('crm-sync/creditors/<int:run_id>/', CrmSyncRunCreditorBreakdownView.as_view(), name='crm-sync-run-creditors'),
+    path('crm-sync/today/', CrmSyncTodayView.as_view(), name='crm-sync-today'),
     path("rules/",                          RulesListView.as_view()),
     path("rules/<str:rule_key>/",           RulesDetailView.as_view()),
     path("rules/<str:rule_key>/history/", RuleHistoryView.as_view()),

@@ -1,15 +1,76 @@
 import os
 import re
-from datetime import datetime
-from django.db import transaction, connections
+from datetime import datetime, timedelta
+from django.db import transaction, connections, IntegrityError
+from django.db.models import Count
 from django.conf import settings
+from django.core.mail import send_mail
+from django.utils import timezone
 from debt_app.models import (
     CreditorCriteria,
     CouncilRule,
     CountyCouncil,
     CreditorVoteSummary,
+    CreditorVoteChangeEvent,
+    CreditorMocAlert,
 )
 from debt_app.helpers import normalise_creditor_name, CREDITOR_ALIAS_MAP
+
+
+def get_recent_vote_tally(vote_summary):
+    """
+    Count CreditorVoteChangeEvent rows for vote_summary in the last 30 days
+    (by detected_at), grouped by status. Every VOTE_OUTCOME_CHOICES status is
+    included as a key, defaulting to 0.
+    """
+    tally = {status: 0 for status, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES}
+    cutoff = timezone.now() - timedelta(days=30)
+    events = CreditorVoteChangeEvent.objects.filter(
+        vote_summary=vote_summary,
+        detected_at__gte=cutoff,
+    )
+    for row in events.values("status").annotate(count=Count("id")):
+        tally[row["status"]] = row["count"]
+    return tally
+
+
+def resolve_vote_summary_creditor(vote_summary):
+    """
+    Resolve a CreditorVoteSummary to (creditor_name, creditor_criteria_or_None),
+    using the same three-way creditor_criteria/council_rule/county_council
+    resolution as CrmSyncRunCreditorBreakdownView
+    (debt_app/views/criteria_views.py) - exactly one of the three FKs is set
+    per Prompt 5. Returns creditor_criteria (not None) only when the
+    vote_summary is backed by a CreditorCriteria, since only that model has
+    the representative/dividend fields get_creditor_tags() needs.
+    """
+    if vote_summary.creditor_criteria:
+        return vote_summary.creditor_criteria.creditor_name, vote_summary.creditor_criteria
+    if vote_summary.council_rule:
+        return vote_summary.council_rule.council_name, None
+    if vote_summary.county_council:
+        return vote_summary.county_council.county_name, None
+    return None, None
+
+
+def get_creditor_tags(creditor_criteria):
+    """
+    Return the list of display tags ("Representative-tagged", "Dividend
+    creditor") for a CreditorCriteria instance. Only call this with an actual
+    CreditorCriteria - CouncilRule/CountyCouncil don't have the
+    representative/dividend fields this checks, so summaries backed by those
+    models simply get no tags (see resolve_vote_summary_creditor()).
+    """
+    tags = []
+    if creditor_criteria.representative != "NONE":
+        tags.append("Representative-tagged")
+    if (
+        creditor_criteria.min_dividend_pence is not None
+        or (creditor_criteria.dividend_notes and creditor_criteria.dividend_notes.strip())
+        or creditor_criteria.source_sheet == "DIVIDEND"
+    ):
+        tags.append("Dividend creditor")
+    return tags
 
 
 def extract_tie_segments(name):
@@ -91,11 +152,14 @@ def _fetch_crm_vote_data(log=print, set_stage=None):
         crm_aggregate[crm_id] = {
             "crm_id": crm_id,
             "name": name,
-            "accepted_count": accepted_count,
-            "rejected_count": rejected_count,
-            "modified_count": modified_count,
-            "pod_count": pod_count,
-            "total_votes": total_votes,
+            # MySQL returns SUM(CASE WHEN ... THEN 1 ELSE 0 END) as decimal.Decimal,
+            # not int - cast here so every downstream consumer (including the
+            # range(delta) in _sync_vote_summary) gets a plain int.
+            "accepted_count": int(accepted_count),
+            "rejected_count": int(rejected_count),
+            "modified_count": int(modified_count),
+            "pod_count": int(pod_count),
+            "total_votes": int(total_votes),
         }
 
     # Step 2: Fetch only the LATEST vote per creditor (not full history — the previous
@@ -270,7 +334,7 @@ def _log_change(log_file, creditor_type, creditor_name, old_values, new_values):
         f.write("---\n")
 
 
-def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file, log=print):
+def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file, log=print, run=None):
     """
     Create or update a CreditorVoteSummary record for the given creditor object.
     Returns a tuple (created: bool, updated: bool).
@@ -303,6 +367,21 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
         "crm_rows_covered": vote_data.get("crm_rows_covered", 1),
     }
 
+    # Compute per-status vote deltas and prepare CreditorVoteChangeEvent rows
+    # for any status whose count increased. Decreases/corrections (delta <= 0)
+    # are not logged as vote activity.
+    events_to_create = []
+    for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES:
+        count_field = f"{status_value}_count"
+        old_count = old_values[count_field] or 0
+        new_count = new_values[count_field] or 0
+        delta = new_count - old_count
+        if delta > 0:
+            events_to_create.extend(
+                CreditorVoteChangeEvent(vote_summary=summary, sync_run=run, status=status_value)
+                for _ in range(delta)
+            )
+
     # Check if changes are needed
     changes = {}
     for key, old_val in old_values.items():
@@ -318,11 +397,20 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
             log(f"  [DRY-RUN] Would update {creditor_type}: {creditor_name}")
             for key, (old, new) in changes.items():
                 log(f"    {key}: {old} -> {new}")
+            if events_to_create:
+                log(f"  [DRY-RUN] Would create {len(events_to_create)} CreditorVoteChangeEvent row(s) for {creditor_name}")
         else:
             # Update the summary
             for key, value in new_values.items():
                 setattr(summary, key, value)
             summary.save()
+            if events_to_create:
+                if run is None:
+                    raise ValueError(
+                        f"Cannot create CreditorVoteChangeEvent rows for {creditor_name}: "
+                        f"sync_run is required but run=None was passed to _sync_vote_summary()"
+                    )
+                CreditorVoteChangeEvent.objects.bulk_create(events_to_create)
             _log_change(log_file, creditor_type, creditor_name, old_values, new_values)
             log(f"  Updated {creditor_type}: {creditor_name}")
             updated = True
@@ -340,7 +428,7 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
     return created, updated
 
 
-def _sync_creditor_criteria(crm_data, dry_run, log_file, log=print):
+def _sync_creditor_criteria(crm_data, dry_run, log_file, log=print, run=None):
     """Sync CreditorVoteSummary for CreditorCriteria records. Returns (created_count, updated_count)."""
     created_count = 0
     updated_count = 0
@@ -354,6 +442,7 @@ def _sync_creditor_criteria(crm_data, dry_run, log_file, log=print):
                 dry_run=dry_run,
                 log_file=log_file,
                 log=log,
+                run=run,
             )
             if created:
                 created_count += 1
@@ -365,7 +454,7 @@ def _sync_creditor_criteria(crm_data, dry_run, log_file, log=print):
     return created_count, updated_count
 
 
-def _sync_council_rules(crm_data, dry_run, log_file, log=print):
+def _sync_council_rules(crm_data, dry_run, log_file, log=print, run=None):
     """Sync CreditorVoteSummary for CouncilRule records. Returns (created_count, updated_count)."""
     created_count = 0
     updated_count = 0
@@ -379,6 +468,7 @@ def _sync_council_rules(crm_data, dry_run, log_file, log=print):
                 dry_run=dry_run,
                 log_file=log_file,
                 log=log,
+                run=run,
             )
             if created:
                 created_count += 1
@@ -390,7 +480,7 @@ def _sync_council_rules(crm_data, dry_run, log_file, log=print):
     return created_count, updated_count
 
 
-def _sync_county_councils(crm_data, dry_run, log_file, log=print):
+def _sync_county_councils(crm_data, dry_run, log_file, log=print, run=None):
     """Sync CreditorVoteSummary for CountyCouncil records. Returns (created_count, updated_count)."""
     created_count = 0
     updated_count = 0
@@ -404,6 +494,7 @@ def _sync_county_councils(crm_data, dry_run, log_file, log=print):
                 dry_run=dry_run,
                 log_file=log_file,
                 log=log,
+                run=run,
             )
             if created:
                 created_count += 1
@@ -413,6 +504,117 @@ def _sync_county_councils(crm_data, dry_run, log_file, log=print):
             log(f"CountyCouncil not found: {name}")
             continue
     return created_count, updated_count
+
+
+def _send_moc_alert_email(newly_alerted):
+    """
+    Send a single batched email listing every CreditorMocAlert created this
+    run - one email per run, not one per creditor, so a run with many vote
+    changes doesn't spam MOC_ALERT_RECIPIENTS. No existing email-sending
+    convention was found in this codebase (no send_mail/EmailMultiAlternatives/
+    django.core.mail usage anywhere else), so this uses Django's built-in
+    send_mail directly with the Prompt 8 settings.
+    """
+    vote_summary_ids = [alert.vote_summary_id for alert in newly_alerted]
+    summaries_by_id = {
+        s.id: s
+        for s in CreditorVoteSummary.objects.filter(id__in=vote_summary_ids).select_related(
+            "creditor_criteria", "council_rule", "county_council"
+        )
+    }
+
+    lines = []
+    for alert in newly_alerted:
+        summary = summaries_by_id.get(alert.vote_summary_id)
+        if summary is None:
+            continue
+        creditor_name, creditor_criteria = resolve_vote_summary_creditor(summary)
+        line = f"- {creditor_name}: {alert.triggered_by_status} (alert date: {alert.alert_date.isoformat()})"
+        if creditor_criteria:
+            tags = get_creditor_tags(creditor_criteria)
+            if tags:
+                line += f" [{', '.join(tags)}]"
+        lines.append(line)
+
+    subject = f"MOC Alert: {len(lines)} creditor(s) with new vote activity"
+    body = (
+        "The following creditors had new vote activity in the latest CRM sync:\n\n"
+        + "\n".join(lines)
+    )
+
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=settings.MOC_ALERT_FROM_EMAIL,
+        recipient_list=settings.MOC_ALERT_RECIPIENTS,
+    )
+
+
+def check_and_send_moc_alerts(run):
+    """
+    Find every vote_summary that got at least one CreditorVoteChangeEvent
+    during this sync run and make sure it has a CreditorMocAlert for today
+    (Europe/London calendar day).
+
+    "Needs an alert" = has at least one CreditorVoteChangeEvent with
+    sync_run=run. _sync_vote_summary() only ever creates an event when a
+    status count *increased* during this run, so any event at all already
+    means genuine new vote activity for that creditor - no extra threshold
+    or business rule is introduced here.
+
+    The unique constraint 'unique_moc_alert_per_creditor_per_day' on
+    (vote_summary, alert_date) is the "already alerted today" check: we
+    attempt the create for every affected vote_summary and let IntegrityError
+    tell us it already happened, rather than running a .filter()/.exists()
+    check first, which would leave a race window between the check and the
+    create if two sync runs ever overlapped.
+
+    Returns the list of newly-created CreditorMocAlert instances (i.e. the
+    ones that were NOT already alerted today) - Prompt 10b will use this list
+    to send emails.
+    """
+    events = CreditorVoteChangeEvent.objects.filter(sync_run=run).order_by("detected_at")
+
+    # A vote_summary can have several events this run (one per status that
+    # incremented). Record the earliest event's status per vote_summary just
+    # for traceability on the alert row; it doesn't change which vote
+    # summaries are considered "needing an alert" - that's any vote_summary
+    # with >=1 event.
+    status_by_summary_id = {}
+    for event in events:
+        status_by_summary_id.setdefault(event.vote_summary_id, event.status)
+
+    if not status_by_summary_id:
+        return []
+
+    # timezone.now().date() would return the UTC calendar date. Europe/London
+    # is UTC+1 during BST, so any sync that runs late evening BST (e.g.
+    # 23:30 local / 22:30 UTC is fine, but 00:30 local / 23:30 UTC the
+    # previous UTC day) would compute the wrong alert_date, either letting a
+    # second alert through for what should be "today" or wrongly blocking one.
+    # localtime() converts to the active Europe/London time first so the date
+    # always matches the calendar day site users actually experience.
+    alert_date = timezone.localtime(timezone.now()).date()
+
+    newly_alerted = []
+    for vote_summary_id, status in status_by_summary_id.items():
+        if run.dry_run:
+            continue
+        try:
+            alert = CreditorMocAlert.objects.create(
+                vote_summary_id=vote_summary_id,
+                alert_date=alert_date,
+                triggered_by_status=status,
+            )
+            newly_alerted.append(alert)
+        except IntegrityError:
+            # Already alerted for this vote_summary today - expected/normal, not an error.
+            continue
+
+    if newly_alerted:
+        _send_moc_alert_email(newly_alerted)
+
+    return newly_alerted
 
 
 def run_crm_vote_sync(run=None, dry_run=False, log_file=None):
@@ -447,13 +649,21 @@ def run_crm_vote_sync(run=None, dry_run=False, log_file=None):
     # Step 2: Process and sync data for each creditor type
     with transaction.atomic():
         set_stage("Updating CreditorCriteria records")
-        created1, updated1 = _sync_creditor_criteria(crm_vote_data, dry_run, log_file, log=log)
+        created1, updated1 = _sync_creditor_criteria(crm_vote_data, dry_run, log_file, log=log, run=run)
 
         set_stage("Updating CouncilRule records")
-        created2, updated2 = _sync_council_rules(crm_vote_data, dry_run, log_file, log=log)
+        created2, updated2 = _sync_council_rules(crm_vote_data, dry_run, log_file, log=log, run=run)
 
         set_stage("Updating CountyCouncil records")
-        created3, updated3 = _sync_county_councils(crm_vote_data, dry_run, log_file, log=log)
+        created3, updated3 = _sync_county_councils(crm_vote_data, dry_run, log_file, log=log, run=run)
+
+    if run is not None:
+        try:
+            check_and_send_moc_alerts(run)
+        except Exception as e:
+            log(f"MOC alert check failed: {e}")
+    else:
+        log("Skipping MOC alert check: no CrmSyncRun instance provided")
 
     set_stage("Done")
 

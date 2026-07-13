@@ -6,9 +6,26 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
+
+def env_bool(name, default=False):
+    """
+    Parse an env var as a bool, case-insensitively. A bare os.environ.get(...)
+    == 'True' string match silently resolves to False for any variant the
+    author didn't type exactly (e.g. EMAIL_USE_TLS=true), with no error or
+    warning - so every boolean env var in this file goes through this instead.
+    """
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ('true', '1', 'yes')
+
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-key')
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+DEBUG = env_bool('DEBUG', False)
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+
+TIME_ZONE = "Europe/London"
+USE_TZ = True
 
 # Shared secret for internal service-to-service calls from case assessment.
 # Set via DEBT_CRITERIA_INTERNAL_KEY in .env — must match the key in the main project.
@@ -130,6 +147,20 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'UPDATE_LAST_LOGIN': True,
 }
+
+# Email configuration
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', '')
+
+# MOC alert settings (Prompts 9-10)
+MOC_ALERT_RECIPIENTS = [
+    r for r in os.environ.get('MOC_ALERT_RECIPIENTS', '').split(',') if r
+]
+MOC_ALERT_FROM_EMAIL = os.environ.get('MOC_ALERT_FROM_EMAIL', '') or DEFAULT_FROM_EMAIL
 
 # DEBUG MIDDLEWARE
 MIDDLEWARE.insert(0, 'debt_project.debug_middleware.RequestDebugMiddleware')

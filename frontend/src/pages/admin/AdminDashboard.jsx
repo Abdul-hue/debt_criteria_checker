@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import api from '../../lib/axios'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import CrmSyncHistoryPanel from '../../components/dashboard/CrmSyncHistoryPanel'
+import TodaySyncReportPanel from '../../components/dashboard/TodaySyncReportPanel'
 import {
   Users,
   FileText,
@@ -160,6 +161,8 @@ export default function AdminDashboard() {
           changeTo="/admin/sfs-guidelines"
         />
 
+        <SectionHeading>CRM Vote Sync</SectionHeading>
+        <TodaySyncReportPanel />
         <CrmSyncHistoryPanel />
       </div>
     </div>

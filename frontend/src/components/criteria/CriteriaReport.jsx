@@ -768,19 +768,19 @@ export default function CriteriaReport({ result }) {
                   <Users className="w-3.5 h-3.5 text-gray-400" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.total_votes}</span>
                 </span>
-                <span className="flex items-center gap-1 text-green-600" title="Accepted">
+                <span className="flex items-center gap-1 text-green-600" title={`Accepted (last 30 days): ${voteSummaryQuery.data.recent_tally?.accepted ?? '—'}`}>
                   <ThumbsUp className="w-3.5 h-3.5" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.accepted_count ?? '—'}</span>
                 </span>
-                <span className="flex items-center gap-1 text-red-500" title="Rejected">
+                <span className="flex items-center gap-1 text-red-500" title={`Rejected (last 30 days): ${voteSummaryQuery.data.recent_tally?.rejected ?? '—'}`}>
                   <ThumbsDown className="w-3.5 h-3.5" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.rejected_count ?? '—'}</span>
                 </span>
-                <span className="flex items-center gap-1 text-amber-600" title="Modified">
+                <span className="flex items-center gap-1 text-amber-600" title={`Modified (last 30 days): ${voteSummaryQuery.data.recent_tally?.modified ?? '—'}`}>
                   <Pencil className="w-3.5 h-3.5" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.modified_count ?? '—'}</span>
                 </span>
-                <span className="flex items-center gap-1 text-blue-600" title="POD">
+                <span className="flex items-center gap-1 text-blue-600" title={`POD (last 30 days): ${voteSummaryQuery.data.recent_tally?.pod ?? '—'}`}>
                   <FileText className="w-3.5 h-3.5" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.pod_count ?? '—'}</span>
                 </span>

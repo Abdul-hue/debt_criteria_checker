@@ -610,6 +610,36 @@ class CrmSyncRun(models.Model):
         return f"CrmSyncRun {self.id} ({self.status}) {self.started_at}"
 
 
+class CreditorVoteChangeEvent(models.Model):
+    vote_summary = models.ForeignKey(CreditorVoteSummary, on_delete=models.CASCADE)
+    sync_run = models.ForeignKey(CrmSyncRun, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=CreditorVoteSummary.VOTE_OUTCOME_CHOICES)
+    detected_at = models.DateTimeField(auto_now_add=True)
+
+
+class CreditorMocAlert(models.Model):
+    vote_summary = models.ForeignKey(CreditorVoteSummary, on_delete=models.CASCADE)
+    alert_date = models.DateField()
+    triggered_by_status = models.CharField(
+        max_length=20,
+        choices=CreditorVoteSummary.VOTE_OUTCOME_CHOICES,
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['vote_summary', 'alert_date'],
+                name='unique_moc_alert_per_creditor_per_day'
+            )
+        ]
+
+    def __str__(self):
+        return f"MOC Alert for vote_summary={self.vote_summary_id} on {self.alert_date}"
+
+
 class CountyCouncilRouting(models.Model):
     """Routes a county+district combination to a CouncilRule."""
 

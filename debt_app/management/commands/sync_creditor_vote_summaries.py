@@ -37,10 +37,14 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS("Sync completed successfully!"))
 
-        except Exception as e:
+        except BaseException as e:
+            # BaseException (not just Exception) so Ctrl+C/SIGTERM
+            # (KeyboardInterrupt/SystemExit) also mark the run FAILED instead
+            # of leaving it stuck RUNNING forever - that previously left
+            # orphaned rows blocking every future sync trigger with a 409.
             run.status = "FAILED"
             run.finished_at = timezone.now()
-            run.error_message = str(e)
+            run.error_message = str(e) or type(e).__name__
             run.save(update_fields=["status", "finished_at", "error_message"])
 
             self.stderr.write(self.style.ERROR(f"Error during sync: {e}"))

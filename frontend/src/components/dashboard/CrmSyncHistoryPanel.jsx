@@ -57,6 +57,78 @@ function StatusPill({ status }) {
   )
 }
 
+const CREDITOR_STATUS_COLUMNS = [
+  { key: 'accepted', label: 'Accepted' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'modified', label: 'Modified' },
+  { key: 'pod', label: 'POD' },
+]
+
+function CreditorBreakdownTable({ runId }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['crm-sync-creditors', runId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/criteria/crm-sync/creditors/${runId}/`)
+      return data
+    },
+    enabled: expanded,
+  })
+
+  const creditors = data?.creditors ?? []
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-200">
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-brand-navy hover:text-brand-navy/80 transition-colors"
+      >
+        {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        Creditor breakdown
+      </button>
+
+      {expanded && (
+        <div className="mt-2">
+          {isLoading && <LoadingSpinner size="sm" />}
+          {isError && <p className="text-sm text-brand-red font-medium">Failed to load creditor breakdown.</p>}
+
+          {!isLoading && !isError && creditors.length === 0 && (
+            <p className="text-sm text-slate-400">No changes recorded</p>
+          )}
+
+          {!isLoading && !isError && creditors.length > 0 && (
+            <div className="overflow-x-auto rounded-lg bg-brand-navy">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border-b border-white/10">
+                    <th className="py-2 px-3">Creditor</th>
+                    {CREDITOR_STATUS_COLUMNS.map((col) => (
+                      <th key={col.key} className="py-2 px-3 text-right">{col.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditors.map((creditor) => (
+                    <tr key={creditor.vote_summary_id} className="border-t border-white/10">
+                      <td className="py-2 px-3 text-sm text-white">{creditor.creditor_name}</td>
+                      {CREDITOR_STATUS_COLUMNS.map((col) => (
+                        <td key={col.key} className="py-2 px-3 text-sm text-white text-right tabular-nums">
+                          {creditor[col.key] ?? 0}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SyncRunRow({ run }) {
   const [expanded, setExpanded] = useState(false)
   const canExpand = run.status === 'SUCCESS' || run.status === 'FAILED'
@@ -96,6 +168,7 @@ function SyncRunRow({ run }) {
         <tr className="border-t border-slate-100 bg-slate-50/30">
           <td colSpan={5} className="py-3 px-3">
             <CrmSyncSummaryPanel run={run} className="max-w-xl" />
+            {run.status === 'SUCCESS' && <CreditorBreakdownTable runId={run.id} />}
           </td>
         </tr>
       )}

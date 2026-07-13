@@ -1,7 +1,8 @@
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -32,10 +33,11 @@ from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
-    CountyCouncil, CreditorVoteSummary, CrmSyncRun,
+    CountyCouncil, CreditorVoteSummary, CrmSyncRun, CreditorVoteChangeEvent,
+    CreditorMocAlert,
 )
 from debt_app.credit_report_extractor import extract_credit_report
-from debt_app.services.crm_vote_sync import run_crm_vote_sync
+from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally
 import threading
 
 logger = logging.getLogger(__name__)
@@ -2923,6 +2925,7 @@ def _vote_summary_to_dict(summary) -> dict:
         "latest_vote_outcome": summary.latest_vote_outcome,
         "crm_rows_covered": summary.crm_rows_covered,
         "last_synced_at": summary.last_synced_at.isoformat(),
+        "recent_tally": get_recent_vote_tally(summary),
     }
 
 
@@ -3011,6 +3014,15 @@ def _run_crm_sync_in_background(run_id):
         connections.close_all()
 
 
+# A real sync (background thread or CLI) finishes in well under a minute in
+# practice (see CrmSyncRun history), and the CRM query itself is capped at
+# MAX_EXECUTION_TIME=600000ms (10 min) in crm_vote_sync.py. A RUNNING row
+# older than this is not a slow sync - it's one whose process was killed
+# (Ctrl+C, dev-server reload, crash) before it could mark itself FAILED, and
+# would otherwise block every future trigger with a 409 forever.
+STALE_RUN_THRESHOLD = timedelta(minutes=30)
+
+
 class CrmSyncTriggerView(APIView):
     authentication_classes = [JWTAuthentication]
     required_feature = 'global_rules'
@@ -3019,6 +3031,14 @@ class CrmSyncTriggerView(APIView):
         return [IsAuthenticated(), HasWritePermission()]
 
     def post(self, request):
+        CrmSyncRun.objects.filter(
+            status='RUNNING', started_at__lt=timezone.now() - STALE_RUN_THRESHOLD,
+        ).update(
+            status='FAILED',
+            error_message='Orphaned - process terminated before completion (auto-detected as stale)',
+            finished_at=timezone.now(),
+        )
+
         existing = CrmSyncRun.objects.filter(status='RUNNING').first()
         if existing:
             return Response(
@@ -3071,3 +3091,160 @@ class CrmSyncHistoryView(APIView):
             "previous": f"{request.build_absolute_uri(request.path)}?page={page - 1}" if page_obj.has_previous() else None,
             "results": [_crm_sync_run_to_dict(r) for r in page_obj],
         }, status=status.HTTP_200_OK)
+
+
+class CrmSyncRunCreditorBreakdownView(APIView):
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasReadPermission()]
+
+    def get(self, request, run_id):
+        if not CrmSyncRun.objects.filter(pk=run_id).exists():
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Single aggregate query: counts per (vote_summary, status) for this run.
+        # Avoids the N+1 that calling get_recent_vote_tally() per creditor would cause.
+        counts_by_summary_and_status = (
+            CreditorVoteChangeEvent.objects
+            .filter(sync_run_id=run_id)
+            .values('vote_summary_id', 'status')
+            .annotate(count=Count('id'))
+        )
+
+        summary_ids = {row['vote_summary_id'] for row in counts_by_summary_and_status}
+        summaries = CreditorVoteSummary.objects.filter(id__in=summary_ids).select_related(
+            'creditor_criteria', 'council_rule', 'county_council'
+        )
+
+        creditor_info_by_summary_id = {}
+        for summary in summaries:
+            if summary.creditor_criteria:
+                creditor_info_by_summary_id[summary.id] = {
+                    "creditor_id": summary.creditor_criteria_id,
+                    "creditor_name": summary.creditor_criteria.creditor_name,
+                    "creditor_type": "creditors",
+                }
+            elif summary.council_rule:
+                creditor_info_by_summary_id[summary.id] = {
+                    "creditor_id": summary.council_rule_id,
+                    "creditor_name": summary.council_rule.council_name,
+                    "creditor_type": "councils",
+                }
+            elif summary.county_council:
+                creditor_info_by_summary_id[summary.id] = {
+                    "creditor_id": summary.county_council_id,
+                    "creditor_name": summary.county_council.county_name,
+                    "creditor_type": "county-councils",
+                }
+
+        results_by_summary_id = {}
+        for row in counts_by_summary_and_status:
+            summary_id = row['vote_summary_id']
+            info = creditor_info_by_summary_id.get(summary_id)
+            if not info:
+                continue
+            entry = results_by_summary_id.setdefault(summary_id, {
+                "vote_summary_id": summary_id,
+                **info,
+                "accepted": 0,
+                "rejected": 0,
+                "modified": 0,
+                "pod": 0,
+            })
+            entry[row['status']] = row['count']
+
+        return Response({
+            "run_id": run_id,
+            "creditors": list(results_by_summary_id.values()),
+        })
+
+
+class CrmSyncTodayView(APIView):
+    """
+    Rolled-up totals for "today" (Europe/London calendar day), across ALL
+    CrmSyncRun runs that occurred today - not a single run.
+    """
+    authentication_classes = [JWTAuthentication]
+    required_feature = 'global_rules'
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasReadPermission()]
+
+    def get(self, request):
+        from datetime import datetime, time, timedelta
+
+        # Same computation as crm_vote_sync.py's _create_moc_alerts_for_run
+        # (Prompt 10a): timezone.now().date() would give the UTC calendar
+        # date, which disagrees with the Europe/London calendar date for part
+        # of every day during BST. localtime() converts to the active
+        # Europe/London time first, so this always matches the calendar day
+        # site users actually experience.
+        today = timezone.localtime(timezone.now()).date()
+
+        # detected_at (and started_at) are auto_now_add DateTimeFields, i.e.
+        # stored as UTC instants. A naive `detected_at__date=today` lookup
+        # would depend on the DB backend converting to the current Django
+        # timezone before extracting the date - Django only does this
+        # automatically on backends with registered tz-conversion support
+        # (Postgres always; SQLite via Django's own registered conversion
+        # functions; MySQL only if its timezone tables are loaded), so it's
+        # not something to rely on implicitly. Instead, compute today's local
+        # calendar-day boundaries as explicit timezone-aware instants and
+        # filter by range - this is correct on any backend regardless of
+        # DB-side tz support.
+        #
+        # Concretely: an event detected at 23:45 UTC on 9 June during BST is
+        # 00:45 BST on 10 June, i.e. it belongs to the "10 June" local
+        # calendar day even though its stored UTC timestamp says "9 June".
+        # Once `today` is 10 June, that event falls inside
+        # [10 June 00:00 BST, 11 June 00:00 BST) below and is correctly
+        # counted as "today" - a naive UTC-day filter would have missed it.
+        current_tz = timezone.get_current_timezone()
+        day_start = timezone.make_aware(datetime.combine(today, time.min), current_tz)
+        day_end = day_start + timedelta(days=1)
+
+        events_today = CreditorVoteChangeEvent.objects.filter(
+            detected_at__gte=day_start, detected_at__lt=day_end
+        )
+
+        # Single aggregate query for the per-status breakdown.
+        counts_by_status = dict(
+            events_today.values('status').annotate(count=Count('id')).values_list('status', 'count')
+        )
+        vote_change_totals = {
+            "accepted": counts_by_status.get('accepted', 0),
+            "rejected": counts_by_status.get('rejected', 0),
+            "modified": counts_by_status.get('modified', 0),
+            "pod": counts_by_status.get('pod', 0),
+        }
+
+        distinct_creditors_affected = events_today.values('vote_summary_id').distinct().count()
+
+        sync_runs_today = CrmSyncRun.objects.filter(
+            started_at__gte=day_start, started_at__lt=day_end
+        ).count()
+
+        # alert_date is a DateField already storing the correct London
+        # calendar day (set the same way, in crm_vote_sync.py), so an exact
+        # equality filter is correct as-is - no range/localtime handling needed.
+        moc_alerts_today = CreditorMocAlert.objects.filter(alert_date=today).count()
+
+        return Response({
+            "date": today.isoformat(),
+            "vote_change_events": {
+                **vote_change_totals,
+                "total": sum(vote_change_totals.values()),
+            },
+            "moc_alerts_today": moc_alerts_today,
+            "sync_runs_today": sync_runs_today,
+            "distinct_creditors_affected": distinct_creditors_affected,
+            # No separate email-send log exists. A CreditorMocAlert row is
+            # only ever created as part of the flow that sends (or, under
+            # dry_run, would send) the corresponding MOC email, so "at least
+            # one alert today" is used as a proxy for "at least one email
+            # sent today". If email sending is ever decoupled from
+            # CreditorMocAlert creation, this assumption will need revisiting.
+            "email_sent_today": moc_alerts_today > 0,
+        })
