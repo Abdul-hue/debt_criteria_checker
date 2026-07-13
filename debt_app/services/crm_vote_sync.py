@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, time as time_of_day, timedelta
 from django.db import transaction, connections, IntegrityError
 from django.db.models import Count
 from django.conf import settings
@@ -312,6 +312,24 @@ def _fetch_crm_vote_data(log=print, set_stage=None):
             latest_vote_date = latest["meeting_date"]
             latest_vote_outcome = latest["first_vote"]
 
+        # For creditors matched to more than one CRM row (representative bodies
+        # like WATCH/TIX/EVOLVE aggregate hundreds of underlying real creditors),
+        # all_vote_rows holds one real meeting_date per underlying row - i.e. real
+        # per-vote chronology, not just an aggregate count. Record each status's
+        # own real latest date here so _sync_vote_summary can stamp new
+        # CreditorVoteChangeEvent rows with the vote's actual date instead of
+        # "whenever this sync happened to run". Without this, a rejected vote
+        # detected in an earlier sync and an unrelated modified vote (for a
+        # different underlying creditor under the same representative) merely
+        # noticed in today's sync would tie-break on sync time, not real vote
+        # date - producing a last_5_tally that contradicts latest_vote_outcome.
+        latest_date_by_status = {}
+        for row in all_vote_rows:
+            d = row["meeting_date"]
+            fv = row["first_vote"]
+            if d is not None and (fv not in latest_date_by_status or latest_date_by_status[fv] < d):
+                latest_date_by_status[fv] = d
+
         return {
             "total_votes": total_votes,
             "accepted_count": accepted_count,
@@ -320,6 +338,7 @@ def _fetch_crm_vote_data(log=print, set_stage=None):
             "pod_count": pod_count,
             "latest_vote_date": latest_vote_date,
             "latest_vote_outcome": latest_vote_outcome,
+            "latest_date_by_status": latest_date_by_status,
             "crm_rows_covered": len(matched_ids),
         }
 
@@ -396,29 +415,34 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
     #
     # Skip this entirely on the summary's first-ever sync (created=True): old_values
     # are all zero/defaults there, so every existing vote the creditor already has
-    # would be misread as a fresh "delta" and bulk-created as synthetic change events,
-    # all sharing this instant's detected_at. get_last_5_tally() orders by -detected_at
-    # with no secondary tiebreak, so those tied rows sort by insertion order rather than
-    # true vote chronology - the loop below appends per-status in VOTE_OUTCOME_CHOICES
-    # order (accepted, rejected, modified, pod), so "modified" backfill rows (inserted
-    # last) come back as the "most recent" votes even when the real latest vote (found
-    # via meeting_date in vote_data) was actually "rejected". Only genuine incremental
-    # deltas on later syncs represent real observed vote transitions worth logging.
-    # Multiple statuses can each gain votes within the same sync run (e.g. one
-    # creditor's rejected_count AND modified_count both increase between polls),
-    # and all those events land on this run's shared detected_at instant. To
-    # keep get_last_5_tally()'s -detected_at, -id ordering from arbitrarily
-    # crowning whichever status happens to iterate last, the status matching
-    # this run's confirmed latest_vote_outcome (the single true latest vote,
-    # independently computed from CRM meeting_date - see vote_data above) is
-    # always appended last, so its row gets the highest id and wins ties.
+    # would be misread as a fresh "delta" and bulk-created as synthetic change events.
+    # Only genuine incremental deltas on later syncs represent real observed vote
+    # transitions worth logging.
+    #
+    # Representative creditors (WATCH/TIX/EVOLVE) aggregate hundreds of underlying
+    # real creditors, so a single sync run routinely finds several statuses each
+    # gaining votes at once - e.g. a rejected vote for underlying creditor A and a
+    # modified vote for underlying creditor B, discovered in the same run despite
+    # having completely unrelated real meeting dates. If left at auto_now_add's
+    # sync-wall-clock timestamp, get_last_5_tally()'s -detected_at ordering reflects
+    # "when our sync noticed it", not real vote chronology - producing a tally that
+    # can contradict latest_vote_outcome (which IS computed from real meeting_date).
+    # vote_data["latest_date_by_status"] carries each status's own real latest
+    # meeting_date (see process_local() above), so after creating this run's events
+    # each status's batch gets re-stamped with a real-date-derived detected_at
+    # below, making cross-run ordering reflect actual vote chronology instead of
+    # detection time. As a fallback for statuses with no known date, the status
+    # matching this run's confirmed latest_vote_outcome is still inserted last so
+    # it wins same-instant ties.
     latest_status = new_values.get("latest_vote_outcome")
     ordered_statuses = sorted(
         (status_value for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES),
         key=lambda status_value: status_value == latest_status,
     )
+    latest_date_by_status = vote_data.get("latest_date_by_status") or {}
 
     events_to_create = []
+    statuses_with_new_events = set()
     if not created:
         for status_value in ordered_statuses:
             count_field = f"{status_value}_count"
@@ -430,6 +454,7 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
                     CreditorVoteChangeEvent(vote_summary=summary, sync_run=run, status=status_value)
                     for _ in range(delta)
                 )
+                statuses_with_new_events.add(status_value)
 
     # Check if changes are needed
     changes = {}
@@ -460,6 +485,20 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
                         f"sync_run is required but run=None was passed to _sync_vote_summary()"
                     )
                 CreditorVoteChangeEvent.objects.bulk_create(events_to_create)
+                # auto_now_add stamps every row above with this call's wall-clock
+                # instant regardless of what was set on the unsaved objects - so
+                # re-stamp per status afterwards using its real meeting_date where
+                # known. Scoping by (vote_summary, sync_run, status) safely selects
+                # only the rows just created above: sync_run is unique to this one
+                # run, and this function only creates events for `summary` once
+                # per run, so no earlier historical row can match this triple.
+                for status_value in statuses_with_new_events:
+                    real_date = latest_date_by_status.get(status_value)
+                    if real_date:
+                        stamped_dt = timezone.make_aware(datetime.combine(real_date, time_of_day(12, 0)))
+                        CreditorVoteChangeEvent.objects.filter(
+                            vote_summary=summary, sync_run=run, status=status_value
+                        ).update(detected_at=stamped_dt)
             _log_change(log_file, creditor_type, creditor_name, old_values, new_values)
             log(f"  Updated {creditor_type}: {creditor_name}")
             updated = True
