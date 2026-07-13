@@ -104,15 +104,18 @@ def enrich_positions_with_tallies(creditor_positions):
     """
     Enriches creditor position objects with outcomes tally data
     and CRM vote summary statistics.
-    Does not cause N+1 queries.
+    The outcomes/summary lookups above are bulk queries (no N+1), but
+    last_5_tally is fetched via get_last_5_tally() per creditor with a
+    CreditorVoteSummary - see the performance note on that call below.
     """
     from django.db.models import Count, Q
     from debt_app.models import CreditorOutcome, CreditorVoteSummary
 
     criteria_ids = [pos.get("criteria_id") for pos in creditor_positions if pos.get("criteria_id")]
-    
+
     tally_map = {}
     summary_map = {}
+    summary_obj_map = {}
     if criteria_ids:
         # Outcomes from manual tracking
         outcomes = (
@@ -145,7 +148,8 @@ def enrich_positions_with_tallies(creditor_positions):
                 "latest_vote_outcome": s.latest_vote_outcome,
                 "latest_vote_date": s.latest_vote_date.isoformat() if s.latest_vote_date else None,
             }
-            
+            summary_obj_map[s.creditor_criteria_id] = s
+
     for pos in creditor_positions:
         cid = pos.get("criteria_id")
         
@@ -170,6 +174,11 @@ def enrich_positions_with_tallies(creditor_positions):
             pos["crm_pod_count"] = summary["crm_pod_count"]
             pos["latest_vote_outcome"] = summary["latest_vote_outcome"]
             pos["latest_vote_date"] = summary["latest_vote_date"]
+            # get_last_5_tally() issues its own CreditorVoteChangeEvent query
+            # per call (see performance note in Prompt 17) - one extra query
+            # per creditor that has a CreditorVoteSummary, on top of the two
+            # bulk queries above.
+            pos["last_5_tally"] = get_last_5_tally(summary_obj_map[cid])
         else:
             pos["crm_total_votes"] = 0
             pos["crm_accepted_count"] = 0
@@ -178,6 +187,7 @@ def enrich_positions_with_tallies(creditor_positions):
             pos["crm_pod_count"] = 0
             pos["latest_vote_outcome"] = None
             pos["latest_vote_date"] = None
+            pos["last_5_tally"] = None
 
 
 def build_phase7_response_fields(result: dict) -> dict:
