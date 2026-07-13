@@ -34,10 +34,10 @@ from debt_app.models import (
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
     CountyCouncil, CreditorVoteSummary, CrmSyncRun, CreditorVoteChangeEvent,
-    CreditorMocAlert,
+    CreditorMocAlert, CreditorNonAcceptMilestone,
 )
 from debt_app.credit_report_extractor import extract_credit_report
-from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally
+from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally, get_last_5_tally
 import threading
 
 logger = logging.getLogger(__name__)
@@ -2957,6 +2957,7 @@ def _vote_summary_to_dict(summary) -> dict:
         "crm_rows_covered": summary.crm_rows_covered,
         "last_synced_at": summary.last_synced_at.isoformat(),
         "recent_tally": get_recent_vote_tally(summary),
+        "last_5_tally": get_last_5_tally(summary),
     }
 
 
@@ -3279,3 +3280,53 @@ class CrmSyncTodayView(APIView):
             # CreditorMocAlert creation, this assumption will need revisiting.
             "email_sent_today": moc_alerts_today > 0,
         })
+
+
+def check_non_accept_milestone(vote_summary, sync_run):
+    """
+    Check if a creditor accumulates 3 or more non-accepted vote change events within
+    a single UK calendar day, and persist the milestone.
+    """
+    from django.db import IntegrityError
+    from debt_app.helpers import get_london_day_boundary
+
+    # Get London calendar day boundaries
+    day_start, day_end, today_date = get_london_day_boundary()
+
+    # Query this vote_summary's CreditorVoteChangeEvent rows where status != 'accepted'
+    # AND detected_at falls within today's London day, ordered by detected_at ascending
+    events = list(
+        CreditorVoteChangeEvent.objects.filter(
+            vote_summary=vote_summary,
+            detected_at__gte=day_start,
+            detected_at__lt=day_end
+        )
+        .exclude(status='accepted')
+        .order_by('detected_at')
+    )
+
+    if len(events) < 3:
+        return None
+
+    # Take the first 3 events in that ordering
+    first_3_events = events[:3]
+    first_event_at = first_3_events[0].detected_at
+    third_event_at = first_3_events[2].detected_at
+
+    # Build status_breakdown dict counting each status among those first 3
+    status_breakdown = {}
+    for event in first_3_events:
+        status_breakdown[event.status] = status_breakdown.get(event.status, 0) + 1
+
+    try:
+        milestone = CreditorNonAcceptMilestone.objects.create(
+            vote_summary=vote_summary,
+            milestone_date=today_date,
+            first_event_at=first_event_at,
+            third_event_at=third_event_at,
+            status_breakdown=status_breakdown
+        )
+        return milestone
+    except IntegrityError:
+        # Already exists today - expected/normal, not an error.
+        return None

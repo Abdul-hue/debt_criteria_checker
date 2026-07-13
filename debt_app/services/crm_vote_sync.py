@@ -13,6 +13,7 @@ from debt_app.models import (
     CreditorVoteSummary,
     CreditorVoteChangeEvent,
     CreditorMocAlert,
+    CreditorNonAcceptMilestone,
 )
 from debt_app.helpers import normalise_creditor_name, CREDITOR_ALIAS_MAP
 
@@ -32,6 +33,28 @@ def get_recent_vote_tally(vote_summary):
     for row in events.values("status").annotate(count=Count("id")):
         tally[row["status"]] = row["count"]
     return tally
+
+
+def get_last_5_tally(vote_summary):
+    """
+    Count the 5 most recent CreditorVoteChangeEvent rows for vote_summary,
+    grouped by status. Every VOTE_OUTCOME_CHOICES status is included as a key,
+    defaulting to 0. A "total" key is included with the actual number of events
+    found (up to 5).
+    """
+    ids = list(
+        CreditorVoteChangeEvent.objects.filter(vote_summary=vote_summary)
+        .order_by("-detected_at")[:5]
+        .values_list("id", flat=True)
+    )
+    tally = {status: 0 for status, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES}
+    tally["total"] = len(ids)
+    if ids:
+        events = CreditorVoteChangeEvent.objects.filter(id__in=ids)
+        for row in events.values("status").annotate(count=Count("id")):
+            tally[row["status"]] = row["count"]
+    return tally
+
 
 
 def resolve_vote_summary_creditor(vote_summary):
@@ -617,6 +640,98 @@ def check_and_send_moc_alerts(run):
     return newly_alerted
 
 
+def _send_non_accept_milestone_email(newly_created_milestones):
+    """
+    Send a single batched email listing every CreditorNonAcceptMilestone created this
+    run. Reuses the MOC_ALERT_RECIPIENTS and settings.MOC_ALERT_FROM_EMAIL.
+    """
+    if not newly_created_milestones:
+        return
+
+    vote_summary_ids = [m.vote_summary_id for m in newly_created_milestones]
+    summaries_by_id = {
+        s.id: s
+        for s in CreditorVoteSummary.objects.filter(id__in=vote_summary_ids).select_related(
+            "creditor_criteria", "council_rule", "county_council"
+        )
+    }
+
+    lines = []
+    for milestone in newly_created_milestones:
+        summary = summaries_by_id.get(milestone.vote_summary_id)
+        if summary is None:
+            continue
+        creditor_name, creditor_criteria = resolve_vote_summary_creditor(summary)
+        line = f"- {creditor_name}"
+        if creditor_criteria:
+            tags = get_creditor_tags(creditor_criteria)
+            if tags:
+                line += f" [{', '.join(tags)}]"
+        
+        # Sort status breakdown keys for stable output format
+        breakdown_parts = []
+        for status in sorted(milestone.status_breakdown.keys()):
+            count = milestone.status_breakdown[status]
+            breakdown_parts.append(f"{count} {status}")
+        breakdown_str = ", ".join(breakdown_parts)
+        
+        first_event_str = timezone.localtime(milestone.first_event_at).strftime("%d/%m/%Y %H:%M:%S")
+        third_event_str = timezone.localtime(milestone.third_event_at).strftime("%d/%m/%Y %H:%M:%S")
+        
+        sentence = f"This creditor has achieved 3 non-accepted votes ({breakdown_str}) between {first_event_str} and {third_event_str}"
+        line += f"\n  {sentence}"
+        lines.append(line)
+
+    subject = f"MOC Milestone Alert: {len(lines)} creditor(s) reached non-accept thresholds"
+    body = (
+        "The following creditors reached the non-accept threshold milestone (3+ non-accepted votes in a single London day):\n\n"
+        + "\n\n".join(lines)
+    )
+
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=settings.MOC_ALERT_FROM_EMAIL,
+        recipient_list=settings.MOC_ALERT_RECIPIENTS,
+    )
+
+
+def check_and_send_non_accept_milestones(run, log=None):
+    """
+    Check non-accept milestones for all creditors that received a new
+    CreditorVoteChangeEvent this run, and send a separate notification email if
+    any new milestones were created.
+    """
+    from debt_app.views.criteria_views import check_non_accept_milestone
+
+    events = CreditorVoteChangeEvent.objects.filter(sync_run=run)
+    vote_summary_ids = set(events.values_list("vote_summary_id", flat=True))
+
+    if not vote_summary_ids:
+        return []
+
+    newly_created_milestones = []
+    vote_summaries = CreditorVoteSummary.objects.filter(id__in=vote_summary_ids)
+
+    for summary in vote_summaries:
+        try:
+            milestone = check_non_accept_milestone(summary, run)
+            if milestone is not None:
+                newly_created_milestones.append(milestone)
+        except Exception as e:
+            # Print to stdout/log with enough context
+            msg = f"Error checking milestone for vote_summary_id={summary.id} in sync_run_id={run.id}: {e}"
+            if log:
+                log(msg)
+            else:
+                print(msg)
+
+    if newly_created_milestones:
+        _send_non_accept_milestone_email(newly_created_milestones)
+
+    return newly_created_milestones
+
+
 def run_crm_vote_sync(run=None, dry_run=False, log_file=None):
     """
     Runs the CRM -> CreditorVoteSummary sync end-to-end.
@@ -662,6 +777,11 @@ def run_crm_vote_sync(run=None, dry_run=False, log_file=None):
             check_and_send_moc_alerts(run)
         except Exception as e:
             log(f"MOC alert check failed: {e}")
+
+        try:
+            check_and_send_non_accept_milestones(run, log=log)
+        except Exception as e:
+            log(f"Non-accept milestone check failed: {e}")
     else:
         log("Skipping MOC alert check: no CrmSyncRun instance provided")
 

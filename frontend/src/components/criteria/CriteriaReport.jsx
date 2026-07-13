@@ -784,7 +784,25 @@ export default function CriteriaReport({ result }) {
                   <FileText className="w-3.5 h-3.5" />
                   <span className="text-xs font-semibold">{voteSummaryQuery.data.pod_count ?? '—'}</span>
                 </span>
+                {(() => {
+                  const t = voteSummaryQuery.data.last_5_tally
+                  if (!t || !t.total) return null
+                  const isAlert = t.rejected >= 3
+                  return (
+                    <span
+                      className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold border ${
+                        isAlert
+                          ? 'bg-red-100 text-red-700 border-red-200'
+                          : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                      }`}
+                      title={`${t.rejected} out of ${t.total} voters rejected`}
+                    >
+                      {t.rejected}/{t.total}
+                    </span>
+                  )
+                })()}
               </div>
+
             ) : (
               <p className="text-xs text-gray-400 mb-4">No CRM vote summary available.</p>
             )}
