@@ -45,7 +45,7 @@ def get_last_5_tally(vote_summary):
     """
     statuses = list(
         CreditorVoteChangeEvent.objects.filter(vote_summary=vote_summary)
-        .order_by("-detected_at")[:5]
+        .order_by("-detected_at", "-id")[:5]
         .values_list("status", flat=True)
     )
     tally = {status: 0 for status, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES}
@@ -393,17 +393,29 @@ def _sync_vote_summary(creditor_type, creditor_obj, vote_data, dry_run, log_file
     # Compute per-status vote deltas and prepare CreditorVoteChangeEvent rows
     # for any status whose count increased. Decreases/corrections (delta <= 0)
     # are not logged as vote activity.
+    #
+    # Skip this entirely on the summary's first-ever sync (created=True): old_values
+    # are all zero/defaults there, so every existing vote the creditor already has
+    # would be misread as a fresh "delta" and bulk-created as synthetic change events,
+    # all sharing this instant's detected_at. get_last_5_tally() orders by -detected_at
+    # with no secondary tiebreak, so those tied rows sort by insertion order rather than
+    # true vote chronology - the loop below appends per-status in VOTE_OUTCOME_CHOICES
+    # order (accepted, rejected, modified, pod), so "modified" backfill rows (inserted
+    # last) come back as the "most recent" votes even when the real latest vote (found
+    # via meeting_date in vote_data) was actually "rejected". Only genuine incremental
+    # deltas on later syncs represent real observed vote transitions worth logging.
     events_to_create = []
-    for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES:
-        count_field = f"{status_value}_count"
-        old_count = old_values[count_field] or 0
-        new_count = new_values[count_field] or 0
-        delta = new_count - old_count
-        if delta > 0:
-            events_to_create.extend(
-                CreditorVoteChangeEvent(vote_summary=summary, sync_run=run, status=status_value)
-                for _ in range(delta)
-            )
+    if not created:
+        for status_value, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES:
+            count_field = f"{status_value}_count"
+            old_count = old_values[count_field] or 0
+            new_count = new_values[count_field] or 0
+            delta = new_count - old_count
+            if delta > 0:
+                events_to_create.extend(
+                    CreditorVoteChangeEvent(vote_summary=summary, sync_run=run, status=status_value)
+                    for _ in range(delta)
+                )
 
     # Check if changes are needed
     changes = {}
