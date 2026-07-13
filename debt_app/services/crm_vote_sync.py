@@ -40,19 +40,19 @@ def get_last_5_tally(vote_summary):
     Count the 5 most recent CreditorVoteChangeEvent rows for vote_summary,
     grouped by status. Every VOTE_OUTCOME_CHOICES status is included as a key,
     defaulting to 0. A "total" key is included with the actual number of events
-    found (up to 5).
+    found (up to 5). A "sequence" key holds those same statuses ordered
+    newest-first (may be fewer than 5 if the creditor has fewer votes).
     """
-    ids = list(
+    statuses = list(
         CreditorVoteChangeEvent.objects.filter(vote_summary=vote_summary)
         .order_by("-detected_at")[:5]
-        .values_list("id", flat=True)
+        .values_list("status", flat=True)
     )
     tally = {status: 0 for status, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES}
-    tally["total"] = len(ids)
-    if ids:
-        events = CreditorVoteChangeEvent.objects.filter(id__in=ids)
-        for row in events.values("status").annotate(count=Count("id")):
-            tally[row["status"]] = row["count"]
+    tally["total"] = len(statuses)
+    tally["sequence"] = statuses
+    for status in statuses:
+        tally[status] += 1
     return tally
 
 
@@ -667,18 +667,11 @@ def _send_non_accept_milestone_email(newly_created_milestones):
             tags = get_creditor_tags(creditor_criteria)
             if tags:
                 line += f" [{', '.join(tags)}]"
-        
-        # Sort status breakdown keys for stable output format
-        breakdown_parts = []
-        for status in sorted(milestone.status_breakdown.keys()):
-            count = milestone.status_breakdown[status]
-            breakdown_parts.append(f"{count} {status}")
-        breakdown_str = ", ".join(breakdown_parts)
-        
+
         first_event_str = timezone.localtime(milestone.first_event_at).strftime("%d/%m/%Y %H:%M:%S")
         third_event_str = timezone.localtime(milestone.third_event_at).strftime("%d/%m/%Y %H:%M:%S")
-        
-        sentence = f"This creditor has achieved 3 non-accepted votes ({breakdown_str}) between {first_event_str} and {third_event_str}"
+
+        sentence = f"This creditor has achieved 3 {milestone.status} between {first_event_str} and {third_event_str}"
         line += f"\n  {sentence}"
         lines.append(line)
 
@@ -715,9 +708,8 @@ def check_and_send_non_accept_milestones(run, log=None):
 
     for summary in vote_summaries:
         try:
-            milestone = check_non_accept_milestone(summary, run)
-            if milestone is not None:
-                newly_created_milestones.append(milestone)
+            milestones = check_non_accept_milestone(summary, run)
+            newly_created_milestones.extend(milestones)
         except Exception as e:
             # Print to stdout/log with enough context
             msg = f"Error checking milestone for vote_summary_id={summary.id} in sync_run_id={run.id}: {e}"

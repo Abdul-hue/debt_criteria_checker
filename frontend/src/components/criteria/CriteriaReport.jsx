@@ -763,6 +763,7 @@ export default function CriteriaReport({ result }) {
             {voteSummaryQuery.isLoading ? (
               <p className="text-xs text-gray-400 mb-4">Loading CRM vote summary...</p>
             ) : voteSummaryQuery.data ? (
+              <>
               <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-4">
                 <span className="flex items-center gap-1 text-gray-700" title="Total votes">
                   <Users className="w-3.5 h-3.5 text-gray-400" />
@@ -788,6 +789,9 @@ export default function CriteriaReport({ result }) {
                   const t = voteSummaryQuery.data.last_5_tally
                   if (!t || !t.total) return null
                   const isAlert = t.rejected >= 3
+                  const STATUS_LABELS = { accepted: 'Accepted', rejected: 'Rejected', modified: 'Modified', pod: 'POD' }
+                  const sequenceText = (t.sequence || []).map((s) => STATUS_LABELS[s] || s).join(' → ')
+                  const tooltip = `${t.rejected} out of ${t.total} voters rejected\n${sequenceText}`
                   return (
                     <span
                       className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold border ${
@@ -795,14 +799,37 @@ export default function CriteriaReport({ result }) {
                           ? 'bg-red-100 text-red-700 border-red-200'
                           : 'bg-emerald-100 text-emerald-700 border-emerald-200'
                       }`}
-                      title={`${t.rejected} out of ${t.total} voters rejected`}
+                      title={tooltip}
                     >
                       {t.rejected}/{t.total}
                     </span>
                   )
                 })()}
               </div>
-
+              <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-4 text-xs">
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-400">Latest Outcome:</span>
+                  <span className={`font-semibold ${
+                    voteSummaryQuery.data.latest_vote_outcome === 'accepted' ? 'text-green-700'
+                      : voteSummaryQuery.data.latest_vote_outcome === 'rejected' ? 'text-red-600'
+                      : voteSummaryQuery.data.latest_vote_outcome === 'modified' ? 'text-amber-700'
+                      : 'text-gray-500'
+                  }`}>
+                    {voteSummaryQuery.data.latest_vote_outcome
+                      ? voteSummaryQuery.data.latest_vote_outcome.charAt(0).toUpperCase() + voteSummaryQuery.data.latest_vote_outcome.slice(1)
+                      : '—'}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-400">Latest Date:</span>
+                  <span className="font-semibold text-gray-800">
+                    {voteSummaryQuery.data.latest_vote_date
+                      ? new Date(voteSummaryQuery.data.latest_vote_date).toLocaleDateString('en-GB')
+                      : '—'}
+                  </span>
+                </span>
+              </div>
+              </>
             ) : (
               <p className="text-xs text-gray-400 mb-4">No CRM vote summary available.</p>
             )}

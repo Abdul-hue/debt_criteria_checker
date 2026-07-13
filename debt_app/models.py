@@ -643,21 +643,22 @@ class CreditorMocAlert(models.Model):
 class CreditorNonAcceptMilestone(models.Model):
     vote_summary = models.ForeignKey(CreditorVoteSummary, on_delete=models.CASCADE)
     milestone_date = models.DateField()
+    status = models.CharField(max_length=20, choices=CreditorVoteSummary.VOTE_OUTCOME_CHOICES)
     first_event_at = models.DateTimeField()
     third_event_at = models.DateTimeField()
-    status_breakdown = models.JSONField()
+    count = models.IntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["vote_summary", "milestone_date"],
-                name="uniq_nonaccept_milestone_per_day"
+                fields=["vote_summary", "milestone_date", "status"],
+                name="uniq_nonaccept_milestone_per_day_status"
             )
         ]
 
     def __str__(self):
-        return f"Non-Accept Milestone for vote_summary={self.vote_summary_id} on {self.milestone_date}"
+        return f"Non-Accept Milestone ({self.status}) for vote_summary={self.vote_summary_id} on {self.milestone_date}"
 
 
 class CountyCouncilRouting(models.Model):

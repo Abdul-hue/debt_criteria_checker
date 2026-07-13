@@ -142,6 +142,8 @@ def enrich_positions_with_tallies(creditor_positions):
                 "crm_rejected_count": s.rejected_count or 0,
                 "crm_modified_count": s.modified_count or 0,
                 "crm_pod_count": s.pod_count or 0,
+                "latest_vote_outcome": s.latest_vote_outcome,
+                "latest_vote_date": s.latest_vote_date.isoformat() if s.latest_vote_date else None,
             }
             
     for pos in creditor_positions:
@@ -166,12 +168,16 @@ def enrich_positions_with_tallies(creditor_positions):
             pos["crm_rejected_count"] = summary["crm_rejected_count"]
             pos["crm_modified_count"] = summary["crm_modified_count"]
             pos["crm_pod_count"] = summary["crm_pod_count"]
+            pos["latest_vote_outcome"] = summary["latest_vote_outcome"]
+            pos["latest_vote_date"] = summary["latest_vote_date"]
         else:
             pos["crm_total_votes"] = 0
             pos["crm_accepted_count"] = 0
             pos["crm_rejected_count"] = 0
             pos["crm_modified_count"] = 0
             pos["crm_pod_count"] = 0
+            pos["latest_vote_outcome"] = None
+            pos["latest_vote_date"] = None
 
 
 def build_phase7_response_fields(result: dict) -> dict:
@@ -3282,51 +3288,62 @@ class CrmSyncTodayView(APIView):
         })
 
 
+NON_ACCEPT_STATUSES = ('rejected', 'modified', 'pod')
+
+
 def check_non_accept_milestone(vote_summary, sync_run):
     """
-    Check if a creditor accumulates 3 or more non-accepted vote change events within
-    a single UK calendar day, and persist the milestone.
+    Check each non-accepted status (rejected, modified, pod) independently for
+    this creditor. Any status that reaches 3+ events within a single UK
+    calendar day - and hasn't already triggered a milestone today for that
+    status - gets its own CreditorNonAcceptMilestone row.
+
+    Returns a list of newly created milestones (may be empty, or contain more
+    than one if several statuses cross the threshold in the same check).
     """
-    from django.db import IntegrityError
+    from django.db import IntegrityError, transaction
     from debt_app.helpers import get_london_day_boundary
 
     # Get London calendar day boundaries
     day_start, day_end, today_date = get_london_day_boundary()
 
-    # Query this vote_summary's CreditorVoteChangeEvent rows where status != 'accepted'
-    # AND detected_at falls within today's London day, ordered by detected_at ascending
-    events = list(
-        CreditorVoteChangeEvent.objects.filter(
-            vote_summary=vote_summary,
-            detected_at__gte=day_start,
-            detected_at__lt=day_end
+    created_milestones = []
+
+    for status in NON_ACCEPT_STATUSES:
+        # Query this vote_summary's CreditorVoteChangeEvent rows for this exact
+        # status, within today's London day, ordered by detected_at ascending.
+        events = list(
+            CreditorVoteChangeEvent.objects.filter(
+                vote_summary=vote_summary,
+                status=status,
+                detected_at__gte=day_start,
+                detected_at__lt=day_end
+            )
+            .order_by('detected_at')
         )
-        .exclude(status='accepted')
-        .order_by('detected_at')
-    )
 
-    if len(events) < 3:
-        return None
+        if len(events) < 3:
+            continue
 
-    # Take the first 3 events in that ordering
-    first_3_events = events[:3]
-    first_event_at = first_3_events[0].detected_at
-    third_event_at = first_3_events[2].detected_at
+        first_event_at = events[0].detected_at
+        third_event_at = events[2].detected_at
 
-    # Build status_breakdown dict counting each status among those first 3
-    status_breakdown = {}
-    for event in first_3_events:
-        status_breakdown[event.status] = status_breakdown.get(event.status, 0) + 1
+        try:
+            # Wrapped in its own savepoint so a duplicate-today IntegrityError
+            # only rolls back this insert, not any outer transaction the
+            # caller may be running inside (e.g. a test harness).
+            with transaction.atomic():
+                milestone = CreditorNonAcceptMilestone.objects.create(
+                    vote_summary=vote_summary,
+                    milestone_date=today_date,
+                    status=status,
+                    first_event_at=first_event_at,
+                    third_event_at=third_event_at,
+                    count=len(events),
+                )
+            created_milestones.append(milestone)
+        except IntegrityError:
+            # Already triggered today for this status - expected/normal, not an error.
+            continue
 
-    try:
-        milestone = CreditorNonAcceptMilestone.objects.create(
-            vote_summary=vote_summary,
-            milestone_date=today_date,
-            first_event_at=first_event_at,
-            third_event_at=third_event_at,
-            status_breakdown=status_breakdown
-        )
-        return milestone
-    except IntegrityError:
-        # Already exists today - expected/normal, not an error.
-        return None
+    return created_milestones

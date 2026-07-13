@@ -47,15 +47,9 @@ export default function CrmVoteSummary({ summary, isLoading }) {
       </p>
       
       <div className="p-3 bg-blue-50 border border-blue-100 rounded-md">
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <span className="text-xs text-gray-500 block mb-0.5">Total Votes</span>
-            <span className="text-sm font-semibold text-gray-800">{summary.total_votes}</span>
-          </div>
-          <div>
-            <span className="text-xs text-gray-500 block mb-0.5">CRM Rows</span>
-            <span className="text-sm font-semibold text-gray-800">{summary.crm_rows_covered}</span>
-          </div>
+        <div className="mb-3">
+          <span className="text-xs text-gray-500 block mb-0.5">Total Votes</span>
+          <span className="text-sm font-semibold text-gray-800">{summary.total_votes}</span>
         </div>
         
         <div className="grid grid-cols-4 gap-2 mb-3">
