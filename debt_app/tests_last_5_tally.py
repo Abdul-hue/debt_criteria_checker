@@ -134,7 +134,8 @@ class Last5TallyTests(TestCase):
             "rejected": 3,
             "modified": 0,
             "pod": 0,
-            "total": 5
+            "total": 5,
+            "sequence": ["rejected", "rejected", "rejected", "accepted", "accepted"],
         }
         self.assertEqual(tally, expected_tally)
 
@@ -145,3 +146,47 @@ class Last5TallyTests(TestCase):
         # Ensure only the new key was added and all other keys are unchanged
         self.assertIn("last_5_tally", serialized)
         self.assertEqual(serialized["last_5_tally"], expected_tally)
+
+    def test_last_5_tally_reconciles_with_stale_event_log(self):
+        # Reproduces the reported bug: latest_vote_outcome is freshly computed
+        # from CRM every sync and says "rejected", but the CreditorVoteChangeEvent
+        # log is stale/incomplete (e.g. the creditor's baseline vote history
+        # predates event tracking, or rows were written before real-vote-date
+        # stamping existed) and only shows "modified" x5. The tally must not
+        # contradict the live latest_vote_outcome.
+        self.summary.latest_vote_outcome = "rejected"
+        self.summary.save(update_fields=["latest_vote_outcome"])
+
+        stale_events = [
+            CreditorVoteChangeEvent(
+                vote_summary=self.summary,
+                sync_run=self.sync_run,
+                status="modified",
+            )
+            for _ in range(5)
+        ]
+        CreditorVoteChangeEvent.objects.bulk_create(stale_events)
+
+        tally = get_last_5_tally(self.summary)
+
+        self.assertEqual(tally["sequence"][0], "rejected")
+        self.assertEqual(tally["rejected"], 1)
+        self.assertEqual(tally["modified"], 4)
+        self.assertEqual(tally["total"], 5)
+
+    def test_last_5_tally_matches_when_event_log_already_agrees(self):
+        # No reconciliation needed/no-op when the event log's newest entry
+        # already agrees with latest_vote_outcome.
+        self.summary.latest_vote_outcome = "rejected"
+        self.summary.save(update_fields=["latest_vote_outcome"])
+
+        CreditorVoteChangeEvent.objects.create(
+            vote_summary=self.summary,
+            sync_run=self.sync_run,
+            status="rejected",
+        )
+
+        tally = get_last_5_tally(self.summary)
+
+        self.assertEqual(tally["sequence"], ["rejected"])
+        self.assertEqual(tally["total"], 1)

@@ -42,12 +42,29 @@ def get_last_5_tally(vote_summary):
     defaulting to 0. A "total" key is included with the actual number of events
     found (up to 5). A "sequence" key holds those same statuses ordered
     newest-first (may be fewer than 5 if the creditor has fewer votes).
+
+    vote_summary.latest_vote_outcome is recomputed straight from CRM
+    meeting_date on every sync and is always current/correct. The event log
+    is only a best-effort reconstruction from count deltas and can lag behind
+    it - e.g. a creditor's baseline vote history predating when its
+    CreditorVoteChangeEvent tracking started never got a corresponding event
+    (no event is logged on a summary's first-ever sync), or older rows were
+    written before real-vote-date stamping existed. Rather than depending on
+    the event log ever being fully backfilled (via one-off management
+    commands like rebuild_vote_change_events), reconcile here on every read:
+    if the event-derived sequence doesn't already start with
+    latest_vote_outcome, the live value wins the #1 slot and the sequence is
+    trimmed back to 5. This keeps last_5_tally permanently consistent with
+    latest_vote_outcome regardless of any gaps in event history.
     """
     statuses = list(
         CreditorVoteChangeEvent.objects.filter(vote_summary=vote_summary)
         .order_by("-detected_at", "-id")[:5]
         .values_list("status", flat=True)
     )
+    latest_status = vote_summary.latest_vote_outcome
+    if latest_status and (not statuses or statuses[0] != latest_status):
+        statuses = [latest_status] + statuses[:4]
     tally = {status: 0 for status, _label in CreditorVoteSummary.VOTE_OUTCOME_CHOICES}
     tally["total"] = len(statuses)
     tally["sequence"] = statuses
