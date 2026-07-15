@@ -1372,7 +1372,7 @@ def _tig_15_2(c: dict) -> RuleResult:
     """TIG-15.2: HMRC majority creditor + previous IVA or bankruptcy."""
     if not c["hmrc_is_majority"]:
         return _pass("TIG-15.2", "HMRC is not the majority creditor.")
-    if c["previous_iva"] or c["previous_iva_failed"]:
+    if c["previous_iva"] or c["previous_iva_failed"] or c.get("credit_report_iva_or_bankruptcy"):
         return RuleResult(
             rule_id="TIG-15.2", severity="hard_block", triggered=True,
             message="HMRC is majority creditor and client has a previous IVA or bankruptcy. HMRC will reject.",
@@ -4973,14 +4973,19 @@ def _enrich_from_credit_report(case_data: dict) -> str:
         if _ccj_report and _ccj_report.extracted_data and "aoe_in_place" in _ccj_report.extracted_data:
             case_data["aoe_in_place"] = bool(_ccj_report.extracted_data.get("aoe_in_place"))
 
-        # previous_iva — credit report is authoritative over Aryza factfind
-        # Reads from public_information["iva_or_bankruptcy"] which is already
-        # surfaced in case_data["credit_report_public_information"]
+        # credit_report_iva_or_bankruptcy — surfaced from the credit report's
+        # combined "IVA or Bankruptcy Detected" field (public_information),
+        # which cannot distinguish a previous IVA from a previous bankruptcy.
+        # Deliberately kept SEPARATE from case_data["previous_iva"]: TIG-13,
+        # TIG-21.5 and WATCH-22.12 require an IVA specifically (they demand an
+        # IVA termination report, which doesn't exist for a bankruptcy), so
+        # blindly upgrading previous_iva from this ambiguous flag produced an
+        # unresolvable false hard block for clients whose credit report hit
+        # was actually a bankruptcy, not an IVA. TIG-15.2 wants either — it
+        # reads this field explicitly alongside previous_iva.
         _pub_info = case_data.get("credit_report_public_information") or {}
         if _ccj_report and _pub_info and "iva_or_bankruptcy" in _pub_info:
-            if bool(_pub_info.get("iva_or_bankruptcy")):
-                # Only upgrade to True — never downgrade Aryza True to credit report False
-                case_data["previous_iva"] = True
+            case_data["credit_report_iva_or_bankruptcy"] = bool(_pub_info.get("iva_or_bankruptcy"))
 
         # is_currently_in_dmp — credit report detection supplements Aryza payload
         # _phase4_dmp_reject uses c["is_currently_in_dmp"] as a hard dict access
