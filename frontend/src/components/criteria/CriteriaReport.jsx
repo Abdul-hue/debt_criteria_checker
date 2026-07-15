@@ -15,6 +15,7 @@ import {
   FileText
 } from 'lucide-react'
 import { useCreditorVoteSummary } from '../../hooks/useCreditors'
+import { isWaterSupplier, isPrivateParkingOperator, creditorRowKey } from '../../lib/dmpRowSelections'
 
 const REPRESENTATIVE_META = { 
   "WATCH": { 
@@ -326,7 +327,12 @@ const RuleCard = ({ rule, isExpanded, onToggle, creditorPositions = [] }) => {
   )
 }
 
-export default function CriteriaReport({ result }) {
+export default function CriteriaReport({
+  result,
+  creditorRowSelections = {},
+  onRowSelectionChange = () => {},
+  isRecalculating = false,
+}) {
   const hard_blocks = result?.hard_blocks || []
   const flags = result?.flags || []
   const passed = result?.passed || []
@@ -598,6 +604,7 @@ export default function CriteriaReport({ result }) {
                   <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">CR Status</th>
                   <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-right whitespace-nowrap">Missed Pmts (3m)</th>
                   <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-center whitespace-nowrap">Status</th>
+                  <th className="px-4 pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide text-center whitespace-nowrap">DMP</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -690,13 +697,81 @@ export default function CriteriaReport({ result }) {
                           )
                         })()}
                       </td>
+                      {/* DMP dropdown — conditional on debt_type_normalised (Part 3) */}
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const debtType = creditor.debt_type_normalised
+                          const name = creditor.creditor_name || creditor.original_aryza_name || ''
+                          const rowKey = creditorRowKey(creditor)
+                          const selection = creditorRowSelections[rowKey]?.value || ''
+
+                          const handleChange = (value) => onRowSelectionChange(rowKey, debtType, value || null)
+
+                          if (debtType === 'council_tax') {
+                            return (
+                              <select
+                                value={selection}
+                                onChange={(e) => handleChange(e.target.value)}
+                                disabled={isRecalculating}
+                                className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="">Not set</option>
+                                <option value="current">Current year</option>
+                                <option value="previous">Previous year</option>
+                              </select>
+                            )
+                          }
+                          if (debtType === 'utility' && isWaterSupplier(name)) {
+                            return (
+                              <select
+                                value={selection}
+                                onChange={(e) => handleChange(e.target.value)}
+                                disabled={isRecalculating}
+                                className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="">Not set</option>
+                                <option value="current">Current water bill</option>
+                              </select>
+                            )
+                          }
+                          if (debtType === 'pcn') {
+                            const defaultValue = isPrivateParkingOperator(name) ? 'private' : ''
+                            return (
+                              <select
+                                value={selection || defaultValue}
+                                onChange={(e) => handleChange(e.target.value)}
+                                disabled={isRecalculating}
+                                className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="">Not set</option>
+                                <option value="government">Government/Council</option>
+                                <option value="private">Private</option>
+                              </select>
+                            )
+                          }
+                          if (debtType === 'mobile') {
+                            return (
+                              <select
+                                value={selection}
+                                onChange={(e) => handleChange(e.target.value)}
+                                disabled={isRecalculating}
+                                className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="">Not set</option>
+                                <option value="current">Current phone contract</option>
+                              </select>
+                            )
+                          }
+                          return <span className="text-gray-300 text-xs">—</span>
+                        })()}
+                      </td>
                     </tr>
                   )
                 })}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan="7" className="px-4 pt-4 pb-1 text-right">
+                  <td colSpan="8" className="px-4 pt-4 pb-1 text-right">
                     <span className="font-semibold text-sm text-gray-500 mr-2">Total Unsecured Debt:</span>
                     <span className="font-semibold text-sm text-gray-900">
                       {formatCurrency(

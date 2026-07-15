@@ -12,14 +12,19 @@ export function useAssessCase() {
   const resultRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: async ({ aryza_reference, credit_report_id, manual_councils, manual_energy, dmp_checklist }) => {
-      const { data: response } = await axiosInstance.post('/api/v1/criteria/assess/', {
+    mutationFn: async ({ aryza_reference, credit_report_id, dmp_checklist, creditor_rows, signal }) => {
+      const body = {
         aryza_reference,
         ...(credit_report_id ? { credit_report_id } : {}),
-        ...(manual_councils && manual_councils.length ? { manual_councils } : {}),
-        ...(manual_energy && manual_energy.length ? { manual_energy } : {}),
         ...(dmp_checklist ? { dmp_checklist } : {}),
-      })
+        ...(creditor_rows && creditor_rows.length ? { creditor_rows } : {}),
+      }
+      // Only pass a request config when a signal was actually supplied —
+      // callers that don't need cancellation (and existing tests) see the
+      // exact same 2-arg axios.post call as before.
+      const { data: response } = signal
+        ? await axiosInstance.post('/api/v1/criteria/assess/', body, { signal })
+        : await axiosInstance.post('/api/v1/criteria/assess/', body)
       
       // Map to standardized shape for CriteriaReport
       const mappedData = {

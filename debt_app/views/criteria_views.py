@@ -237,8 +237,10 @@ class AssessRateThrottle(UserRateThrottle):
     scope = 'assess'
 
 
-# DMP Eligibility Checklist fields (Phase A — plumbing only, no rule reads
-# these yet). Per Azzam's email + Musa's phone-contract addendum.
+# DMP Eligibility Checklist fields. _evaluate_dmp_eligibility (criteria_engine.py)
+# reads this full flat dict unchanged regardless of source — see build_dmp_checklist()
+# below, which merges per-creditor-row dropdown selections with the remaining
+# case-level checkboxes that have no reliable per-creditor signal.
 DMP_CHECKLIST_FIELDS = [
     "current_year_council_tax",
     "previous_year_council_tax",
@@ -252,6 +254,69 @@ DMP_CHECKLIST_FIELDS = [
     "private_parking_debt",
     "current_phone_contract",
 ]
+
+# Case-level checkboxes (Part 4 of the Aryza-only DMP redesign) — kept as a
+# compact checklist since no reliable per-creditor signal exists for these:
+# no gas/electric distinguishing signal in Aryza data, and
+# lost_right_to_pay_instalments is a case-level fact, never per-row.
+DMP_CASE_LEVEL_CHECKLIST_FIELDS = [
+    "current_gas_bill",
+    "current_electric_bill",
+    "previous_gas_provider_debt",
+    "previous_electric_provider_debt",
+    "current_phone_contract",
+    "lost_right_to_pay_instalments",
+]
+
+
+def build_dmp_checklist(creditor_rows, case_level_raw):
+    """
+    Builds the flat DMP_CHECKLIST_FIELDS dict _evaluate_dmp_eligibility reads,
+    combining (a) per-row dropdown selections from the Creditor Positions table
+    and (b) the remaining DMP_CASE_LEVEL_CHECKLIST_FIELDS checkboxes.
+
+    creditor_rows: list of {"debt_type_normalised": str, "value": str|None} —
+      one entry per row where the caseworker made a dropdown selection.
+      council_tax value: "current" | "previous"
+      water value:       "current"
+      pcn value:         "government" | "private"
+      mobile value:      "current"
+      A row left "Not set" (value None/absent) contributes nothing.
+    case_level_raw: dict of the 6 DMP_CASE_LEVEL_CHECKLIST_FIELDS checkboxes.
+
+    Multiple rows of the same type OR together (e.g. two council-tax rows,
+    one "current" and one "previous", both set their respective flag True) —
+    _evaluate_dmp_eligibility only reads case-wide booleans, not per-creditor
+    identity, so this is the correct aggregation.
+    """
+    checklist = {field: False for field in DMP_CHECKLIST_FIELDS}
+    for field in DMP_CASE_LEVEL_CHECKLIST_FIELDS:
+        checklist[field] = bool((case_level_raw or {}).get(field, False))
+
+    for row in creditor_rows or []:
+        debt_type = row.get("debt_type_normalised") or row.get("type")
+        value = row.get("value") or row.get("selection")
+        if not value:
+            continue
+        if debt_type == "council_tax":
+            if value == "current":
+                checklist["current_year_council_tax"] = True
+            elif value == "previous":
+                checklist["previous_year_council_tax"] = True
+        elif debt_type == "utility" and value == "current":
+            # Water toggle is scoped to water-supplier names on the frontend
+            # (DEBT_TYPE_UTILITY rows whose creditor_name matches a water
+            # supplier) — see WATER_SUPPLIER_NAMES in the row-rendering logic.
+            checklist["current_water_bill"] = True
+        elif debt_type == "pcn":
+            if value == "government":
+                checklist["government_parking_hmrc_debt"] = True
+            elif value == "private":
+                checklist["private_parking_debt"] = True
+        elif debt_type == "mobile" and value == "current":
+            checklist["current_phone_contract"] = True
+
+    return checklist
 
 
 def enrich_rules_with_meta(rule_list):
@@ -360,8 +425,7 @@ class AssessCaseView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
 
-    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None,
-                                 manual_councils=None, manual_energy=None):
+    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None):
         """
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
 
@@ -374,17 +438,6 @@ class AssessCaseView(APIView):
         credit_report_id: when given, pins credit-report enrichment to this EXACT
           CreditReport row (e.g. the id returned by upload-credit-report) instead of
           re-selecting among every historical extraction for this aryza_reference.
-
-        manual_councils: optional list of {council_id, balance} — caseworker-added
-          council debts not present in the Aryza case (e.g. found from
-          correspondence, not yet in the client's file). Each is looked up in
-          CouncilRule and appended to prepared_creditors as a synthetic
-          council_tax creditor, going through the exact same downstream path
-          as real creditors (no special-casing in criteria_engine.py).
-        manual_energy: same shape/purpose as manual_councils, but for energy
-          creditors looked up in CreditorCriteria (creditor_id).
-        Both default to an empty list — entirely absent from the payload
-        when the caller (existing frontend, any other caller) doesn't send them.
 
         Returns: (payload, prepared_creditors)
           payload: dict for assess_case()
@@ -690,48 +743,6 @@ class AssessCaseView(APIView):
         except Exception as e:
             logger.warning(f"[CR ENRICH] failed: {e}")
 
-        # Manual council/energy additions — caseworker-added debts not present
-        # in the Aryza case payload. Built as synthetic creditor dicts and
-        # appended to the SAME prepared_creditors list the real creditors go
-        # through, so criteria_engine.py needs no special-casing: totals,
-        # council majority, and creditor_positions are just filters/sums over
-        # this one shared list.
-        for _manual_council in (manual_councils or []):
-            _council_id = _manual_council.get('council_id')
-            _balance_pounds = float(_manual_council.get('balance') or 0)
-            _rule = CouncilRule.objects.filter(id=_council_id).first()
-            if not _rule:
-                logger.warning(f"[MANUAL COUNCIL] council_id={_council_id!r} not found — skipping")
-                continue
-            prepared_creditors.append({
-                'creditor_name': _rule.council_name,
-                'original_name': _rule.council_name,
-                'balance': _balance_pounds,
-                'crm_balance': _balance_pounds,
-                'creditor_type': 'council_tax',
-                'debt_type_normalised': 'council_tax',
-                'is_secured': False,
-            })
-            unsecured_debt_pounds += _balance_pounds
-
-        for _manual_e in (manual_energy or []):
-            _creditor_id = _manual_e.get('creditor_id')
-            _balance_pounds = float(_manual_e.get('balance') or 0)
-            _creditor = CreditorCriteria.objects.filter(id=_creditor_id).first()
-            if not _creditor:
-                logger.warning(f"[MANUAL ENERGY] creditor_id={_creditor_id!r} not found — skipping")
-                continue
-            prepared_creditors.append({
-                'creditor_name': _creditor.creditor_name,
-                'original_name': _creditor.creditor_name,
-                'balance': _balance_pounds,
-                'crm_balance': _balance_pounds,
-                'creditor_type': 'energy',
-                'debt_type_normalised': 'energy',
-                'is_secured': False,
-            })
-            unsecured_debt_pounds += _balance_pounds
-
         # Disambiguate duplicate creditor_name labels AFTER credit-report
         # matching (so the CR-enrich step above still matches against the
         # clean base name). Aryza's `creditor` table is one master record
@@ -836,25 +847,22 @@ class AssessCaseView(APIView):
                 status.HTTP_422_UNPROCESSABLE_ENTITY
             )
         credit_report_id = request.data.get("credit_report_id")
-        manual_councils = request.data.get("manual_councils") or []
-        manual_energy = request.data.get("manual_energy") or []
-
-        # DMP Eligibility Checklist — case-level checkboxes (Azzam's email +
-        # Musa's phone-contract addendum). Phase A: fields only, no rule logic
-        # reads this yet — defaults every key to False so the frontend never
-        # has to send all 11 keys every time.
+        # DMP Eligibility Checklist — combines per-row dropdown selections
+        # (council tax current/previous, water included, parking
+        # government/private, mobile) with the remaining case-level
+        # checkboxes that have no reliable per-creditor signal (Part 4/5 of
+        # the Aryza-only DMP redesign). See build_dmp_checklist().
+        _creditor_rows = request.data.get("creditor_rows") or []
         _dmp_checklist_raw = request.data.get("dmp_checklist") or {}
-        dmp_checklist = {
-            field: bool(_dmp_checklist_raw.get(field, False))
-            for field in DMP_CHECKLIST_FIELDS
-        }
+        dmp_checklist = build_dmp_checklist(_creditor_rows, _dmp_checklist_raw)
+        logger.warning(f"[DMP DEBUG] received creditor_rows={_creditor_rows!r} "
+                       f"dmp_checklist_raw={_dmp_checklist_raw!r} -> built={dmp_checklist!r}")
 
         # Step 2 — Fetch from Aryza
         try:
             case_data_obj = fetch_case_by_reference(aryza_reference)
             case_data, prepared_creditors, _cr_unmatched = self._prepare_engine_payload(
                 case_data_obj, credit_report_id,
-                manual_councils=manual_councils, manual_energy=manual_energy,
             )
             # Phase A: attach as a new top-level payload key only — not read
             # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).

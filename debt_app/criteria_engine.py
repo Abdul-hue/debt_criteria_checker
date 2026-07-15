@@ -3595,6 +3595,16 @@ def _match_council_rule(name: str):
             return CouncilRule.objects.get(council_name__iexact=cand)
         except CouncilRule.DoesNotExist:
             continue
+        except CouncilRule.MultipleObjectsReturned:
+            # Duplicate rows differing only by case (data-entry dupes). Prefer the
+            # authoritative source (lowest source_priority), then most recently
+            # reviewed, rather than crashing the whole assessment.
+            rows = list(
+                CouncilRule.objects.filter(council_name__iexact=cand).order_by(
+                    "source_priority", "-last_reviewed"
+                )
+            )
+            return rows[0]
 
     council_names = list(CouncilRule.objects.values_list("council_name", flat=True))
     if not council_names:
@@ -3798,6 +3808,7 @@ def _check_council_rules(case: dict) -> list[dict]:
             "findings": findings,
             "reason": reason,
             "_creditor_idx": cr.get("_idx"),
+            "debt_type_normalised": cr.get("debt_type_normalised"),
         })
 
     return positions
@@ -3897,6 +3908,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_credit_limit": c.get("cr_credit_limit"),
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
+                "debt_type_normalised": c.get("debt_type_normalised"),
             })
         else:
             backfilled.append({
@@ -3917,6 +3929,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_credit_limit": c.get("cr_credit_limit"),
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
+                "debt_type_normalised": c.get("debt_type_normalised"),
             })
 
     return engine_positions + backfilled
@@ -4245,6 +4258,13 @@ _REP_BODY_PREFIXES = (
 # body outcome must never override these (the creditor isn't casting a ballot).
 _REP_NON_VOTING_STATUSES = frozenset({"DO_NOT_VOTE", "POD_ONLY"})
 
+# Finding code set on a position when the creditor could not be resolved to any
+# CreditorCriteria row at all (see CREDITOR-UNKNOWN in _check_creditor_individual).
+# A representative-body outcome must never promote such a position to a real
+# status/reason — that would silently contradict the "no matching record" finding
+# still sitting in `findings`.
+_CREDITOR_UNKNOWN_CODE = "CREDITOR-UNKNOWN"
+
 
 def _rep_body_for_rule(rule_id: str):
     """Return the representative body a rule_id belongs to, or None."""
@@ -4340,6 +4360,14 @@ def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
 
         # Never soften a per-creditor hard reject or non-voting status.
         if current in _REP_NON_VOTING_STATUSES or current == "REJECT":
+            continue
+
+        # Never promote a genuinely unmatched creditor (no CreditorCriteria row
+        # found at all) to a representative-body status. It has no real rule to
+        # defer to, and the CREDITOR-UNKNOWN finding must stay accurate.
+        if current == "UNKNOWN" and any(
+            f.get("code") == _CREDITOR_UNKNOWN_CODE for f in (pos.get("findings") or [])
+        ):
             continue
 
         # PENDING_REP_OUTCOME means the engine deferred to the rep body.
@@ -4685,6 +4713,14 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
             council_rule = CouncilRule.objects.filter(council_name__icontains=name_part).first()
             if council_rule is None:
                 continue
+        except CouncilRule.MultipleObjectsReturned:
+            # Duplicate rows differing only by case — prefer the authoritative
+            # source (lowest source_priority), then most recently reviewed.
+            council_rule = (
+                CouncilRule.objects.filter(council_name__iexact=name)
+                .order_by("source_priority", "-last_reviewed")
+                .first()
+            )
         if council_rule.min_dividend_pence is not None:
             min_p = council_rule.min_dividend_pence
             max_min_required = max(max_min_required, min_p)

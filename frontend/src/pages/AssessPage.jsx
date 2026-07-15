@@ -1,8 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import CaseSearch from '../components/assess/CaseSearch'
 import CriteriaReport from '../components/criteria/CriteriaReport'
 import EmptyState from '../components/shared/EmptyState'
+import { useAssessCase } from '../hooks/useAssessCase'
+import { isPrivateParkingOperator, creditorRowKey } from '../lib/dmpRowSelections'
 import { Search } from 'lucide-react'
+
+// Case-level DMP checklist fields (Part 4 of the Aryza-only DMP redesign) —
+// the 6 checkboxes with no reliable per-creditor signal. Kept in sync with
+// DMP_CASE_LEVEL_CHECKLIST_FIELDS in debt_app/views/criteria_views.py.
+const DEFAULT_DMP_CHECKLIST = {
+  current_gas_bill: false,
+  current_electric_bill: false,
+  previous_gas_provider_debt: false,
+  previous_electric_provider_debt: false,
+  current_phone_contract: false,
+  lost_right_to_pay_instalments: false,
+}
 
 /**
  * AssessPage component
@@ -10,9 +24,75 @@ import { Search } from 'lucide-react'
  */
 export default function AssessPage() {
   const [assessmentResult, setAssessmentResult] = useState(null)
+  const [lastRunParams, setLastRunParams] = useState(null) // { aryza_reference, credit_report_id }
+  const [dmpChecklist, setDmpChecklist] = useState(DEFAULT_DMP_CHECKLIST)
+  // Per-creditor-row DMP dropdown selections, keyed by a stable row key
+  // (creditor_name + debt_type_normalised) -> selection value string.
+  const [creditorRowSelections, setCreditorRowSelections] = useState({})
 
-  const handleResult = (data) => {
+  const { runAssessment: recalculate } = useAssessCase()
+
+  // Request sequencing for recalculation — a rapid sequence of dropdown
+  // changes fires one POST each with no server-side ordering guarantee, so
+  // whichever response lands LAST would otherwise overwrite state, even if
+  // it was requested BEFORE a later change. Every call here aborts the
+  // previous in-flight request and stamps an incrementing sequence number;
+  // a response is only applied if it's still the latest request when it
+  // resolves — a superseded request's response (abort error or a late
+  // success that lost the abort race) is silently discarded.
+  const recalcSeqRef = useRef(0)
+  const recalcAbortRef = useRef(null)
+  const [isRecalculating, setIsRecalculating] = useState(false)
+
+  const runRecalculation = useCallback((payload) => {
+    recalcAbortRef.current?.abort()
+    const controller = new AbortController()
+    recalcAbortRef.current = controller
+    const seq = ++recalcSeqRef.current
+
+    setIsRecalculating(true)
+    recalculate(
+      { ...payload, signal: controller.signal },
+      {
+        onSuccess: (data) => {
+          if (seq !== recalcSeqRef.current) return // stale — a newer request has already superseded this one
+          setAssessmentResult(data)
+          setIsRecalculating(false)
+        },
+        onError: (error) => {
+          if (seq !== recalcSeqRef.current) return // superseded (likely our own abort) — ignore
+          setIsRecalculating(false)
+          console.error('Recalculation failed:', error)
+        },
+      }
+    )
+  }, [recalculate])
+
+  const handleResult = (data, creditReportId) => {
     setAssessmentResult(data)
+    const runParams = { aryza_reference: data.aryza_reference, credit_report_id: creditReportId }
+    setLastRunParams(runParams)
+
+    // Pre-select "Private" for PCN rows matching a known private-parking
+    // operator (Part 3.3) — still overridable per-row. A fresh assessment
+    // otherwise clears any row selections made against the previous
+    // creditor list.
+    const defaults = {}
+    ;(data.creditor_positions || []).forEach((c) => {
+      if (c.debt_type_normalised === 'pcn' && isPrivateParkingOperator(c.creditor_name || c.original_aryza_name)) {
+        defaults[creditorRowKey(c)] = { debt_type_normalised: 'pcn', value: 'private' }
+      }
+    })
+    setCreditorRowSelections(defaults)
+
+    if (Object.keys(defaults).length > 0) {
+      runRecalculation({
+        aryza_reference: runParams.aryza_reference,
+        credit_report_id: runParams.credit_report_id,
+        dmp_checklist: dmpChecklist,
+        creditor_rows: Object.values(defaults),
+      })
+    }
   }
 
   const handleError = (message) => {
@@ -20,11 +100,28 @@ export default function AssessPage() {
     console.error('Assessment error:', message)
   }
 
+  const handleRowSelectionChange = (rowKey, debtTypeNormalised, value) => {
+    const next = { ...creditorRowSelections, [rowKey]: { debt_type_normalised: debtTypeNormalised, value } }
+    setCreditorRowSelections(next)
+    if (!lastRunParams) return
+    runRecalculation({
+      aryza_reference: lastRunParams.aryza_reference,
+      credit_report_id: lastRunParams.credit_report_id,
+      dmp_checklist: dmpChecklist,
+      creditor_rows: Object.values(next).filter((r) => r.value),
+    })
+  }
+
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left Panel: Search & Trigger (fixed width, scrollable if needed) */}
       <div className="w-72 h-full flex-shrink-0 border-r border-slate-200 bg-white">
-        <CaseSearch onResult={handleResult} onError={handleError} />
+        <CaseSearch
+          onResult={handleResult}
+          onError={handleError}
+          dmpChecklist={dmpChecklist}
+          onDmpChecklistChange={setDmpChecklist}
+        />
       </div>
 
       {/* Right Panel: Results (fills width, scrollable) */}
@@ -60,10 +157,13 @@ export default function AssessPage() {
             </div>
 
             {/* The main report component */}
-            <CriteriaReport 
-              result={assessmentResult} 
+            <CriteriaReport
+              result={assessmentResult}
               dividendAnalysis={assessmentResult.dividend_analysis}
               majorityAnalysis={assessmentResult.majority_analysis}
+              creditorRowSelections={creditorRowSelections}
+              onRowSelectionChange={handleRowSelectionChange}
+              isRecalculating={isRecalculating}
             />
           </div>
         )}
