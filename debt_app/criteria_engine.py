@@ -157,6 +157,40 @@ _HMRC_NAMES = frozenset({
     "his majesty's revenue & customs",
 })
 
+_PRIVATE_PARKING_NAMES = frozenset({
+    "parkingeye",
+    "parkingeye ltd",
+    "excel parking services",
+    "excel parking services ltd",
+    "euro car parks",
+    "euro car parks ltd",
+    "ukpc",
+    "uk parking control",
+    "uk parking control ltd",
+    "civil enforcement ltd",
+    "civil enforcement limited",
+    "ncp",
+    "national car parks",
+    "national car parks ltd",
+    "smart parking",
+    "smart parking ltd",
+    "vcs",
+    "vehicle control services",
+    "vehicle control services ltd",
+    "gemini parking solutions",
+    "gemini parking solutions ltd",
+    "premier park",
+    "premier park ltd",
+    "mil collections",
+    "highview parking",
+    "highview parking ltd",
+    "aps parking",
+    "britannia parking",
+    "britannia parking group",
+    "aos parking",
+    "your parking space",
+})
+
 _HMRC_KNOWN_SUBTYPES = frozenset({
     "vat", "value_added_tax",
     "paye", "pay_as_you_earn",
@@ -5172,6 +5206,78 @@ def _enrich_from_credit_report(case_data: dict) -> str:
         return "extraction_failed"
 
 
+DMP_MIN_TOTAL_DEBT = 3000
+
+
+def _evaluate_dmp_eligibility(c: dict) -> dict:
+    """
+    Standalone DMP eligibility check (separate from the hard_block/flag pipeline
+    and from _derive_recommended_solution). Reads c["dmp_checklist"] (the 11-field
+    checklist dict) and c["total_debt"].
+
+    Confirmed with user 2026-07-15: Musa's "current gas/electricity bills cannot
+    be included" means exclude that specific debt from the DMP arrangement, NOT
+    reject the whole case. Azzam's checkbox framing (flat true/false, no amount)
+    lost that nuance — current_gas_bill/current_electric_bill/current_phone_contract
+    are therefore non-blocking notes here, not rejection triggers.
+
+    previous_gas_provider_debt/previous_electric_provider_debt/current_water_bill
+    have no rejection rule (Musa: these "can be included" in the DMP total) —
+    they surface as informational notes only, never rejection triggers.
+
+    Returns {"status": "DMP_ELIGIBLE" | "DMP_REJECTED" | "DMP_NOT_EVALUATED",
+    "reasons": [...], "notes": [...]}. "reasons" explains a REJECTED status;
+    "notes" are informational only and never affect status.
+    """
+    checklist = c.get("dmp_checklist")
+    if not checklist:
+        return {"status": "DMP_NOT_EVALUATED", "reasons": [], "notes": []}
+
+    reasons: list[str] = []
+    notes: list[str] = []
+
+    total_debt = float(c.get("total_debt") or 0)
+    if total_debt <= DMP_MIN_TOTAL_DEBT:
+        reasons.append("Total debt below £3,000 minimum")
+
+    if (
+        checklist.get("current_year_council_tax")
+        and checklist.get("previous_year_council_tax")
+        and checklist.get("lost_right_to_pay_instalments")
+    ):
+        reasons.append(
+            "Lost right to pay instalments with both current and previous "
+            "year council tax outstanding"
+        )
+
+    if checklist.get("government_parking_hmrc_debt") and not checklist.get("private_parking_debt"):
+        reasons.append("Government/HMRC-enforced parking debt")
+
+    excluded_bills = [
+        label for field, label in (
+            ("current_gas_bill", "current gas bill"),
+            ("current_electric_bill", "current electricity bill"),
+            ("current_phone_contract", "current phone contract"),
+        )
+        if checklist.get(field)
+    ]
+    if excluded_bills:
+        notes.append(
+            "Exclude the following debt(s) from the DMP arrangement: "
+            + ", ".join(excluded_bills)
+        )
+
+    if checklist.get("previous_gas_provider_debt"):
+        notes.append("Previous gas provider debt — included in DMP total.")
+    if checklist.get("previous_electric_provider_debt"):
+        notes.append("Previous electricity provider debt — included in DMP total.")
+    if checklist.get("current_water_bill"):
+        notes.append("Current water bill — included in DMP total.")
+
+    status = "DMP_REJECTED" if reasons else "DMP_ELIGIBLE"
+    return {"status": status, "reasons": reasons, "notes": notes}
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -5211,6 +5317,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     # Expose detected representatives to the always-run rules (e.g. TIG-16 scopes
     # itself to NON-WPM cases — WATCH/WPM equity is handled by WATCH-22.4).
     c["detected_representatives"] = detected_representatives
+    c["dmp_checklist"] = case_json.get("dmp_checklist")
 
     # Load disabled rule_keys once — single DB query for the whole assessment.
     try:
@@ -5539,6 +5646,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
 
     recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions)
     tig_eligible = len(hard_blocks) == 0
+    dmp_eligibility = _evaluate_dmp_eligibility(c)
 
     # SFS guideline comparison — non-blocking, appended to result
     from debt_app.sfs_calculator import derive_household_key, get_guideline_rate, apply_guideline_constraint
@@ -5585,6 +5693,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "total_secured_debt": float(c.get("total_secured_debt") or 0),
         "passes_all_hard_blocks": tig_eligible,
         "recommended_solution": recommended_solution,
+        "dmp_eligibility": dmp_eligibility,
         "tig_eligible": tig_eligible,
         "creditor_positions": _all_creditor_positions,
         "council_positions": council_positions,

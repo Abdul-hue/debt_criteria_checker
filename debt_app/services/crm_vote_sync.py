@@ -4,7 +4,6 @@ from datetime import datetime, time as time_of_day, timedelta
 from django.db import transaction, connections, IntegrityError
 from django.db.models import Count
 from django.conf import settings
-from django.core.mail import send_mail
 from django.utils import timezone
 from debt_app.models import (
     CreditorCriteria,
@@ -611,50 +610,6 @@ def _sync_county_councils(crm_data, dry_run, log_file, log=print, run=None):
     return created_count, updated_count
 
 
-def _send_moc_alert_email(newly_alerted):
-    """
-    Send a single batched email listing every CreditorMocAlert created this
-    run - one email per run, not one per creditor, so a run with many vote
-    changes doesn't spam MOC_ALERT_RECIPIENTS. No existing email-sending
-    convention was found in this codebase (no send_mail/EmailMultiAlternatives/
-    django.core.mail usage anywhere else), so this uses Django's built-in
-    send_mail directly with the Prompt 8 settings.
-    """
-    vote_summary_ids = [alert.vote_summary_id for alert in newly_alerted]
-    summaries_by_id = {
-        s.id: s
-        for s in CreditorVoteSummary.objects.filter(id__in=vote_summary_ids).select_related(
-            "creditor_criteria", "council_rule", "county_council"
-        )
-    }
-
-    lines = []
-    for alert in newly_alerted:
-        summary = summaries_by_id.get(alert.vote_summary_id)
-        if summary is None:
-            continue
-        creditor_name, creditor_criteria = resolve_vote_summary_creditor(summary)
-        line = f"- {creditor_name}: {alert.triggered_by_status} (alert date: {alert.alert_date.isoformat()})"
-        if creditor_criteria:
-            tags = get_creditor_tags(creditor_criteria)
-            if tags:
-                line += f" [{', '.join(tags)}]"
-        lines.append(line)
-
-    subject = f"MOC Alert: {len(lines)} creditor(s) with new vote activity"
-    body = (
-        "The following creditors had new vote activity in the latest CRM sync:\n\n"
-        + "\n".join(lines)
-    )
-
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=settings.MOC_ALERT_FROM_EMAIL,
-        recipient_list=settings.MOC_ALERT_RECIPIENTS,
-    )
-
-
 def check_and_send_moc_alerts(run):
     """
     Find every vote_summary that got at least one CreditorVoteChangeEvent
@@ -674,9 +629,14 @@ def check_and_send_moc_alerts(run):
     check first, which would leave a race window between the check and the
     create if two sync runs ever overlapped.
 
+    This only records CreditorMocAlert rows - it does NOT send email. A sync
+    run can happen any number of times a day (manual button, CLI), so sending
+    here would mean one email per run. Instead the `send_moc_daily_digest`
+    management command, run once per day, emails every row with
+    emailed=False and marks them emailed=True.
+
     Returns the list of newly-created CreditorMocAlert instances (i.e. the
-    ones that were NOT already alerted today) - Prompt 10b will use this list
-    to send emails.
+    ones that were NOT already alerted today).
     """
     events = CreditorVoteChangeEvent.objects.filter(sync_run=run).order_by("detected_at")
 
@@ -716,66 +676,17 @@ def check_and_send_moc_alerts(run):
             # Already alerted for this vote_summary today - expected/normal, not an error.
             continue
 
-    if newly_alerted:
-        _send_moc_alert_email(newly_alerted)
-
     return newly_alerted
-
-
-def _send_non_accept_milestone_email(newly_created_milestones):
-    """
-    Send a single batched email listing every CreditorNonAcceptMilestone created this
-    run. Reuses the MOC_ALERT_RECIPIENTS and settings.MOC_ALERT_FROM_EMAIL.
-    """
-    if not newly_created_milestones:
-        return
-
-    vote_summary_ids = [m.vote_summary_id for m in newly_created_milestones]
-    summaries_by_id = {
-        s.id: s
-        for s in CreditorVoteSummary.objects.filter(id__in=vote_summary_ids).select_related(
-            "creditor_criteria", "council_rule", "county_council"
-        )
-    }
-
-    lines = []
-    for milestone in newly_created_milestones:
-        summary = summaries_by_id.get(milestone.vote_summary_id)
-        if summary is None:
-            continue
-        creditor_name, creditor_criteria = resolve_vote_summary_creditor(summary)
-        line = f"- {creditor_name}"
-        if creditor_criteria:
-            tags = get_creditor_tags(creditor_criteria)
-            if tags:
-                line += f" [{', '.join(tags)}]"
-
-        first_event_str = timezone.localtime(milestone.first_event_at).strftime("%d/%m/%Y %H:%M:%S")
-        third_event_str = timezone.localtime(milestone.third_event_at).strftime("%d/%m/%Y %H:%M:%S")
-
-        sentence = f"This creditor has achieved 3 {milestone.status} between {first_event_str} and {third_event_str}"
-        line += f"\n  {sentence}"
-        lines.append(line)
-
-    subject = f"MOC Milestone Alert: {len(lines)} creditor(s) reached non-accept thresholds"
-    body = (
-        "The following creditors reached the non-accept threshold milestone (3+ non-accepted votes in a single London day):\n\n"
-        + "\n\n".join(lines)
-    )
-
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=settings.MOC_ALERT_FROM_EMAIL,
-        recipient_list=settings.MOC_ALERT_RECIPIENTS,
-    )
 
 
 def check_and_send_non_accept_milestones(run, log=None):
     """
     Check non-accept milestones for all creditors that received a new
-    CreditorVoteChangeEvent this run, and send a separate notification email if
-    any new milestones were created.
+    CreditorVoteChangeEvent this run and record any new
+    CreditorNonAcceptMilestone rows.
+
+    This only records rows - it does NOT send email. See the
+    `send_moc_daily_digest` management command for the once-a-day send.
     """
     from debt_app.views.criteria_views import check_non_accept_milestone
 
@@ -799,9 +710,6 @@ def check_and_send_non_accept_milestones(run, log=None):
                 log(msg)
             else:
                 print(msg)
-
-    if newly_created_milestones:
-        _send_non_accept_milestone_email(newly_created_milestones)
 
     return newly_created_milestones
 

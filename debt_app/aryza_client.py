@@ -435,7 +435,7 @@ class AryzaClient:
             try:
                 cursor.execute(
                     "SELECT td_total_debt, td_contribution, td_third_party_contribution, "
-                    "       td_no_cars, td_previous_bankruptcy, td_third_party_contributor "
+                    "       td_no_cars, td_third_party_contributor "
                     "FROM td_client WHERE clientid = %s",
                     [clientid]
                 )
@@ -448,8 +448,7 @@ class AryzaClient:
                     if td_row[2] is not None:
                         case.income["third_party_contribution"] = self._pence(td_row[2])
                     case.vehicle["has_vehicle"] = bool(td_row[3] and td_row[3] > 0)
-                    case.flags["previous_iva"] = bool(td_row[4])
-                    case.flags["has_third_party"] = bool(td_row[5])
+                    case.flags["has_third_party"] = bool(td_row[4])
                     self._audit(case, "td_client", "FOUND", "Core financial summary loaded")
                 else:
                     self._audit(case, "td_client", "EMPTY", "No row in td_client")
@@ -941,13 +940,17 @@ class AryzaClient:
             
             # Check for previous IVA in iva_client and factfind tables
             try:
-                # 1. Check current/recent IVA in iva_client
+                # 1. Check for a failed/terminated IVA recorded against this client's
+                #    iva_client row. iva_client holds the client's own case (including
+                #    the current one being assessed), so a row existing here is not
+                #    itself evidence of a previous IVA — only a populated
+                #    iva_failure_reason is.
                 cursor.execute(
                     "SELECT iva_failure_reason FROM iva_client WHERE clientid = %s LIMIT 1",
                     [clientid]
                 )
                 row = cursor.fetchone()
-                if row:
+                if row and row[0]:
                     case.flags["previous_iva"] = True
                     case.flags["previous_iva_failed_reason"] = row[0]
                     self._audit(case, "iva_client (IVA flag)", "FOUND", f"Reason: {row[0]}")

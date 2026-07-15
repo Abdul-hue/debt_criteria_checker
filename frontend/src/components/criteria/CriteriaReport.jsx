@@ -406,57 +406,114 @@ export default function CriteriaReport({ result }) {
   const isAchievable = result?.majority_analysis?.achievable === true
   const estDividend = result?.dividend_analysis?.estimated_pence || 0
 
+  const dmpEligibility = result?.dmp_eligibility
+
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 font-sans text-gray-600">
       {/* SECTION A — CLIENT HEADER CARD */}
       <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
         <div className="h-1 w-full bg-gradient-to-r from-brand-navy via-brand-gold to-brand-red" />
-        <div className="p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="space-y-3">
-          <h1 className="font-display text-3xl font-bold text-brand-navy tracking-tight">
-            {result?.client_name || 'Theresa Topp'}
-          </h1>
-          <p className="text-sm text-gray-400">
-            Aryza Ref: {result?.aryza_reference || '324991'} • Assessed {new Date(result?.evaluated_at).toLocaleDateString()}
-          </p>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-widest text-gray-400">REPRESENTATIVES DETECTED</div>
-            <div className="flex flex-col gap-2">
-              {((result?.representatives_detected && result.representatives_detected.length > 0) 
-                ? result.representatives_detected 
-                : ["NONE"]
-              ).map((entry, idx) => {
-                const meta = REPRESENTATIVE_META[entry] ?? REPRESENTATIVE_META["NONE"]
-                return (
-                  <div key={idx} className="flex flex-col">
-                    <div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${meta.chipClass}`}>
-                        {meta.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{meta.description}</p>
-                  </div>
-                )
-              })}
-            </div>
+        <div className="p-6 grid grid-cols-1 md:grid-cols-[1fr_320px] gap-6 md:gap-8 items-start">
+        <div className="space-y-4">
+          <div>
+            <h1 className="font-display text-3xl font-bold text-brand-navy tracking-tight">
+              {result?.client_name || 'Theresa Topp'}
+            </h1>
+            <p className="text-sm text-gray-400 mt-1">
+              Aryza Ref: {result?.aryza_reference || '324991'} • Assessed {new Date(result?.evaluated_at).toLocaleDateString()}
+            </p>
           </div>
+
           {result?.overall_status === 'BLOCKED' && (
             <div className="inline-flex items-center gap-1.5 bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest">
               <X className="w-3.5 h-3.5" />
               BLOCKED
             </div>
           )}
+
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Representatives Detected</div>
+            {(() => {
+              const entries = (result?.representatives_detected && result.representatives_detected.length > 0)
+                ? result.representatives_detected
+                : ["NONE"]
+              return (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {entries.map((entry, idx) => {
+                      const meta = REPRESENTATIVE_META[entry] ?? REPRESENTATIVE_META["NONE"]
+                      return (
+                        <span
+                          key={idx}
+                          title={meta.description}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest cursor-default ${meta.chipClass}`}
+                        >
+                          {meta.label}
+                        </span>
+                      )
+                    })}
+                  </div>
+                  <ul className="space-y-0.5">
+                    {entries.map((entry, idx) => {
+                      const meta = REPRESENTATIVE_META[entry] ?? REPRESENTATIVE_META["NONE"]
+                      return (
+                        <li key={idx} className="text-xs text-gray-500 leading-relaxed">
+                          <span className="font-semibold text-gray-600">{meta.label}:</span> {meta.description}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              )
+            })()}
+          </div>
         </div>
 
-        <div className="flex flex-col items-end gap-3 w-full md:w-auto">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Recommended Solution</span>
-          <div className={`rounded-xl border-2 px-4 py-3 flex items-center gap-2 min-w-[200px] ${solutionStyles[solutionCode] || solutionStyles.IVA}`}>
-            <Lightbulb className="w-5 h-5" />
-            <span className="text-lg font-bold">{solutionLabel}</span>
+        <div className="flex flex-col gap-3 w-full">
+          <div>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Recommended Solution</span>
+            <div className={`rounded-xl border-2 px-4 py-3 flex items-center gap-2 ${solutionStyles[solutionCode] || solutionStyles.IVA}`}>
+              <Lightbulb className="w-5 h-5 flex-shrink-0" />
+              <span className="text-lg font-bold">{solutionLabel}</span>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed mt-2">
+              {solutionRationale}
+            </p>
           </div>
-          <p className="text-xs text-right text-gray-500 max-w-[280px] leading-relaxed">
-            {solutionRationale}
-          </p>
+
+          {dmpEligibility && dmpEligibility.status !== 'DMP_NOT_EVALUATED' && (
+            <div className="space-y-2 pt-3 border-t border-gray-100">
+              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                DMP Checklist: {dmpEligibility.status === 'DMP_ELIGIBLE' ? 'Passed' : 'Rejected'}
+              </div>
+              {dmpEligibility.status === 'DMP_REJECTED' && dmpEligibility.reasons?.length > 0 && (
+                <div className="rounded-lg bg-red-50 border border-red-100 p-3">
+                  <div className="text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1.5">Reasons</div>
+                  <ul className="space-y-1.5">
+                    {dmpEligibility.reasons.map((reason, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5 text-xs text-red-800">
+                        <X className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {dmpEligibility.notes?.length > 0 && (
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                  <div className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-1.5">Notes</div>
+                  <ul className="space-y-1.5">
+                    {dmpEligibility.notes.map((note, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5 text-xs text-blue-900">
+                        <Info className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
+                        <span>{note}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         </div>
       </div>

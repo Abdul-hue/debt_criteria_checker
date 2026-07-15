@@ -627,6 +627,7 @@ class CreditorMocAlert(models.Model):
         blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    emailed = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -648,6 +649,7 @@ class CreditorNonAcceptMilestone(models.Model):
     third_event_at = models.DateTimeField()
     count = models.IntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
+    emailed = models.BooleanField(default=False)
 
     class Meta:
         constraints = [

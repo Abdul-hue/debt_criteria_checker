@@ -481,14 +481,20 @@ def get_creditor_by_trading_name(name: str, all_names=None):
     if row:
         return row
 
-    # 4. Substring: DB name contained in Aryza name
-    # Only match if DB name is >= 5 chars to avoid short false matches
-    # e.g. "NatWest" (7 chars) in "Natwest Group Plc" → match
-    # NOT "AO" (2 chars) in "MBNA" → no match
+    # 4. Substring: DB name contained in Aryza name, matched on a word boundary.
+    # e.g. "NatWest" in "Natwest Group Plc" → match.
+    # A plain `in` check on short names caused false positives (e.g. "AO" inside
+    # "MBNA"), so this used to require the DB name be >= 5 chars — but that
+    # silently broke real short official names ("DWP", "EE", "O2", "BT"...)
+    # whenever Aryza sent them with any extra noise appended (e.g. a stray
+    # "DWP.docx" filename entered as the creditor name). Word-boundary matching
+    # rejects "AO" inside "MBNA" (no boundary before/after "ao") while still
+    # matching "dwp" inside "dwp.docx" (the "." is a non-word character), so
+    # the length floor is no longer needed for correctness.
     all_active = CreditorCriteria.objects.filter(is_active=True)
     for row in all_active:
         db_lower = row.creditor_name.strip().lower()
-        if len(db_lower) >= 5 and db_lower in cleaned_lower:
+        if db_lower and re.search(rf"\b{re.escape(db_lower)}\b", cleaned_lower):
             return row
 
     raise CreditorCriteria.DoesNotExist(

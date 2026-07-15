@@ -12,10 +12,13 @@ export function useAssessCase() {
   const resultRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: async ({ aryza_reference, credit_report_id }) => {
+    mutationFn: async ({ aryza_reference, credit_report_id, manual_councils, manual_energy, dmp_checklist }) => {
       const { data: response } = await axiosInstance.post('/api/v1/criteria/assess/', {
         aryza_reference,
         ...(credit_report_id ? { credit_report_id } : {}),
+        ...(manual_councils && manual_councils.length ? { manual_councils } : {}),
+        ...(manual_energy && manual_energy.length ? { manual_energy } : {}),
+        ...(dmp_checklist ? { dmp_checklist } : {}),
       })
       
       // Map to standardized shape for CriteriaReport

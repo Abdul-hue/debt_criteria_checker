@@ -222,6 +222,7 @@ def build_phase7_response_fields(result: dict) -> dict:
         "majority_analysis": _serialise_dict(result.get("majority_analysis")),
         "dividend_analysis": result.get("dividend_analysis"),
         "representatives_detected": list(result.get("representatives_detected") or []),
+        "dmp_eligibility": result.get("dmp_eligibility"),
     }
 
 
@@ -234,6 +235,23 @@ def error_response(message: str, code: str, status_code: int):
 
 class AssessRateThrottle(UserRateThrottle):
     scope = 'assess'
+
+
+# DMP Eligibility Checklist fields (Phase A — plumbing only, no rule reads
+# these yet). Per Azzam's email + Musa's phone-contract addendum.
+DMP_CHECKLIST_FIELDS = [
+    "current_year_council_tax",
+    "previous_year_council_tax",
+    "lost_right_to_pay_instalments",
+    "current_gas_bill",
+    "current_electric_bill",
+    "previous_gas_provider_debt",
+    "previous_electric_provider_debt",
+    "current_water_bill",
+    "government_parking_hmrc_debt",
+    "private_parking_debt",
+    "current_phone_contract",
+]
 
 
 def enrich_rules_with_meta(rule_list):
@@ -342,7 +360,8 @@ class AssessCaseView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
 
-    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None):
+    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None,
+                                 manual_councils=None, manual_energy=None):
         """
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
 
@@ -355,6 +374,17 @@ class AssessCaseView(APIView):
         credit_report_id: when given, pins credit-report enrichment to this EXACT
           CreditReport row (e.g. the id returned by upload-credit-report) instead of
           re-selecting among every historical extraction for this aryza_reference.
+
+        manual_councils: optional list of {council_id, balance} — caseworker-added
+          council debts not present in the Aryza case (e.g. found from
+          correspondence, not yet in the client's file). Each is looked up in
+          CouncilRule and appended to prepared_creditors as a synthetic
+          council_tax creditor, going through the exact same downstream path
+          as real creditors (no special-casing in criteria_engine.py).
+        manual_energy: same shape/purpose as manual_councils, but for energy
+          creditors looked up in CreditorCriteria (creditor_id).
+        Both default to an empty list — entirely absent from the payload
+        when the caller (existing frontend, any other caller) doesn't send them.
 
         Returns: (payload, prepared_creditors)
           payload: dict for assess_case()
@@ -660,6 +690,48 @@ class AssessCaseView(APIView):
         except Exception as e:
             logger.warning(f"[CR ENRICH] failed: {e}")
 
+        # Manual council/energy additions — caseworker-added debts not present
+        # in the Aryza case payload. Built as synthetic creditor dicts and
+        # appended to the SAME prepared_creditors list the real creditors go
+        # through, so criteria_engine.py needs no special-casing: totals,
+        # council majority, and creditor_positions are just filters/sums over
+        # this one shared list.
+        for _manual_council in (manual_councils or []):
+            _council_id = _manual_council.get('council_id')
+            _balance_pounds = float(_manual_council.get('balance') or 0)
+            _rule = CouncilRule.objects.filter(id=_council_id).first()
+            if not _rule:
+                logger.warning(f"[MANUAL COUNCIL] council_id={_council_id!r} not found — skipping")
+                continue
+            prepared_creditors.append({
+                'creditor_name': _rule.council_name,
+                'original_name': _rule.council_name,
+                'balance': _balance_pounds,
+                'crm_balance': _balance_pounds,
+                'creditor_type': 'council_tax',
+                'debt_type_normalised': 'council_tax',
+                'is_secured': False,
+            })
+            unsecured_debt_pounds += _balance_pounds
+
+        for _manual_e in (manual_energy or []):
+            _creditor_id = _manual_e.get('creditor_id')
+            _balance_pounds = float(_manual_e.get('balance') or 0)
+            _creditor = CreditorCriteria.objects.filter(id=_creditor_id).first()
+            if not _creditor:
+                logger.warning(f"[MANUAL ENERGY] creditor_id={_creditor_id!r} not found — skipping")
+                continue
+            prepared_creditors.append({
+                'creditor_name': _creditor.creditor_name,
+                'original_name': _creditor.creditor_name,
+                'balance': _balance_pounds,
+                'crm_balance': _balance_pounds,
+                'creditor_type': 'energy',
+                'debt_type_normalised': 'energy',
+                'is_secured': False,
+            })
+            unsecured_debt_pounds += _balance_pounds
+
         # Disambiguate duplicate creditor_name labels AFTER credit-report
         # matching (so the CR-enrich step above still matches against the
         # clean base name). Aryza's `creditor` table is one master record
@@ -764,11 +836,29 @@ class AssessCaseView(APIView):
                 status.HTTP_422_UNPROCESSABLE_ENTITY
             )
         credit_report_id = request.data.get("credit_report_id")
+        manual_councils = request.data.get("manual_councils") or []
+        manual_energy = request.data.get("manual_energy") or []
+
+        # DMP Eligibility Checklist — case-level checkboxes (Azzam's email +
+        # Musa's phone-contract addendum). Phase A: fields only, no rule logic
+        # reads this yet — defaults every key to False so the frontend never
+        # has to send all 11 keys every time.
+        _dmp_checklist_raw = request.data.get("dmp_checklist") or {}
+        dmp_checklist = {
+            field: bool(_dmp_checklist_raw.get(field, False))
+            for field in DMP_CHECKLIST_FIELDS
+        }
 
         # Step 2 — Fetch from Aryza
         try:
             case_data_obj = fetch_case_by_reference(aryza_reference)
-            case_data, prepared_creditors, _cr_unmatched = self._prepare_engine_payload(case_data_obj, credit_report_id)
+            case_data, prepared_creditors, _cr_unmatched = self._prepare_engine_payload(
+                case_data_obj, credit_report_id,
+                manual_councils=manual_councils, manual_energy=manual_energy,
+            )
+            # Phase A: attach as a new top-level payload key only — not read
+            # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).
+            case_data["dmp_checklist"] = dmp_checklist
         except AryzaCaseNotFoundError:
             return error_response(
                 f"Case {aryza_reference} not found in Aryza",
@@ -3288,13 +3378,15 @@ class CrmSyncTodayView(APIView):
             "moc_alerts_today": moc_alerts_today,
             "sync_runs_today": sync_runs_today,
             "distinct_creditors_affected": distinct_creditors_affected,
-            # No separate email-send log exists. A CreditorMocAlert row is
-            # only ever created as part of the flow that sends (or, under
-            # dry_run, would send) the corresponding MOC email, so "at least
-            # one alert today" is used as a proxy for "at least one email
-            # sent today". If email sending is ever decoupled from
-            # CreditorMocAlert creation, this assumption will need revisiting.
-            "email_sent_today": moc_alerts_today > 0,
+            # Alerts/milestones are only emailed once a day by the
+            # send_moc_daily_digest management command, which flips
+            # emailed=True on every row it just sent. So "email_sent_today"
+            # reflects whether that digest has actually gone out today, not
+            # just whether alert rows exist yet.
+            "email_sent_today": (
+                CreditorMocAlert.objects.filter(alert_date=today, emailed=True).exists()
+                or CreditorNonAcceptMilestone.objects.filter(milestone_date=today, emailed=True).exists()
+            ),
         })
 
 
