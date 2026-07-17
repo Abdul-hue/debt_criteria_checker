@@ -250,7 +250,7 @@ DMP_CHECKLIST_FIELDS = [
     "previous_gas_provider_debt",
     "previous_electric_provider_debt",
     "current_water_bill",
-    "government_parking_hmrc_debt",
+    "council_parking_fine",
     "private_parking_debt",
     "current_phone_contract",
 ]
@@ -279,7 +279,7 @@ def build_dmp_checklist(creditor_rows, case_level_raw):
       one entry per row where the caseworker made a dropdown selection.
       council_tax value: "current" | "previous"
       water value:       "current"
-      pcn value:         "government" | "private"
+      pcn value:         "council" | "private"
       mobile value:      "current"
       A row left "Not set" (value None/absent) contributes nothing.
     case_level_raw: dict of the 6 DMP_CASE_LEVEL_CHECKLIST_FIELDS checkboxes.
@@ -309,8 +309,8 @@ def build_dmp_checklist(creditor_rows, case_level_raw):
             # supplier) — see WATER_SUPPLIER_NAMES in the row-rendering logic.
             checklist["current_water_bill"] = True
         elif debt_type == "pcn":
-            if value == "government":
-                checklist["government_parking_hmrc_debt"] = True
+            if value == "council":
+                checklist["council_parking_fine"] = True
             elif value == "private":
                 checklist["private_parking_debt"] = True
         elif debt_type == "mobile" and value == "current":
@@ -2872,6 +2872,7 @@ class CreditReportUploadView(APIView):
                 "unmatched_accounts": result.get("unmatched_accounts", []),
                 "accounts": result.get("accounts", []),
                 "mortgage_accounts": result.get("mortgage_accounts", []),
+                "public_information": result.get("public_information", {}),
                 "message": "Credit report uploaded and extracted successfully",
             })
 

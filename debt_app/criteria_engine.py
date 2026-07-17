@@ -5291,14 +5291,20 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
             "year council tax outstanding"
         )
 
-    if checklist.get("government_parking_hmrc_debt") and not checklist.get("private_parking_debt"):
-        reasons.append("Government/HMRC-enforced parking debt")
+    # HMRC/self-employment split
+    if c.get("hmrc_is_creditor"):
+        income_source = c.get("income_source", "").lower()
+        if income_source == "self_employed":
+            notes.append("HMRC debt — excluded, client is self-employed")
+        else:
+            notes.append("HMRC debt — included, client not self-employed")
 
     excluded_bills = [
         label for field, label in (
             ("current_gas_bill", "current gas bill"),
             ("current_electric_bill", "current electricity bill"),
             ("current_phone_contract", "current phone contract"),
+            ("council_parking_fine", "council parking fine"),
         )
         if checklist.get(field)
     ]

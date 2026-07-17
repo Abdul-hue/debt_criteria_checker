@@ -115,10 +115,46 @@ class DmpChecklistDefaultFillingTests(TestCase):
             "lost_right_to_pay_instalments", "current_gas_bill",
             "current_electric_bill", "previous_gas_provider_debt",
             "previous_electric_provider_debt", "current_water_bill",
-            "government_parking_hmrc_debt", "private_parking_debt",
+            "council_parking_fine", "private_parking_debt",
             "current_phone_contract",
         }
         self.assertEqual(set(DMP_CHECKLIST_FIELDS), expected)
+
+    def test_hmrc_creditor_self_employed(self):
+        # Test case with HMRC creditor and self-employed income source
+        c = {
+            "total_debt": 10000,
+            "hmrc_is_creditor": True,
+            "income_source": "self_employed",
+            "dmp_checklist": {field: False for field in DMP_CHECKLIST_FIELDS}
+        }
+        result = _evaluate_dmp_eligibility(c)
+        self.assertEqual(result["status"], "DMP_ELIGIBLE")
+        self.assertIn("HMRC debt — excluded, client is self-employed", result["notes"])
+
+    def test_hmrc_creditor_not_self_employed(self):
+        # Test case with HMRC creditor and non-self-employed income source
+        c = {
+            "total_debt": 10000,
+            "hmrc_is_creditor": True,
+            "income_source": "employed",
+            "dmp_checklist": {field: False for field in DMP_CHECKLIST_FIELDS}
+        }
+        result = _evaluate_dmp_eligibility(c)
+        self.assertEqual(result["status"], "DMP_ELIGIBLE")
+        self.assertIn("HMRC debt — included, client not self-employed", result["notes"])
+
+    def test_no_hmrc_creditor_no_note(self):
+        # Test case with no HMRC creditor
+        c = {
+            "total_debt": 10000,
+            "hmrc_is_creditor": False,
+            "income_source": "employed",
+            "dmp_checklist": {field: False for field in DMP_CHECKLIST_FIELDS}
+        }
+        result = _evaluate_dmp_eligibility(c)
+        self.assertEqual(result["status"], "DMP_ELIGIBLE")
+        self.assertNotIn("HMRC", " ".join(result["notes"]))
 
 
 class DmpChecklistRegressionTests(TestCase):
@@ -240,19 +276,6 @@ class DmpEligibilityUnitTests(TestCase):
         self.assertEqual(result["reasons"], [])
         self.assertTrue(any("current gas bill" in note for note in result["notes"]))
 
-    def test_government_parking_hmrc_debt_alone_rejected(self):
-        checklist = {field: False for field in DMP_CHECKLIST_FIELDS}
-        checklist["government_parking_hmrc_debt"] = True
-        result = _evaluate_dmp_eligibility(_make_c(3500, checklist))
-        self.assertEqual(result["status"], "DMP_REJECTED")
-
-    def test_government_parking_offset_by_private_parking_not_rejected(self):
-        checklist = {field: False for field in DMP_CHECKLIST_FIELDS}
-        checklist["government_parking_hmrc_debt"] = True
-        checklist["private_parking_debt"] = True
-        result = _evaluate_dmp_eligibility(_make_c(3500, checklist))
-        self.assertEqual(result["status"], "DMP_ELIGIBLE")
-
     def test_below_minimum_debt_takes_priority_message_present_even_with_other_true_fields(self):
         checklist = {field: True for field in DMP_CHECKLIST_FIELDS}
         result = _evaluate_dmp_eligibility(_make_c(2000, checklist))
@@ -287,4 +310,14 @@ class DmpEligibilityUnitTests(TestCase):
         self.assertEqual(result["reasons"], [])
         self.assertEqual(
             result["notes"], ["Current water bill — included in DMP total."]
+        )
+
+    def test_council_parking_fine_alone_is_eligible_with_note(self):
+        checklist = {field: False for field in DMP_CHECKLIST_FIELDS}
+        checklist["council_parking_fine"] = True
+        result = _evaluate_dmp_eligibility(_make_c(3500, checklist))
+        self.assertEqual(result["status"], "DMP_ELIGIBLE")
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(
+            result["notes"], ["Exclude the following debt(s) from the DMP arrangement: council parking fine"]
         )

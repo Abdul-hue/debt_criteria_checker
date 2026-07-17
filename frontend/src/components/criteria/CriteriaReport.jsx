@@ -736,15 +736,17 @@ export default function CriteriaReport({
                           }
                           if (debtType === 'pcn') {
                             const defaultValue = isPrivateParkingOperator(name) ? 'private' : ''
+                            // Handle backward compatibility: if selection is "government", treat it as "council"
+                            const effectiveSelection = (selection === 'government') ? 'council' : selection
                             return (
                               <select
-                                value={selection || defaultValue}
+                                value={effectiveSelection || defaultValue}
                                 onChange={(e) => handleChange(e.target.value)}
                                 disabled={isRecalculating}
                                 className="text-xs border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                               >
                                 <option value="">Not set</option>
-                                <option value="government">Government/Council</option>
+                                <option value="council">Council Parking Fine</option>
                                 <option value="private">Private</option>
                               </select>
                             )
