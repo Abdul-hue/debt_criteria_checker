@@ -38,7 +38,13 @@ logger = logging.getLogger(__name__)
 # These suffix codes appear at the end of every account header line
 SKIP_TYPE_CODES = {"MG"}                              # always skip: secured mortgage
 DEBT_TYPE_CODES = {"CC", "UL", "MO", "PL", "HP", "TM", "BD"}  # always include
-CONDITIONAL_TYPE_CODES = {"CA", "UT"}                 # include only if defaulted/arrears
+CONDITIONAL_TYPE_CODES = {"CA", "UT"}                 # include as debt only if defaulted/arrears
+# Non-debt tradelines (motor insurance, multi-comms). Never counted as
+# unsecured IVA debt, but still extracted and returned separately so the case
+# assessment app can show their credit-report balance in the reconciliation
+# table (same pattern as mortgage accounts). Type codes CA/UT that are NOT
+# derogatory are also treated this way — see _parse_account_block.
+RECONCILIATION_ONLY_TYPE_CODES = {"MI", "MU"}
 
 # ---------------------------------------------------------------------------
 # Creditor alias map
@@ -191,7 +197,7 @@ def match_creditor(raw_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 _TYPE_CODE_RE = re.compile(
-    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT|TM|BD)$"
+    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT|TM|BD|MI|MU)$"
 )
 
 def _parse_amount(text: str) -> int | None:
@@ -734,19 +740,20 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
 
     # Apply the same conditional exclusion rules as the Aryza path
 
-    # CA / UT: include only if the account is derogatory (defaulted/late/arrangement).
-    # Check BOTH the current status ("Status:") and the worst-ever status
-    # ("Worst Status:") — a utility account can show "Active" today while its
-    # Worst Status field still records unresolved arrears history (e.g.
-    # "Month Delinquent" with a real, growing balance), which is exactly the
-    # kind of account this rule exists to surface.
-    if type_code in {"CA", "UT"}:
+    # CA / UT: count as debt only if the account is derogatory (defaulted/
+    # late/arrangement). Check BOTH the current status ("Status:") and the
+    # worst-ever status ("Worst Status:") — a utility account can show "Active"
+    # today while its Worst Status field still records unresolved arrears
+    # history (e.g. "Month Delinquent" with a real, growing balance), which is
+    # exactly the kind of account this rule exists to surface. A clean CA/UT is
+    # reconciliation-only (returned for the assessment table, not counted as
+    # IVA debt) rather than dropped — mirrors the Aryza path.
+    reconciliation_only = False
+    if type_code in RECONCILIATION_ONLY_TYPE_CODES:
+        reconciliation_only = True
+    elif type_code in {"CA", "UT"}:
         if not (_is_derogatory_status(account_status) or _is_derogatory_status(worst_status)):
-            logger.debug(
-                f"[EXPERIAN SKIP] '{raw_name}' type={type_code} status='{account_status}' "
-                f"worst_status='{worst_status}' — clean account excluded"
-            )
-            return None
+            reconciliation_only = True
 
     # Name resolution via shared alias map
     normalised = raw_name.lower().strip()
@@ -789,6 +796,7 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
         "account_number": account_number,
         "start_date": start_date_str if start_date_str else None,
         "cais_last_updated": cais_last_updated,
+        "reconciliation_only": reconciliation_only,
     }
 
 
@@ -1013,21 +1021,26 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
 
 
 
-    # CA / UT: include only if defaulted or in arrears (unsecured IVA debt).
-    # Check both the current status AND the full-grid worst-ever status —
-    # same "check all the fields" fix already applied to the Experian path,
-    # since Aryza doesn't expose a separate Worst Status field to read.
-    if type_code in {"CA", "UT"}:
+    # Decide whether this account is unsecured IVA debt or "reconciliation
+    # only" (extracted for the assessment table, but never counted as debt).
+    #
+    #  - MI / MU (motor insurance, multi-comms): never debt.
+    #  - CA / UT: debt only if defaulted or in arrears. Check BOTH the current
+    #    status AND the full-grid worst-ever status — same "check all the
+    #    fields" fix already applied to the Experian path, since Aryza doesn't
+    #    expose a separate Worst Status field. A clean (up-to-date) current
+    #    account or utility is reconciliation-only, not debt.
+    reconciliation_only = False
+    if type_code in RECONCILIATION_ONLY_TYPE_CODES:
+        reconciliation_only = True
+    elif type_code in CONDITIONAL_TYPE_CODES:
         if not (_is_derogatory_status(account_status) or _is_derogatory_status(worst_status or "")):
-            logger.debug(
-                f"[EXTRACTOR SKIP] '{raw_name}' type={type_code} status='{account_status}' "
-                f"worst_status='{worst_status}' — excluded from extraction"
-            )
-            return None
+            reconciliation_only = True
 
     balance_display = round(current_balance / 100) if current_balance else 0
     logger.debug(
-        f"[EXTRACTOR INCLUDE] '{raw_name}' type={type_code} balance=£{balance_display}"
+        f"[EXTRACTOR INCLUDE] '{raw_name}' type={type_code} balance=£{balance_display} "
+        f"reconciliation_only={reconciliation_only}"
     )
 
     return {
@@ -1046,6 +1059,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "worst_status": worst_status,
         "payment_history_months": payment_history_months,
         "monthly_payment": monthly_payment,
+        "reconciliation_only": reconciliation_only,
     }
 
 
@@ -1080,6 +1094,7 @@ def extract_credit_report(pdf_path: str) -> dict:
 
         accounts: list[dict] = []
         mortgage_accounts: list[dict] = []
+        other_accounts: list[dict] = []
         unmatched: list[str] = []
 
         if agency == "Experian":
@@ -1094,7 +1109,9 @@ def extract_credit_report(pdf_path: str) -> dict:
                 parsed = _parse_experian_account(header, block_text)
                 if parsed is None:
                     continue
-                if parsed["type_code"] == "MG":
+                if parsed.get("reconciliation_only"):
+                    other_accounts.append(parsed)
+                elif parsed["type_code"] == "MG":
                     mortgage_accounts.append(parsed)
                 else:
                     accounts.append(parsed)
@@ -1111,8 +1128,14 @@ def extract_credit_report(pdf_path: str) -> dict:
             for header, block_text in blocks:
                 parsed = _parse_account_block(header, block_text)
                 if parsed is None:
-                    continue  # skipped type (current account up-to-date, utility, BD zero-balance)
-                if parsed["type_code"] == "MG":
+                    continue  # header did not parse
+                if parsed.get("reconciliation_only"):
+                    # Non-debt tradelines (insurance, multi-comms) and clean
+                    # current accounts / utilities. Not IVA debt, but returned
+                    # separately so the assessment app can show their
+                    # credit-report balance in the reconciliation table.
+                    other_accounts.append(parsed)
+                elif parsed["type_code"] == "MG":
                     # Mortgages are secured — excluded from IVA criteria but
                     # included separately so the case assessment app can compare
                     # them against CRM property data in the Assets & Property section.
@@ -1128,6 +1151,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             "report_date": report_date,
             "accounts": accounts,
             "mortgage_accounts": mortgage_accounts,
+            "other_accounts": other_accounts,
             "unmatched_accounts": unmatched,
             "public_information": public_info,
             "has_ccj": public_info["has_ccj"],
