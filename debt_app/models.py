@@ -663,6 +663,26 @@ class CreditorNonAcceptMilestone(models.Model):
         return f"Non-Accept Milestone ({self.status}) for vote_summary={self.vote_summary_id} on {self.milestone_date}"
 
 
+class MocDigestLog(models.Model):
+    """
+    One row per calendar day the send_moc_daily_digest command actually sent
+    an email. Guarantees the digest goes out at most once per day even if the
+    scheduler double-fires or someone re-runs the command by hand - unlike the
+    per-row `emailed` flags (which only stop re-sending alerts/milestones that
+    already exist), this also blocks a duplicate send on a day with zero new
+    alerts but where the report itself would otherwise resend the same totals.
+    """
+    date = models.DateField(unique=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    recipients = models.TextField(blank=True, default='')
+    alerts_count = models.IntegerField(default=0)
+    milestones_count = models.IntegerField(default=0)
+    vote_changes_total = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"MOC digest sent for {self.date} at {self.sent_at}"
+
+
 class CountyCouncilRouting(models.Model):
     """Routes a county+district combination to a CouncilRule."""
 

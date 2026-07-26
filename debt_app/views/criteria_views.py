@@ -649,6 +649,16 @@ class AssessCaseView(APIView):
                     (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
                     None,
                 )
+            if cr_obj is None:
+                # Nothing to enrich from — every creditor's CR columns (cr_balance,
+                # cr_account_status, cr_missed_payments_3m, Match) will be left blank.
+                # This is not an exception, so without an explicit log line it looks
+                # to a caseworker like the feature was never implemented.
+                logger.warning(
+                    "[CR ENRICH] no extracted CreditReport found for reference=%s "
+                    "(credit_report_id=%s) — creditor CR columns will be blank",
+                    case_data_obj.aryza_reference, credit_report_id,
+                )
             if cr_obj and cr_obj.extracted_data:
                 # Mortgages are extracted into a SEPARATE list from unsecured/HP
                 # accounts (mortgage_accounts vs accounts) — folding both in here
@@ -3336,73 +3346,25 @@ class CrmSyncTodayView(APIView):
         return [IsAuthenticated(), HasReadPermission()]
 
     def get(self, request):
-        from datetime import datetime, time, timedelta
+        from debt_app.services.daily_digest import compute_daily_stats
 
         # Same computation as crm_vote_sync.py's _create_moc_alerts_for_run
         # (Prompt 10a): timezone.now().date() would give the UTC calendar
         # date, which disagrees with the Europe/London calendar date for part
         # of every day during BST. localtime() converts to the active
         # Europe/London time first, so this always matches the calendar day
-        # site users actually experience.
-        today = timezone.localtime(timezone.now()).date()
-
-        # detected_at (and started_at) are auto_now_add DateTimeFields, i.e.
-        # stored as UTC instants. A naive `detected_at__date=today` lookup
-        # would depend on the DB backend converting to the current Django
-        # timezone before extracting the date - Django only does this
-        # automatically on backends with registered tz-conversion support
-        # (Postgres always; SQLite via Django's own registered conversion
-        # functions; MySQL only if its timezone tables are loaded), so it's
-        # not something to rely on implicitly. Instead, compute today's local
-        # calendar-day boundaries as explicit timezone-aware instants and
-        # filter by range - this is correct on any backend regardless of
-        # DB-side tz support.
-        #
-        # Concretely: an event detected at 23:45 UTC on 9 June during BST is
-        # 00:45 BST on 10 June, i.e. it belongs to the "10 June" local
-        # calendar day even though its stored UTC timestamp says "9 June".
-        # Once `today` is 10 June, that event falls inside
-        # [10 June 00:00 BST, 11 June 00:00 BST) below and is correctly
-        # counted as "today" - a naive UTC-day filter would have missed it.
-        current_tz = timezone.get_current_timezone()
-        day_start = timezone.make_aware(datetime.combine(today, time.min), current_tz)
-        day_end = day_start + timedelta(days=1)
-
-        events_today = CreditorVoteChangeEvent.objects.filter(
-            detected_at__gte=day_start, detected_at__lt=day_end
-        )
-
-        # Single aggregate query for the per-status breakdown.
-        counts_by_status = dict(
-            events_today.values('status').annotate(count=Count('id')).values_list('status', 'count')
-        )
-        vote_change_totals = {
-            "accepted": counts_by_status.get('accepted', 0),
-            "rejected": counts_by_status.get('rejected', 0),
-            "modified": counts_by_status.get('modified', 0),
-            "pod": counts_by_status.get('pod', 0),
-        }
-
-        distinct_creditors_affected = events_today.values('vote_summary_id').distinct().count()
-
-        sync_runs_today = CrmSyncRun.objects.filter(
-            started_at__gte=day_start, started_at__lt=day_end
-        ).count()
-
-        # alert_date is a DateField already storing the correct London
-        # calendar day (set the same way, in crm_vote_sync.py), so an exact
-        # equality filter is correct as-is - no range/localtime handling needed.
-        moc_alerts_today = CreditorMocAlert.objects.filter(alert_date=today).count()
+        # site users actually experience. compute_daily_stats() does the same
+        # local-day-bounds computation (shared with send_moc_daily_digest) so
+        # this tile and the emailed digest can never show different numbers.
+        stats = compute_daily_stats()
+        today = stats["date"]
 
         return Response({
             "date": today.isoformat(),
-            "vote_change_events": {
-                **vote_change_totals,
-                "total": sum(vote_change_totals.values()),
-            },
-            "moc_alerts_today": moc_alerts_today,
-            "sync_runs_today": sync_runs_today,
-            "distinct_creditors_affected": distinct_creditors_affected,
+            "vote_change_events": stats["vote_change_events"],
+            "moc_alerts_today": stats["moc_alerts_today"],
+            "sync_runs_today": stats["sync_runs_today"],
+            "distinct_creditors_affected": stats["distinct_creditors_affected"],
             # Alerts/milestones are only emailed once a day by the
             # send_moc_daily_digest management command, which flips
             # emailed=True on every row it just sent. So "email_sent_today"
