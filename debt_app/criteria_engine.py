@@ -101,6 +101,7 @@ _BODY_LEVEL_ONLY_RULES = frozenset({
     "TIG-19.1",     # Shop Direct account age — case-wide
     "TIG-20",       # Creation recent purchases — case-wide transaction scan
     "TIG-20.1",     # Creation recent spend hard block — case-wide
+    "TIX-03",       # Creation / Sygma / Laser recent spend hard block — case-wide
     "WATCH-22.2",   # WATCH-22.2 — Debt repayable in under 6 years from DI
     "WATCH-22.4",   # Equity vs debt — case-wide property check
     "WATCH-22.5",   # Single lender — case-wide creditor composition check
@@ -4223,8 +4224,22 @@ def _derive_recommended_solution(
     hard_blocks: list,
     flags: list,
     creditor_positions: list,
+    case: Optional[dict] = None,
 ) -> str:
     """Map assessment results to a recommended solution string."""
+    # HIGHEST PRECEDENCE — HMRC previous-year VAT debt (manual checklist tick).
+    # A confirmed previous-year VAT debt owed to HMRC is an automatic IVA fail:
+    # the case must be forced to a DMP REGARDLESS of every other criterion. This
+    # sits at the very TOP of the precedence chain — above hard_blocks — because
+    # it is an unconditional override: even a case with zero hard blocks and zero
+    # flags must still be routed to DMP when this tick is set. The signal is read
+    # from the manual DMP checklist (case["dmp_checklist"]); the tick itself is
+    # only offered when HMRC is a creditor, reusing the existing hmrc_is_creditor
+    # detection (no creditor-name re-matching happens here).
+    if case is not None:
+        _checklist = case.get("dmp_checklist") or {}
+        if _checklist.get("hmrc_previous_year_vat"):
+            return "FORCED_DMP_VAT"
     if hard_blocks:
         return "IVA_NOT_VIABLE"
     for pos in creditor_positions:
@@ -4233,6 +4248,65 @@ def _derive_recommended_solution(
     if flags:
         return "IVA_WITH_CONDITIONS"
     return "IVA_VIABLE"
+
+
+def _equity_age(c: dict) -> RuleResult:
+    """EQUITY-AGE: Property equity vs debt / £100k ceiling, with a 55+ WATCH skip.
+
+    IVA-eligible on this criterion when equity is LOW on EITHER count —
+    available_equity < total_debt OR available_equity < £100,000. The client is
+    only INELIGIBLE (hard block) when equity is high on BOTH counts: it exceeds
+    the total debt AND is at least £100,000, i.e. there is enough property equity
+    that an IVA is not the appropriate route.
+
+    Exception: a client aged 55 or over on a WATCH case skips this check entirely
+    (treated as not applicable / passed).
+
+    available_equity is in POUNDS (property_value − mortgage_balance, computed
+    once in _parse_case), so the £100,000 ceiling is a plain 100000. When equity
+    cannot be computed (owns property but no valuation) the rule emits a
+    RULE-CANNOT-EVALUATE info result and never blocks — matching TIG-15.4 /
+    WATCH-22.4 / TIG-21.3.
+    """
+    EQUITY_CEILING = 100000.0  # pounds
+
+    age = c.get("client_age")
+    reps = c.get("detected_representatives") or set()
+    if age is not None and age >= 55 and "WATCH" in reps:
+        return _pass(
+            "EQUITY-AGE",
+            f"Client aged {age} on a WATCH case — equity/age check does not apply.",
+        )
+
+    equity = c.get("available_equity")
+    if equity is None:
+        return RuleResult(
+            rule_id="EQUITY-AGE",
+            severity="info",
+            triggered=True,
+            message="[RULE-CANNOT-EVALUATE] Rule EQUITY-AGE cannot be evaluated — property_value not present in payload",
+        )
+
+    total_debt = c.get("total_debt", 0)
+    if equity < total_debt or equity < EQUITY_CEILING:
+        return _pass(
+            "EQUITY-AGE",
+            f"Available equity £{equity:,.2f} is below the total debt "
+            f"(£{total_debt:,.2f}) or the £{EQUITY_CEILING:,.2f} ceiling — "
+            "IVA-eligible on this criterion.",
+            threshold=EQUITY_CEILING, actual_value=equity,
+        )
+    return RuleResult(
+        rule_id="EQUITY-AGE",
+        severity="hard_block",
+        triggered=True,
+        message=(
+            f"Available equity £{equity:,.2f} exceeds total debt £{total_debt:,.2f} "
+            f"and is at or above the £{EQUITY_CEILING:,.2f} ceiling — there is "
+            "sufficient property equity that an IVA is not appropriate."
+        ),
+        threshold=EQUITY_CEILING, actual_value=equity,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5414,6 +5488,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         _tig_hmrc_03, _tig_hmrc_04, _tig_hmrc_05, _tig_hmrc_06,
         _tig_hmrc_07, _tig_hmrc_08,
         _tig_16, _tig_17, _tig_18,
+        _equity_age,  # property equity vs debt / £100k ceiling, 55+ WATCH skip
         _tig_19, _tig_19_review, _tig_19_1,
         _tig_20, _tig_20_1,
         _tig_21_1, _tig_21_2, _tig_21_3, _tig_21_4, _tig_21_5,
@@ -5691,7 +5766,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 actual_value=float(_unknown_pct * 100),
             ))
 
-    recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions)
+    recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions, c)
     tig_eligible = len(hard_blocks) == 0
     dmp_eligibility = _evaluate_dmp_eligibility(c)
 
@@ -5751,4 +5826,5 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "sfs_guideline_results": sfs_results,
         "sfs_household_key": hh_key,
         "credit_report_status": credit_report_status,
+        "hmrc_is_creditor": c["hmrc_is_creditor"],
     }

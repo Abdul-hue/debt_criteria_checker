@@ -6,7 +6,12 @@ Provides a recommended debt solution based on criteria engine output and case da
 from typing import Dict, Any, Optional
 
 
-def get_recommendation(decision: str, engine_output: Dict[str, Any], case_data: Dict[str, Any]) -> Dict[str, Any]:
+def get_recommendation(
+    decision: str,
+    engine_output: Dict[str, Any],
+    case_data: Dict[str, Any],
+    vat_forced: bool = False,
+) -> Dict[str, Any]:
     """
     Determines the recommended debt solution and alternative solutions.
 
@@ -14,10 +19,32 @@ def get_recommendation(decision: str, engine_output: Dict[str, Any], case_data: 
         decision: The high-level decision (ELIGIBLE, INELIGIBLE, REFERRED, INCOMPLETE)
         engine_output: The raw output from the criteria engine
         case_data: The normalized case data used for the assessment
+        vat_forced: True when the criteria engine's _derive_recommended_solution
+            already determined the case must be forced to DMP due to a confirmed
+            previous-year HMRC VAT debt (engine_output["recommended_solution"] ==
+            "FORCED_DMP_VAT"). Checked BEFORE `decision` is used for anything —
+            this mirrors _derive_recommended_solution's own precedence (the VAT
+            check sits above hard_blocks there too) so the override cannot be
+            diluted into "one more elif" alongside ELIGIBLE/REFERRED/INELIGIBLE.
 
     Returns:
         A dictionary containing recommended_solution and alternative_solutions
     """
+    if vat_forced:
+        return {
+            "recommended_solution": {
+                "code": "DMP",
+                "label": "Debt Management Plan",
+                "rationale": (
+                    "A previous-year HMRC VAT debt is confirmed — this is an "
+                    "automatic IVA fail, so a Debt Management Plan is required "
+                    "regardless of all other criteria."
+                ),
+                "confidence": "HIGH",
+            },
+            "alternative_solutions": [],
+        }
+
     recommended = None
     alternatives = []
 

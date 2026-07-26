@@ -13,7 +13,7 @@ import axiosInstance from '../../lib/axios'
  * CaseSearch component
  * Left sidebar search panel for triggering assessments
  */
-export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpChecklistChange }) {
+export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpChecklistChange, hmrcIsCreditor = null }) {
   const [lastRun, setLastRun] = useState(null)
   const [uploadState, setUploadState] = useState('idle') // idle | uploading | success | error
   const [uploadResult, setUploadResult] = useState(null)
@@ -181,6 +181,50 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
                   </label>
                 </li>
               ))}
+
+              {/* HMRC VAT — gated on hmrc_is_creditor from the last assessment
+                  result. hmrcIsCreditor is tri-state: null = no result yet,
+                  true/false = known from the last run. */}
+              <li className="pt-2 mt-1 border-t border-gray-100">
+                <label
+                  className={`flex items-start gap-2 text-xs ${hmrcIsCreditor ? 'text-gray-700' : 'text-gray-400'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={dmpChecklist.hmrc_debt_has_vat}
+                    disabled={!hmrcIsCreditor}
+                    onChange={() => handleDmpChecklistToggle('hmrc_debt_has_vat')}
+                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                  />
+                  <span>HMRC Debt has VAT</span>
+                </label>
+
+                {!hmrcIsCreditor && (
+                  <p className="text-[10px] text-gray-400 mt-1 ml-6">
+                    {hmrcIsCreditor === null
+                      ? 'Run assessment first to check HMRC status'
+                      : 'No HMRC debt detected in this case'}
+                  </p>
+                )}
+
+                {hmrcIsCreditor && (
+                  <span className="ml-6 mt-1 inline-block text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+                    Current year VAT
+                  </span>
+                )}
+
+                {hmrcIsCreditor && dmpChecklist.hmrc_debt_has_vat && (
+                  <label className="flex items-start gap-2 text-xs text-gray-700 mt-1.5 ml-6">
+                    <input
+                      type="checkbox"
+                      checked={dmpChecklist.hmrc_previous_year_vat}
+                      onChange={() => handleDmpChecklistToggle('hmrc_previous_year_vat')}
+                      className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Previous year VAT</span>
+                  </label>
+                )}
+              </li>
             </ul>
           )}
         </div>

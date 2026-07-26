@@ -223,6 +223,7 @@ def build_phase7_response_fields(result: dict) -> dict:
         "dividend_analysis": result.get("dividend_analysis"),
         "representatives_detected": list(result.get("representatives_detected") or []),
         "dmp_eligibility": result.get("dmp_eligibility"),
+        "hmrc_is_creditor": result.get("hmrc_is_creditor", False),
     }
 
 
@@ -266,6 +267,14 @@ DMP_CASE_LEVEL_CHECKLIST_FIELDS = [
     "previous_electric_provider_debt",
     "current_phone_contract",
     "lost_right_to_pay_instalments",
+    # HMRC VAT (only offered when hmrc_is_creditor is true). hmrc_debt_has_vat is
+    # the parent tick; hmrc_previous_year_vat is the only one that drives
+    # behaviour — a confirmed previous-year VAT debt forces the case to DMP
+    # (see _derive_recommended_solution). These flow through the flat checklist
+    # dict but are read by _derive_recommended_solution, NOT by
+    # _evaluate_dmp_eligibility (which only reads its own DMP_CHECKLIST_FIELDS).
+    "hmrc_debt_has_vat",
+    "hmrc_previous_year_vat",
 ]
 
 
@@ -1085,7 +1094,13 @@ class AssessCaseView(APIView):
         else:
             decision = "ELIGIBLE"
             
-        recommendations = get_recommendation(decision, result, case_data)
+        # Captured BEFORE the overwrite two lines down — assess_case's own
+        # _derive_recommended_solution already computed "FORCED_DMP_VAT" as the
+        # single source of truth for the VAT-override precedence; get_recommendation
+        # must honour it rather than silently recompute a different decision from
+        # hard_blocks/flags alone (that was the bug: this view used to discard it).
+        vat_forced = result.get("recommended_solution") == "FORCED_DMP_VAT"
+        recommendations = get_recommendation(decision, result, case_data, vat_forced=vat_forced)
         result["recommended_solution"] = recommendations.get("recommended_solution")
         result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
 
@@ -2872,6 +2887,7 @@ class CreditReportUploadView(APIView):
                 "unmatched_accounts": result.get("unmatched_accounts", []),
                 "accounts": result.get("accounts", []),
                 "mortgage_accounts": result.get("mortgage_accounts", []),
+                "other_accounts": result.get("other_accounts", []),
                 "public_information": result.get("public_information", {}),
                 "message": "Credit report uploaded and extracted successfully",
             })

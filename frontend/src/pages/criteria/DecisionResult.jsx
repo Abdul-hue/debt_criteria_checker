@@ -28,6 +28,15 @@ const SOLUTION_CONFIG = {
     iconBg: "bg-blue-100 text-blue-700",
     title: "Debt Management Plan is the appropriate solution",
   },
+  FORCED_DMP_VAT: {
+    label: "DMP Recommended",
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+    badge: "bg-blue-600 text-white",
+    icon: "→",
+    iconBg: "bg-blue-100 text-blue-700",
+    title: "Previous-year HMRC VAT debt — automatic IVA fail, DMP required",
+  },
   FREE_SECTOR: {
     label: "Free Sector",
     bg: "bg-slate-50",
@@ -378,7 +387,7 @@ export default function DecisionResult({ result, applicationId }) {
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
               Assessment Facts
             </h3>
-            <FactRow label="Recommended solution" value={solution} />
+            <FactRow label="Potential solution" value={solution} />
             <FactRow label="Passes hard blocks" value={passesAll ? "Yes" : "No"} />
             <FactRow label="Hard block count" value={hardBlocks.length} />
             <FactRow label="Flag count" value={flags.length} />

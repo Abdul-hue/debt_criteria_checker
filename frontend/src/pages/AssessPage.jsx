@@ -16,6 +16,11 @@ const DEFAULT_DMP_CHECKLIST = {
   previous_electric_provider_debt: false,
   current_phone_contract: false,
   lost_right_to_pay_instalments: false,
+  // HMRC VAT — hmrc_debt_has_vat is the parent tick (only offered when the last
+  // assessment result's hmrc_is_creditor is true); hmrc_previous_year_vat is the
+  // only one that drives behaviour (forces recommended_solution to DMP).
+  hmrc_debt_has_vat: false,
+  hmrc_previous_year_vat: false,
 }
 
 /**
@@ -73,6 +78,16 @@ export default function AssessPage() {
     const runParams = { aryza_reference: data.aryza_reference, credit_report_id: creditReportId }
     setLastRunParams(runParams)
 
+    // Clear any stale VAT ticks from a previous (different) case — the parent
+    // "HMRC Debt has VAT" checkbox is disabled/hidden when this case has no
+    // HMRC creditor, but the underlying state would otherwise silently carry a
+    // previous case's hmrc_previous_year_vat=true into this unrelated one and
+    // force it to DMP. Left untouched when hmrc_is_creditor is true so a tick
+    // made just before a recalculation isn't wiped.
+    if (!data.hmrc_is_creditor) {
+      setDmpChecklist((prev) => ({ ...prev, hmrc_debt_has_vat: false, hmrc_previous_year_vat: false }))
+    }
+
     // Pre-select "Private" for PCN rows matching a known private-parking
     // operator (Part 3.3) — still overridable per-row. A fresh assessment
     // otherwise clears any row selections made against the previous
@@ -121,6 +136,7 @@ export default function AssessPage() {
           onError={handleError}
           dmpChecklist={dmpChecklist}
           onDmpChecklistChange={setDmpChecklist}
+          hmrcIsCreditor={assessmentResult ? !!assessmentResult.hmrc_is_creditor : null}
         />
       </div>
 

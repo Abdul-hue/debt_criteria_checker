@@ -375,6 +375,7 @@ export default function CriteriaReport({
     IVA_NOT_VIABLE: 'border-red-400 bg-red-50 text-red-800',
     IVA_VIABLE: 'border-emerald-400 bg-emerald-50 text-emerald-800',
     IVA_WITH_CONDITIONS: 'border-emerald-400 bg-emerald-50 text-emerald-800',
+    FORCED_DMP_VAT: 'border-blue-400 bg-blue-50 text-blue-800',
     REVIEW_REQUIRED: 'border-amber-400 bg-amber-50 text-amber-800',
     BREATHING_SPACE: 'border-amber-400 bg-amber-50 text-amber-800',
     UNCLEAR: 'border-gray-400 bg-gray-50 text-gray-800'
@@ -384,6 +385,7 @@ export default function CriteriaReport({
     IVA_NOT_VIABLE: "Based on this client's income and debt level, a Debt Management Plan is the most suitable alternative to an IVA.",
     IVA: "This client appears eligible for an IVA based on the criteria assessed.",
     DMP: "A Debt Management Plan is recommended for this client's current situation.",
+    FORCED_DMP_VAT: "A previous-year HMRC VAT debt is present — this is an automatic IVA fail, so a Debt Management Plan is the required route regardless of other criteria.",
     BREATHING_SPACE: "A temporary stay of action is recommended to provide relief."
   }
 
@@ -391,6 +393,7 @@ export default function CriteriaReport({
     'IVA_VIABLE': 'IVA Recommended',
     'IVA_WITH_CONDITIONS': 'IVA with Conditions',
     'IVA_NOT_VIABLE': 'Debt Management Plan',
+    'FORCED_DMP_VAT': 'Debt Management Plan',
     'REVIEW_REQUIRED': 'Review Required',
     'DMP': 'Debt Management Plan',
     'BREATHING_SPACE': 'Breathing Space',
@@ -477,7 +480,7 @@ export default function CriteriaReport({
 
         <div className="flex flex-col gap-3 w-full">
           <div>
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Recommended Solution</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Potential Solution</span>
             <div className={`rounded-xl border-2 px-4 py-3 flex items-center gap-2 ${solutionStyles[solutionCode] || solutionStyles.IVA}`}>
               <Lightbulb className="w-5 h-5 flex-shrink-0" />
               <span className="text-lg font-bold">{solutionLabel}</span>

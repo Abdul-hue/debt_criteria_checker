@@ -39,8 +39,8 @@ export function useDecisions() {
             recommended_solution: typeof assessment.recommended_solution === 'string' ? {
               label: assessment.recommended_solution === 'IVA_VIABLE' ? 'IVA Recommended' :
                      assessment.recommended_solution === 'IVA_WITH_CONDITIONS' ? 'IVA with Conditions' :
-                     assessment.recommended_solution === 'IVA_NOT_VIABLE' ? 'Debt Management Plan' : assessment.recommended_solution,
-              code: assessment.recommended_solution === 'IVA_NOT_VIABLE' ? 'DMP' : 'IVA'
+                     (assessment.recommended_solution === 'IVA_NOT_VIABLE' || assessment.recommended_solution === 'FORCED_DMP_VAT') ? 'Debt Management Plan' : assessment.recommended_solution,
+              code: (assessment.recommended_solution === 'IVA_NOT_VIABLE' || assessment.recommended_solution === 'FORCED_DMP_VAT') ? 'DMP' : 'IVA'
             } : assessment.recommended_solution,
             
             total_unsecured_debt: assessment.total_unsecured_debt ?? (assessment.majority_analysis?.total_debt || 0),

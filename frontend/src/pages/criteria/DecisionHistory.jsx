@@ -191,7 +191,7 @@ export default function DecisionHistory() {
                       <p className="mt-3 text-lg font-semibold text-slate-900">{detail.application_id}</p>
                     </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                      <p className="text-sm uppercase tracking-[0.28em] text-slate-500">Recommended solution</p>
+                      <p className="text-sm uppercase tracking-[0.28em] text-slate-500">Potential solution</p>
                       <p className="mt-3 text-lg font-semibold text-slate-900">{detail.recommended_solution || '—'}</p>
                     </div>
                   </div>
