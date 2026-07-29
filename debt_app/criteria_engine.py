@@ -2477,9 +2477,18 @@ def _watch_22_14(c: dict) -> RuleResult:
             message="No open banking data loaded — car finance taken in last 3 months could not be verified.",
         )
     if c["car_finance_tx_3mo"]:
+        detail = "; ".join(
+            f"{t.get('description') or ''} £{abs(_parse_amount(t.get('amount', 0))):.2f} "
+            f"({t.get('transaction_date') or t.get('date') or 'unknown date'})"
+            for t in c["car_finance_tx_3mo"]
+        )
         return RuleResult(
             rule_id="WATCH-22.14", severity="hard_block", triggered=True,
-            message="Car finance transaction within the last 3 months detected. Hard block unless evidence provided (old car scrapped, accident, employment requirement).",
+            message=(
+                "Car finance transaction within the last 3 months detected. "
+                "Hard block unless evidence provided (old car scrapped, accident, employment requirement). "
+                f"Transactions: {detail}."
+            ),
         )
     return _pass("WATCH-22.14", "No car finance transactions identified in the last 3 months.")
 
