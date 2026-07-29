@@ -5,7 +5,7 @@
 
 // Water suppliers — DEBT_TYPE_UTILITY rows matching one of these get a
 // single "Current water bill" toggle instead of a current/previous split
-// (water doesn't have a current/previous distinction — Musa's rule).
+// (water doesn't have a current/previous distinction).
 export const WATER_SUPPLIER_NAMES = [
   'thames water', 'anglian water', 'severn trent', 'united utilities',
   'yorkshire water', 'wessex water', 'welsh water', 'south west water',

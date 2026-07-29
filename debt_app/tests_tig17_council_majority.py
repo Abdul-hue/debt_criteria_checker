@@ -114,7 +114,10 @@ class Tig17CouncilPositionPropagationTests(TestCase):
         self.assertEqual(cp["effective_status"], "REJECT")
         codes = [f.get("code") for f in cp.get("findings", [])]
         self.assertIn("COUNCIL-TIG17-INCOME-DEDUCTION", codes)
-        self.assertIn("TIG-17", cp.get("reason", ""))
+        # The rule code itself belongs only in the structured `codes` list above —
+        # the human-readable `reason` text should describe the situation in plain
+        # English rather than referencing the internal rule code.
+        self.assertIn("income", cp.get("reason", "").lower())
 
     def test_majority_analysis_does_not_count_council_as_yes(self):
         # With the council overridden to REJECT, it must not contribute to

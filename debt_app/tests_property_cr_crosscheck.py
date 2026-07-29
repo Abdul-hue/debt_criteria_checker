@@ -147,7 +147,7 @@ class Case1AryazaEmptyTests(SimpleTestCase):
 
     def test_flag_message_mentions_aryza_empty(self):
         flag = next(f for f in self.findings if f.rule_id == "PROPERTY-DATA-FROM-CREDIT-REPORT")
-        self.assertIn("Aryza", flag.message)
+        self.assertIn("case file", flag.message)
 
     def test_flag_message_mentions_lender(self):
         flag = next(f for f in self.findings if f.rule_id == "PROPERTY-DATA-FROM-CREDIT-REPORT")
@@ -263,7 +263,7 @@ class Case3ConflictTests(SimpleTestCase):
 
     def test_flag_message_mentions_aryza_source(self):
         flag = next(f for f in self.findings if f.rule_id == "PROPERTY-DATA-CONFLICT")
-        self.assertIn("Aryza", flag.message)
+        self.assertIn("case file", flag.message)
 
     def test_flag_message_mentions_cr_source(self):
         flag = next(f for f in self.findings if f.rule_id == "PROPERTY-DATA-CONFLICT")
@@ -279,7 +279,7 @@ class Case3ConflictTests(SimpleTestCase):
         findings = _cross_check_property_from_credit_report(c, _cr_data(10_609_800))
         self.assertAlmostEqual(c["mortgage_balance"], 120_000.0, places=0)
         flag = next(f for f in findings if f.rule_id == "PROPERTY-DATA-CONFLICT")
-        self.assertIn("Aryza", flag.message)
+        self.assertIn("case file", flag.message)
 
     def test_no_conflict_when_diff_at_or_below_50(self):
         # Aryza £106,048; CR £106,098 — diff = £50 → NOT a conflict (boundary)

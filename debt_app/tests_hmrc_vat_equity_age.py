@@ -136,7 +136,7 @@ class EquityAgeRuleTests(SimpleTestCase):
     def test_equity_none_is_cannot_evaluate_not_block(self):
         r = _equity_age(self._case(equity=None, total_debt=40000.0))
         self.assertEqual(r.severity, "info")
-        self.assertIn("RULE-CANNOT-EVALUATE", r.message)
+        self.assertIn("could not be completed", r.message)
 
 
 # ---------------------------------------------------------------------------

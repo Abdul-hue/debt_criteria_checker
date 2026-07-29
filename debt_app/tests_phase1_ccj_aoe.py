@@ -463,7 +463,7 @@ class Tig10VerbalDebtLevelTests(TestCase):
             total_debt=5500.0,
         ))
         self.assertEqual(r.severity, "hard_block")
-        self.assertIn("debt level issue", r.message.lower())
+        self.assertIn("affects whether the case qualifies", r.message.lower())
 
     def test_large_unverified_still_hard_blocks(self):
         # Existing behaviour unchanged: a >=£1,000 unverified debt hard-blocks
@@ -473,7 +473,7 @@ class Tig10VerbalDebtLevelTests(TestCase):
             total_debt=50000.0,
         ))
         self.assertEqual(r.severity, "hard_block")
-        self.assertNotIn("debt level issue", r.message.lower())
+        self.assertNotIn("affects whether the case qualifies", r.message.lower())
 
 
 # ---------------------------------------------------------------------------

@@ -853,10 +853,14 @@ def _tig_01(c: dict) -> RuleResult:
     if actual < threshold:
         return RuleResult(
             rule_id="TIG-01", severity="hard_block", triggered=True,
-            message=f"Total debt £{actual:,.2f} is below the £{threshold:,.2f} minimum.",
+            message=(
+                f"The customer's total unsecured debt is £{actual:,.2f}. "
+                f"An IVA usually requires total debt of at least £{threshold:,.2f}. "
+                "Because the debt is below this amount, the case does not currently meet the criteria for an IVA."
+            ),
             threshold=threshold, actual_value=actual,
         )
-    return _pass("TIG-01", f"Total debt £{actual:,.2f} meets the £{threshold:,.2f} minimum.")
+    return _pass("TIG-01", f"The customer's total debt of £{actual:,.2f} meets the £{threshold:,.2f} minimum required for an IVA.")
 
 
 def _tig_02(c: dict) -> RuleResult:
@@ -870,13 +874,13 @@ def _tig_02(c: dict) -> RuleResult:
         if total_income <= 0:
             return RuleResult(
                 rule_id="TIG-02", severity="hard_block", triggered=True,
-                message="Disposable income is below £100.00 because no income data has been entered into the Fact Find. Please complete the financial section.",
+                message="The customer's disposable income is showing as below £100 per month because no income details have been entered into the Fact Find. The financial section needs to be completed before this can be assessed properly.",
                 threshold=threshold, actual_value=actual,
             )
         
         return RuleResult(
             rule_id="TIG-02", severity="hard_block", triggered=True,
-            message=f"Disposable income £{actual:,.2f}/month is below the £{threshold:,.2f} minimum.",
+            message=f"The customer's disposable income is £{actual:,.2f} per month, which is below the £{threshold:,.2f} minimum needed for an IVA. The case does not currently meet the criteria for an IVA.",
             threshold=threshold, actual_value=actual,
         )
     total_income = c.get("total_income", 0)
@@ -886,9 +890,9 @@ def _tig_02(c: dict) -> RuleResult:
     income_str = f" (income £{total_income:,.2f}, expenses £{total_expenses:,.2f})" if total_income > 0 else ""
     return _pass(
         "TIG-02",
-        f"Disposable income £{actual:,.2f}/month meets £{threshold:,.2f} minimum{income_str}. "
-        f"IVA contribution over 60 months: £{iva_60:,.2f}. "
-        f"Estimated dividend: {dividend_pence}p/£."
+        f"The customer's disposable income is £{actual:,.2f} per month, which meets the £{threshold:,.2f} minimum{income_str}. "
+        f"Over a 60-month IVA, this would total £{iva_60:,.2f} in contributions. "
+        f"This gives an estimated dividend to creditors of {dividend_pence}p in the pound."
     )
 
 
@@ -896,7 +900,7 @@ def _tig_03(c: dict) -> RuleResult:
     """TIG-03: SFS guidelines — expenditure must comply with Standard Financial Statement limits."""
     sfs = c["sfs_expenditure_breakdown"]
     if not sfs:
-        return _pass("TIG-03", "SFS expenditure breakdown not provided — rule not evaluated.")
+        return _pass("TIG-03", "The customer's expenditure breakdown was not provided, so this check could not be completed.")
 
     breaches = []
     
@@ -933,30 +937,34 @@ def _tig_03(c: dict) -> RuleResult:
             if is_breach:
                 effective = max(declared, bank)
                 pct = round(((effective - guideline) / guideline) * 100) if guideline > 0 else 0
-                parts = f"declared £{declared:,.2f}" if declared > 0 else ""
-                if bank > 0:
-                    parts += (", " if parts else "") + f"bank proven £{bank:,.2f}"
+                over_amount = effective - guideline
+                if declared > 0 and bank > 0:
+                    amount_desc = f"has declared £{declared:,.2f} per month for {category.lower()}, with £{bank:,.2f} confirmed from the bank statement,"
+                elif bank > 0:
+                    amount_desc = f"has £{bank:,.2f} per month confirmed from the bank statement for {category.lower()}"
+                else:
+                    amount_desc = f"has declared £{declared:,.2f} per month for {category.lower()}"
                 breach_details.append(
-                    f"{category}: {parts} (guideline £{guideline:,.2f}, {pct}% over limit)"
+                    f"The customer {amount_desc}. The usual guideline is £{guideline:,.2f}, "
+                    f"which is £{over_amount:,.2f} ({pct}%) over the limit."
                 )
-        detail_str = "; ".join(breach_details)
+        detail_str = " ".join(breach_details)
         return RuleResult(
             rule_id="TIG-03", severity="flag", triggered=True,
             message=(
-                f"{len(breaches)} SFS breach(es): {detail_str}. "
-                "All must be justified in the proposal."
+                f"{detail_str} These must all be explained in the IVA proposal."
             ),
             threshold=0.0,
             actual_value=float(len(breaches)),
         )
-    return _pass("TIG-03", "All expenditure categories within SFS guidelines.")
+    return _pass("TIG-03", "All expenditure categories are within the usual guidelines.")
 
 
 def _tig_04(c: dict) -> RuleResult:
     """TIG-04: DLA/PIP income present but no disability expenses claimed — flag."""
     disability_income = c["disability_income"]
     if not disability_income:
-        return _pass("TIG-04", "No DLA/PIP income — TIG-04 not applicable.")
+        return _pass("TIG-04", "The customer does not receive disability income (DLA or PIP), so this check does not apply.")
     disability_expenses = c["disability_expenses"]
     if not disability_expenses:
         # Avoid false positive: check SFS breakdown for any disability-labelled line
@@ -968,16 +976,16 @@ def _tig_04(c: dict) -> RuleResult:
         ):
             return _pass(
                 "TIG-04",
-                "DLA/PIP income present; disability-related costs found in SFS breakdown.",
+                "The customer receives disability income (DLA or PIP), and matching disability-related costs are recorded in the expenditure breakdown.",
             )
         return RuleResult(
             rule_id="TIG-04", severity="flag", triggered=True,
             message=(
-                "Client receives DLA/PIP income but no disability-related expenses are recorded. "
-                "If income is being used for disability needs, corresponding expenses must be included in the I&E."
+                "The customer receives disability income (DLA or PIP), but no disability-related expenses have been recorded. "
+                "If this income is being used to cover disability needs, the matching expenses must be added to the income and expenditure section."
             ),
         )
-    return _pass("TIG-04", "DLA/PIP income present and disability expenses recorded.")
+    return _pass("TIG-04", "The customer receives disability income (DLA or PIP) and matching disability expenses are recorded.")
 
 
 def _tig_05(c: dict) -> RuleResult:
@@ -990,80 +998,80 @@ def _tig_05(c: dict) -> RuleResult:
     if (income_source not in ("payslip", "employed", "salary")
             and not has_job
             and not is_employed):
-        return _pass("TIG-05", "Not employed — wage slip not required.")
+        return _pass("TIG-05", "The customer is not employed, so a wage slip is not required.")
 
     payslip_docs = c["payslip_docs"]
     if not payslip_docs:
         return RuleResult(
             rule_id="TIG-05", severity="hard_block", triggered=True,
-            message="No wage slip uploaded. At least one required per employment income source.",
+            message="The customer is employed but no wage slip has been uploaded. At least one wage slip is required for each employment income source before the case can proceed.",
         )
 
     payslip_date = c["payslip_date"]
     if payslip_date is None:
         return RuleResult(
             rule_id="TIG-05", severity="hard_block", triggered=True,
-            message="Wage slip dated None is older than 90 days.",
+            message="The uploaded wage slip does not have a date on record, so it cannot be confirmed as being within the last 90 days. A dated wage slip must be provided.",
         )
 
     if _days_since(payslip_date, c["assessment_date"]) > 90:
         return RuleResult(
             rule_id="TIG-05", severity="hard_block", triggered=True,
-            message=f"Wage slip dated {payslip_date} is older than 90 days.",
+            message=f"The wage slip on file is dated {payslip_date}, which is more than 90 days ago. A more recent wage slip is needed before the case can proceed.",
         )
 
-    return _pass("TIG-05", "Wage slip present and dated within 90 days.")
+    return _pass("TIG-05", "The customer's wage slip is present and dated within the last 90 days.")
 
 
 def _tig_06(c: dict) -> RuleResult:
     """TIG-06: Benefit income requires award letter or current-year bank statement."""
     if c["income_source"] not in ("benefits", "universal_credit", "uc"):
-        return _pass("TIG-06", "No benefit income — benefit proof not required.")
+        return _pass("TIG-06", "The customer does not receive benefit income, so proof of benefits is not required.")
 
     if c["benefit_letter_docs"]:
-        return _pass("TIG-06", "Benefit award letter present.")
+        return _pass("TIG-06", "The customer's benefit award letter is on file.")
 
     # Accept a bank statement dated in the current calendar year
     bank_date = c["bank_stmt_date"]
     if bank_date and str(c["assessment_date"].year) in str(bank_date):
-        return _pass("TIG-06", "Current-year bank statement accepted as benefit proof.")
+        return _pass("TIG-06", "A current-year bank statement has been accepted as proof of the customer's benefit income.")
 
     return RuleResult(
         rule_id="TIG-06", severity="hard_block", triggered=True,
-        message="Benefit income present but no award letter or current-year bank statement uploaded.",
+        message="The customer receives benefit income, but no benefit award letter or current-year bank statement has been uploaded to prove it. One of these must be provided before the case can proceed.",
     )
 
 
 def _tig_07(c: dict) -> RuleResult:
     """TIG-07: UC income requires UC journal dated within 90 days."""
     if c["income_source"] not in ("uc", "universal_credit", "benefits_only"):
-        return _pass("TIG-07", "No UC income — UC journal not required.")
+        return _pass("TIG-07", "The customer does not receive Universal Credit, so a Universal Credit journal is not required.")
 
     if not c["has_uc_journal"]:
         return RuleResult(
             rule_id="TIG-07", severity="hard_block", triggered=True,
-            message="UC income present but no UC journal has been uploaded.",
+            message="The customer receives Universal Credit, but no Universal Credit journal has been uploaded. This must be provided before the case can proceed.",
         )
 
     journal_date = c.get("uc_journal_date")
     if journal_date is None:
         return RuleResult(
             rule_id="TIG-07", severity="flag", triggered=True,
-            message="UC journal uploaded but date could not be verified — confirm it is dated within the last 3 months.",
+            message="A Universal Credit journal has been uploaded, but its date could not be confirmed. The caseworker must check it is dated within the last 3 months.",
         )
     if (c["assessment_date"] - journal_date).days > 90:
         return RuleResult(
             rule_id="TIG-07", severity="hard_block", triggered=True,
-            message=f"UC journal is dated {journal_date} — must be within last 90 days.",
+            message=f"The Universal Credit journal on file is dated {journal_date}, which is more than 90 days ago. A more recent journal must be provided.",
         )
 
-    return _pass("TIG-07", "UC journal present and dated within 90 days.")
+    return _pass("TIG-07", "The customer's Universal Credit journal is present and dated within the last 90 days.")
 
 
 def _tig_08(c: dict) -> RuleResult:
     """TIG-08: Self-employed requires BOTH tax return AND at least 1 month business banking."""
     if c["income_source"] != "self_employed":
-        return _pass("TIG-08", "Not self-employed — self-employed proof not required.")
+        return _pass("TIG-08", "The customer is not self-employed, so self-employment evidence is not required.")
 
     has_tax_return = len(c["tax_return_docs"]) > 0
     has_business_bank_statement = len(c["bank_stmt_docs"]) >= 1
@@ -1072,22 +1080,22 @@ def _tig_08(c: dict) -> RuleResult:
     if not (has_tax_return or has_business_bank_statement):
         return RuleResult(
             rule_id="TIG-08", severity="flag", triggered=True,
-            message="Self-employed income evidence incomplete — neither a tax return nor a business bank statement has been uploaded.",
+            message="The customer is self-employed, but neither a tax return nor a business bank statement has been uploaded. At least one of these is needed to evidence their income.",
         )
 
-    return _pass("TIG-08", "Self-employed income evidence present (tax return or business bank statement).")
+    return _pass("TIG-08", "The customer's self-employment income is evidenced by a tax return or business bank statement.")
 
 
 def _tig_09(c: dict) -> RuleResult:
     """TIG-09: CIS income requires invoice showing 20% tax deduction."""
     if c["income_source"] != "cis":
-        return _pass("TIG-09", "Not CIS — CIS proof not required.")
+        return _pass("TIG-09", "The customer is not on the Construction Industry Scheme (CIS), so CIS proof is not required.")
 
     cis_docs = c["cis_invoice_docs"]
     if not cis_docs:
         return RuleResult(
             rule_id="TIG-09", severity="hard_block", triggered=True,
-            message="CIS income present but no CIS invoice uploaded.",
+            message="The customer's income comes from the Construction Industry Scheme (CIS), but no CIS invoice has been uploaded. This must be provided before the case can proceed.",
         )
 
     # Check extracted_data for 20% deduction flag if available
@@ -1095,10 +1103,10 @@ def _tig_09(c: dict) -> RuleResult:
     if first and first.get("shows_deduction") is False:
         return RuleResult(
             rule_id="TIG-09", severity="hard_block", triggered=True,
-            message="CIS invoice present but does not show 20% tax deduction.",
+            message="A CIS invoice has been uploaded, but it does not show the usual 20% tax deduction. This needs to be checked before the case can proceed.",
         )
 
-    return _pass("TIG-09", "CIS invoice with deduction present.")
+    return _pass("TIG-09", "A CIS invoice showing the 20% tax deduction is on file.")
 
 
 def _tig_10(c: dict) -> RuleResult:
@@ -1150,15 +1158,15 @@ def _tig_10(c: dict) -> RuleResult:
             sub_1k_unverified.append((display_name, balance))
 
     if not hard_block_unverified and not sub_1k_unverified:
-        return _pass("TIG-10", "All debts verified via Aryza or credit report.")
+        return _pass("TIG-10", "All of the customer's debts have been verified, either through Aryza's records or a credit report match.")
 
     severity = "flag"
     lines = []
 
     for name, balance in hard_block_unverified:
         lines.append(
-            f"{name} — balance £{balance:,.0f} cannot be verified from Aryza or credit report. "
-            "Obtain proof of debt before proposing."
+            f"The debt with {name}, balance £{balance:,.0f}, could not be verified from Aryza's records or a credit report match. "
+            "Proof of this debt must be obtained before the case can be proposed."
         )
     if hard_block_unverified:
         severity = "hard_block"
@@ -1170,17 +1178,17 @@ def _tig_10(c: dict) -> RuleResult:
         for name, balance in sub_1k_unverified:
             if load_bearing:
                 lines.append(
-                    f"{name} — balance £{balance:,.0f} is unverified and under £1,000. "
-                    "Verbal would normally be acceptable, but excluding sub-£1,000 "
-                    f"unverified debts drops total debt to £{provable:,.0f} (below the "
-                    "£6,000 minimum) — this is a debt level issue, so proof of debt is "
-                    "required rather than verbal confirmation."
+                    f"The debt with {name}, balance £{balance:,.0f}, is unverified and under £1,000. "
+                    "Verbal confirmation would normally be acceptable for a debt this size, but removing it and the other "
+                    f"unverified sub-£1,000 debts would drop the total debt to £{provable:,.0f}, below the "
+                    "£6,000 minimum required for an IVA. Because this affects whether the case qualifies at all, "
+                    "proof of the debt is required rather than a verbal confirmation."
                 )
                 severity = "hard_block"
             else:
                 lines.append(
-                    f"{name} — balance £{balance:,.0f} is unverified and under £1,000; "
-                    "verbal confirmation is acceptable if a POD cannot be obtained."
+                    f"The debt with {name}, balance £{balance:,.0f}, is unverified and under £1,000. "
+                    "A verbal confirmation from the customer is acceptable if proof of the debt cannot be obtained."
                 )
 
     return RuleResult(
@@ -1197,7 +1205,7 @@ def _tig_11(c: dict) -> RuleResult:
     if not c["bank_stmt_docs"]:
         return RuleResult(
             rule_id="TIG-11", severity="hard_block", triggered=True,
-            message="No valid bank statement uploaded.",
+            message="No bank statement has been uploaded for the customer. A valid bank statement must be provided before the case can proceed.",
         )
 
     # Statement older than 90 days
@@ -1205,23 +1213,23 @@ def _tig_11(c: dict) -> RuleResult:
     if bank_date is None:
         return RuleResult(
             rule_id="TIG-11", severity="hard_block", triggered=True,
-            message="Bank statement dated None is older than 90 days.",
+            message="The uploaded bank statement does not have a date on record, so it cannot be confirmed as being within the last 90 days. A dated bank statement must be provided.",
         )
 
     if _days_since(bank_date, c["assessment_date"]) > 90:
         return RuleResult(
             rule_id="TIG-11", severity="hard_block", triggered=True,
-            message=f"Bank statement dated {bank_date} is older than 90 days.",
+            message=f"The bank statement on file is dated {bank_date}, which is more than 90 days ago. A more recent bank statement must be provided.",
         )
 
     # No account holder name
     if not c["bank_stmt_holder"]:
         return RuleResult(
             rule_id="TIG-11", severity="hard_block", triggered=True,
-            message="Bank statement extracted_data has no account_holder name.",
+            message="The bank statement on file does not show an account holder name. This must be confirmed before the case can proceed.",
         )
 
-    return _pass("TIG-11", "Bank statement valid, fresh and account holder present.")
+    return _pass("TIG-11", "The customer's bank statement is valid, recent, and shows the account holder's name.")
 
 
 def _tig_11_gambling(c: dict) -> RuleResult:
@@ -1249,13 +1257,13 @@ def _tig_11_gambling(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="hard_block", triggered=True,
             message=(
-                f"Gambling spend £{gm:,.2f} in last 30 days meets or exceeds "
-                f"£1,000 hard block threshold. "
-                f"All gambling transactions: {detail}."
+                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which meets or exceeds "
+                f"the £1,000 threshold at which the case cannot proceed. "
+                f"All gambling transactions found: {detail}."
             ),
             threshold=1000.0, actual_value=gm,
         )
-    
+
     # Flag: last 30 days > £200
     if gm > 200:
         detail = _tx_detail(all_gtx)
@@ -1263,52 +1271,52 @@ def _tig_11_gambling(c: dict) -> RuleResult:
             return RuleResult(
                 rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
                 message=(
-                    f"Gambling spend £{gm:,.2f} in last 30 days exceeds £200. "
-                    f"Client is GAMSTOP registered — confirm registration is active. "
-                    f"All gambling transactions: {detail}."
+                    f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200. "
+                    f"The customer is registered with GAMSTOP (the gambling self-exclusion scheme) — the caseworker must confirm this registration is still active. "
+                    f"All gambling transactions found: {detail}."
                 ),
                 threshold=200.0, actual_value=gm,
             )
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"Gambling spend £{gm:,.2f} in last 30 days exceeds £200. "
-                f"GAMSTOP registration proof required. "
-                f"All gambling transactions: {detail}."
+                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200. "
+                f"Proof of GAMSTOP registration (the gambling self-exclusion scheme) is required. "
+                f"All gambling transactions found: {detail}."
             ),
             threshold=200.0, actual_value=gm,
         )
-    
+
     # Flag: last 30 days > 0 but under £200
     if gm > 0:
         detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"Gambling transactions detected in last 30 days "
-                f"(£{gm:,.2f}). Within acceptable limit. "
-                f"All gambling transactions: {detail}. "
-                f"Review with client."
+                f"Some gambling transactions were found in the last 30 days, totalling £{gm:,.2f}. "
+                f"This is within the acceptable limit. "
+                f"All gambling transactions found: {detail}. "
+                f"The caseworker should still review this with the customer."
             ),
             threshold=0.0, actual_value=gm,
         )
-    
+
     # No gambling in last 30 days — check all time
     if all_total > 0:
         detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"Gambling transactions detected in bank statements "
-                f"(total: £{all_total:,.2f}, outside last 30 days). "
-                f"No recent gambling — within acceptable limit. "
-                f"Transactions: {detail}. "
-                f"Review with client."
+                f"Gambling transactions were found in the customer's bank statements "
+                f"(totalling £{all_total:,.2f}, all outside the last 30 days). "
+                f"There has been no recent gambling, so this is within the acceptable limit. "
+                f"Transactions found: {detail}. "
+                f"The caseworker should still review this with the customer."
             ),
             threshold=0.0, actual_value=all_total,
         )
-    
-    return _pass("TIG-11-GAMBLING", "No gambling transactions detected in bank statements.")
+
+    return _pass("TIG-11-GAMBLING", "No gambling transactions were found in the customer's bank statements.")
 
 
 def _tig_12(c: dict) -> RuleResult:
@@ -1316,55 +1324,55 @@ def _tig_12(c: dict) -> RuleResult:
     tp = c["third_party_contribution"]
     if not tp:
         # None, 0, 0.0, False — no TPC present
-        return _pass("TIG-12", "No third-party contribution — letter not required.")
+        return _pass("TIG-12", "No one else is contributing to the customer's IVA payments, so a signed letter is not required.")
     if isinstance(tp, (int, float)):
         # Aryza supplies a raw amount but no letter metadata yet
         return RuleResult(
             rule_id="TIG-12", severity="flag", triggered=True,
             message=(
-                f"Third-party contribution of £{tp:,.2f} recorded — confirm signed letter "
-                "with duration, address and contact details is in place."
+                f"A third party is contributing £{tp:,.2f} towards the customer's IVA payments. "
+                "The caseworker must confirm a signed letter is in place covering the duration, address and contact details of the contributor."
             ),
         )
     # tp is a dict with letter metadata
     if not tp.get("signed_letter_present", False):
         return RuleResult(
             rule_id="TIG-12", severity="hard_block", triggered=True,
-            message="Third-party contribution present but no signed letter uploaded (must include name, address, signature, date, contact, amount, duration).",
+            message="A third party is contributing to the customer's IVA payments, but no signed letter has been uploaded. The letter must include the contributor's name, address, signature, date, contact details, amount and duration of the contribution.",
         )
-    return _pass("TIG-12", "Third-party signed letter present.")
+    return _pass("TIG-12", "A signed letter confirming the third-party contribution is on file.")
 
 
 def _tig_13(c: dict) -> RuleResult:
     """TIG-13: Previous IVA requires termination report."""
     if not c["previous_iva"]:
-        return _pass("TIG-13", "No previous IVA — termination report not required.")
+        return _pass("TIG-13", "The customer has no previous IVA on record, so a termination report is not required.")
     if not c["termination_report_docs"]:
         return RuleResult(
             rule_id="TIG-13", severity="hard_block", triggered=True,
-            message="Previous IVA on record but no termination report uploaded.",
+            message="The customer has a previous IVA on record, but no termination report has been uploaded. This must be provided before the case can proceed.",
         )
-    return _pass("TIG-13", "Termination report present.")
+    return _pass("TIG-13", "The termination report for the customer's previous IVA is on file.")
 
 
 def _tig_15_1(c: dict) -> RuleResult:
     """TIG-15.1: HMRC majority creditor + income/benefit deductions already being taken."""
     if not c["hmrc_is_majority"]:
-        return _pass("TIG-15.1", "HMRC is not the majority creditor.")
+        return _pass("TIG-15.1", "HMRC is not the customer's largest creditor, so this check does not apply.")
     if c["income_deductions_active"] is None:
         return RuleResult(
             rule_id="TIG-15.1",
             severity="flag",
             triggered=True,
-            message="HMRC is the majority creditor — confirm whether any income or benefit deductions are active before proposing.",
+            message="HMRC is the customer's largest creditor. Before the case can be proposed, the caseworker must confirm whether any income or benefit deductions are already being taken.",
         )
     if not c["income_deductions_active"]:
-        return _pass("TIG-15.1", "No income/benefit deductions active — HMRC majority check passed.")
+        return _pass("TIG-15.1", "HMRC is the customer's largest creditor, but no income or benefit deductions are currently being taken, so this check is passed.")
     return RuleResult(
         rule_id="TIG-15.1", severity="hard_block", triggered=True,
         message=(
-            "HMRC is the majority creditor and income/benefit deductions are already being taken. "
-            "HMRC will reject the IVA."
+            "HMRC is the customer's largest creditor and deductions are already being taken from their income or benefits. "
+            "HMRC is expected to reject the IVA in this situation."
         ),
     )
 
@@ -1372,13 +1380,13 @@ def _tig_15_1(c: dict) -> RuleResult:
 def _tig_15_2(c: dict) -> RuleResult:
     """TIG-15.2: HMRC majority creditor + previous IVA or bankruptcy."""
     if not c["hmrc_is_majority"]:
-        return _pass("TIG-15.2", "HMRC is not the majority creditor.")
+        return _pass("TIG-15.2", "HMRC is not the customer's largest creditor, so this check does not apply.")
     if c["previous_iva"] or c["previous_iva_failed"] or c.get("credit_report_iva_or_bankruptcy"):
         return RuleResult(
             rule_id="TIG-15.2", severity="hard_block", triggered=True,
-            message="HMRC is majority creditor and client has a previous IVA or bankruptcy. HMRC will reject.",
+            message="HMRC is the customer's largest creditor and the customer has a previous IVA or bankruptcy on record. HMRC is expected to reject the IVA in this situation.",
         )
-    return _pass("TIG-15.2", "HMRC majority creditor check passed — no previous IVA or bankruptcy.")
+    return _pass("TIG-15.2", "HMRC is the customer's largest creditor, but there is no previous IVA or bankruptcy on record, so this check is passed.")
 
 
 def _tig_15_3(c: dict) -> RuleResult:
@@ -1386,7 +1394,7 @@ def _tig_15_3(c: dict) -> RuleResult:
     Applies to self-employed clients AND PAYE clients with SA debt (landlords, investors).
     """
     if not c["hmrc_is_creditor"]:
-        return _pass("TIG-15.3", "No HMRC creditor.")
+        return _pass("TIG-15.3", "HMRC is not one of the customer's creditors, so this check does not apply.")
     # Detect SA debt from creditor_type or creditor name — covers PAYE clients with SA returns
     has_sa_debt = any(
         "self assessment" in (cr["creditor_type"] or "").lower()
@@ -1396,14 +1404,14 @@ def _tig_15_3(c: dict) -> RuleResult:
         for cr in c["hmrc_creditors"]
     )
     if not has_sa_debt and c["income_source"] != "self_employed":
-        return _pass("TIG-15.3", "No self-assessment debt detected — TIG-15.3 not applicable.")
+        return _pass("TIG-15.3", "No self-assessment debt was found for the customer, so this check does not apply.")
     # Check for tax return as proxy for up-to-date submissions
     if not c["tax_return_docs"]:
         return RuleResult(
             rule_id="TIG-15.3", severity="hard_block", triggered=True,
-            message="HMRC self-assessment debt present but no tax return uploaded.",
+            message="The customer has self-assessment debt with HMRC, but no tax return has been uploaded to show their submissions are up to date. This must be provided before the case can proceed.",
         )
-    return _pass("TIG-15.3", "Tax return present — submission confirmed.")
+    return _pass("TIG-15.3", "The customer's tax return is on file, confirming their self-assessment submissions are up to date.")
 
 
 def _tig_15_4(c: dict) -> RuleResult:
@@ -1411,35 +1419,35 @@ def _tig_15_4(c: dict) -> RuleResult:
     # EXCEL_CRITERIA_REFERENCE.md — stub replaced;
     # triggered=True without evaluation is misleading
     if not c["hmrc_is_creditor"]:
-        return _pass("TIG-15.4", "No HMRC creditor.")
+        return _pass("TIG-15.4", "HMRC is not one of the customer's creditors, so this check does not apply.")
     if c["available_equity"] is None:
         return RuleResult(
             rule_id="TIG-15.4", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule TIG-15.4 cannot be evaluated — property_value not present in payload",
+            message="This check could not be completed because no property value has been entered for the customer.",
         )
     if c["available_equity"] > c["hmrc_balance"]:
         return RuleResult(
             rule_id="TIG-15.4", severity="hard_block", triggered=True,
-            message=f"Available equity £{c['available_equity']:,.2f} exceeds HMRC balance £{c['hmrc_balance']:,.2f}.",
+            message=f"The customer's available property equity is £{c['available_equity']:,.2f}, which is more than the £{c['hmrc_balance']:,.2f} owed to HMRC. This must be reviewed before the case can proceed.",
             threshold=c["hmrc_balance"], actual_value=c["available_equity"],
         )
-    return _pass("TIG-15.4", "Equity does not exceed HMRC balance.")
+    return _pass("TIG-15.4", "The customer's available property equity does not exceed the amount owed to HMRC.")
 
 
 def _tig_15_5(c: dict) -> RuleResult:
     """TIG-15.5: Bankruptcy return > IVA payments — hard block if bankruptcy yields more."""
     if c["bankruptcy_return"] is None:
-        return _pass("TIG-15.5", "Bankruptcy return not provided — rule not applicable.")
+        return _pass("TIG-15.5", "No bankruptcy return figure has been provided for the customer, so this check does not apply.")
     br = _parse_amount(c["bankruptcy_return"])
     # EXCEL_CRITERIA_REFERENCE.md — IVA term from case payload, not hardcoded
     iva_return = c["disposable_income"] * c.get("iva_term_months", 60) * 0.75
     if br > iva_return:
         return RuleResult(
             rule_id="TIG-15.5", severity="hard_block", triggered=True,
-            message=f"Bankruptcy return £{br:,.2f} exceeds projected IVA return £{iva_return:,.2f}.",
+            message=f"If the customer went bankrupt instead, creditors would get an estimated £{br:,.2f}, which is more than the £{iva_return:,.2f} projected from the IVA. This means bankruptcy would give creditors a better return, so it must be reviewed before the case can proceed.",
             threshold=iva_return, actual_value=br,
         )
-    return _pass("TIG-15.5", "IVA return exceeds bankruptcy return.")
+    return _pass("TIG-15.5", "The projected IVA return to creditors is higher than the estimated return from bankruptcy.")
 
 
 def _tig_15_6(c: dict) -> RuleResult:
@@ -1449,40 +1457,41 @@ def _tig_15_6(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIG-15.6", severity="flag", triggered=True,
             message=(
-                "Full & Final savings source not confirmed — caseworker must verify whether "
-                "savings were accumulated while debts were unpaid before proceeding."
+                "The customer has not confirmed where the savings for the Full & Final settlement came from. "
+                "Before the case can continue, the caseworker must check whether the customer built up these savings "
+                "while they were not paying their debts."
             ),
         )
     if val is True:
         return RuleResult(
             rule_id="TIG-15.6", severity="hard_block", triggered=True,
             message=(
-                "Full & Final settlement funded from savings accumulated while debts were unpaid. "
-                "Cannot proceed with IVA — this constitutes an antecedent concern."
+                "The Full & Final settlement is funded from savings that were built up while the customer's debts were unpaid. "
+                "This raises a concern about how the money was accumulated, so the IVA cannot proceed on this basis."
             ),
         )
-    return _pass("TIG-15.6", "No savings-funded F&F arrangement identified.")
+    return _pass("TIG-15.6", "There is no Full & Final settlement funded from savings built up while debts were unpaid.")
 
 
 def _tig_15_7(c: dict) -> RuleResult:
     """TIG-15.7: SEISS fraud debt — always blocks, cannot be included in IVA."""
     if c["seiss_debt_flag"] is None:
-        return _pass("TIG-15.7", "No SEISS debt flag provided — rule not applicable.")
+        return _pass("TIG-15.7", "No information on Self-Employment Income Support Scheme (SEISS) fraud debt has been provided, so this check does not apply.")
     if c["seiss_debt_flag"]:
         return RuleResult(
             rule_id="TIG-15.7", severity="hard_block", triggered=True,
-            message="SEISS fraud debt identified. Cannot be included in an IVA under any circumstances.",
+            message="The customer has a Self-Employment Income Support Scheme (SEISS) fraud debt. This type of debt can never be included in an IVA, under any circumstances.",
         )
-    return _pass("TIG-15.7", "No SEISS fraud debt.")
+    return _pass("TIG-15.7", "The customer has no Self-Employment Income Support Scheme (SEISS) fraud debt.")
 
 
 def _tig_15_8(c: dict) -> RuleResult:
     """TIG-15.8: HMRC removes client name, chases other party — info only, does not block."""
     if not c["hmrc_is_creditor"]:
-        return _pass("TIG-15.8", "No HMRC creditor.")
+        return _pass("TIG-15.8", "HMRC is not one of the customer's creditors, so this note does not apply.")
     return RuleResult(
         rule_id="TIG-15.8", severity="info", triggered=False,
-        message="HMRC joint debt note: if HMRC removes client name and chases other party, this does not block the IVA.",
+        message="For information: if this is a joint debt and HMRC removes the customer's name to chase the other party instead, this does not stop the IVA from proceeding.",
     )
 
 
@@ -1490,20 +1499,20 @@ def _tig_15_9(c: dict) -> RuleResult:
     """TIG-15.9: HMRC debt < £4,000 — HMRC will not vote unless rejecting. Info only."""
     threshold = 4000.0
     if not c["hmrc_is_creditor"]:
-        return _pass("TIG-15.9", "No HMRC creditor.")
+        return _pass("TIG-15.9", "HMRC is not one of the customer's creditors, so this note does not apply.")
     if c["hmrc_balance"] < threshold:
         return RuleResult(
             rule_id="TIG-15.9", severity="info", triggered=False,
-            message=f"HMRC debt £{c['hmrc_balance']:,.2f} is under £{threshold:,.2f} — HMRC will not vote unless rejecting.",
+            message=f"The customer owes HMRC £{c['hmrc_balance']:,.2f}, which is under £{threshold:,.2f}. For information, HMRC typically will not cast a vote on the IVA unless they intend to reject it.",
             threshold=threshold, actual_value=c["hmrc_balance"],
         )
-    return _pass("TIG-15.9", f"HMRC debt £{c['hmrc_balance']:,.2f} is above the £{threshold:,.2f} info threshold.")
+    return _pass("TIG-15.9", f"The customer owes HMRC £{c['hmrc_balance']:,.2f}, which is above the £{threshold:,.2f} threshold for this note.")
 
 
 def _tig_15_10(c: dict) -> RuleResult:
     """TIG-15.10: Client's only income is benefits AND HMRC is a creditor."""
     if not c["hmrc_is_creditor"]:
-        return _pass("TIG-15.10", "No HMRC creditor.")
+        return _pass("TIG-15.10", "HMRC is not one of the customer's creditors, so this check does not apply.")
     benefits_only = (
         c.get("income_is_benefits_only", False)
         or c["income_source"] in ("benefits", "universal_credit", "uc")
@@ -1511,9 +1520,9 @@ def _tig_15_10(c: dict) -> RuleResult:
     if benefits_only:
         return RuleResult(
             rule_id="TIG-15.10", severity="hard_block", triggered=True,
-            message="Client's sole income is benefits and HMRC is a creditor — IVA not viable.",
+            message="The customer's only income is from benefits, and HMRC is one of their creditors. An IVA is not viable in this situation.",
         )
-    return _pass("TIG-15.10", "Client has non-benefit income — TIG-15.10 not triggered.")
+    return _pass("TIG-15.10", "The customer has income from a source other than benefits, so this check is not triggered.")
 
 
 # ---------------------------------------------------------------------------
@@ -1531,8 +1540,8 @@ def _tig_hmrc_01(c: dict) -> RuleResult:
         severity="flag",
         triggered=True,
         message=(
-            "HMRC is a creditor — HMRC's agreement to the IVA cannot be assumed. "
-            "Specific HMRC confirmation required before proposing."
+            "HMRC is one of the customer's creditors. HMRC's agreement to the IVA cannot be assumed just because they are owed money. "
+            "The caseworker must get specific confirmation from HMRC before the case is proposed."
         ),
     )
 
@@ -1562,36 +1571,36 @@ def _tig_hmrc_03(c: dict) -> RuleResult:
                 rule_id="TIG-HMRC-VAT-TRADING",
                 severity="flag",
                 triggered=True,
-                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether VAT applies before proposing.",
+                message="HMRC is a creditor, but the system could not tell what type of debt is owed. The caseworker must manually confirm whether this includes VAT (Value Added Tax) before the case is proposed.",
             )
-        return _pass("TIG-HMRC-VAT-TRADING", "No VAT arrears present.")
+        return _pass("TIG-HMRC-VAT-TRADING", "The customer has no VAT arrears with HMRC.")
     _is_trading = c.get("is_currently_trading")
     if _is_trading is None:
         return RuleResult(
             rule_id="TIG-HMRC-VAT-TRADING",
             severity="flag",
             triggered=True,
-            message="VAT debt present — trading status unknown. Verify whether client is currently trading before proposing.",
+            message="The customer has VAT (Value Added Tax) debt with HMRC, but it is not known whether they are still trading. The caseworker must verify this before the case is proposed.",
         )
     if not _is_trading:
-        return _pass("TIG-HMRC-VAT-TRADING", "Client is not currently trading.")
+        return _pass("TIG-HMRC-VAT-TRADING", "The customer is not currently trading.")
     # is_currently_trading is True; check for arrangement
     if c["has_vat_arrangement"]:
-        return _pass("TIG-HMRC-VAT-TRADING", "VAT payment arrangement is in place.")
+        return _pass("TIG-HMRC-VAT-TRADING", "A VAT payment arrangement with HMRC is already in place.")
     if c.get("has_vat_arrangement") is None:
         return RuleResult(
             rule_id="TIG-HMRC-VAT-TRADING",
             severity="flag",
             triggered=True,
-            message="VAT debt present and client is trading — confirm whether a payment arrangement with HMRC is in place before proposing.",
+            message="The customer has VAT debt and is still trading. The caseworker must confirm whether a payment arrangement with HMRC is already in place before the case is proposed.",
         )
     return RuleResult(
         rule_id="TIG-HMRC-VAT-TRADING",
         severity="hard_block",
         triggered=True,
         message=(
-            "VAT arrears present and client is still trading without a payment arrangement — "
-            "HMRC will not accept IVA. Trading must have ceased or an arrangement must be in place."
+            "The customer has VAT arrears and is still trading, with no payment arrangement in place with HMRC. "
+            "HMRC is expected to reject the IVA in this situation. Trading must stop, or a payment arrangement must be agreed with HMRC, before this can proceed."
         ),
     )
 
@@ -1621,9 +1630,9 @@ def _tig_hmrc_04(c: dict) -> RuleResult:
                 rule_id="TIG-HMRC-PAYE-OBLIGATIONS",
                 severity="flag",
                 triggered=True,
-                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether PAYE applies before proposing.",
+                message="HMRC is a creditor, but the system could not tell what type of debt is owed. The caseworker must manually confirm whether this includes PAYE (Pay As You Earn) before the case is proposed.",
             )
-        return _pass("TIG-HMRC-PAYE-OBLIGATIONS", "No PAYE arrears present.")
+        return _pass("TIG-HMRC-PAYE-OBLIGATIONS", "The customer has no PAYE arrears with HMRC.")
     paye_current = c["employer_paye_obligations_current"]
     if paye_current is None:
         return RuleResult(
@@ -1631,8 +1640,8 @@ def _tig_hmrc_04(c: dict) -> RuleResult:
             severity="flag",
             triggered=True,
             message=(
-                "PAYE arrears present — employer PAYE obligations must be current before IVA can be proposed. "
-                "Unable to verify PAYE obligations status."
+                "The customer has PAYE (Pay As You Earn) arrears with HMRC. Their employer's current PAYE obligations must be up to date before the IVA can be proposed, but this could not be verified. "
+                "The caseworker must check this before proceeding."
             ),
         )
     if not paye_current:
@@ -1641,10 +1650,11 @@ def _tig_hmrc_04(c: dict) -> RuleResult:
             severity="hard_block",
             triggered=True,
             message=(
-                "PAYE arrears present — employer PAYE obligations must be current before IVA can be proposed."
+                "The customer has PAYE arrears with HMRC, and their employer's current PAYE obligations are not up to date. "
+                "This must be resolved before the IVA can be proposed."
             ),
         )
-    return _pass("TIG-HMRC-PAYE-OBLIGATIONS", "PAYE obligations are current.")
+    return _pass("TIG-HMRC-PAYE-OBLIGATIONS", "The employer's PAYE obligations are up to date.")
 
 
 def _tig_hmrc_05(c: dict) -> RuleResult:
@@ -1672,16 +1682,16 @@ def _tig_hmrc_05(c: dict) -> RuleResult:
                 rule_id="TIG-HMRC-TAX-CREDITS",
                 severity="flag",
                 triggered=True,
-                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether tax credits applies before proposing.",
+                message="HMRC is a creditor, but the system could not tell what type of debt is owed. The caseworker must manually confirm whether this includes a tax credit overpayment before the case is proposed.",
             )
-        return _pass("TIG-HMRC-TAX-CREDITS", "No tax credit overpayment debt present.")
+        return _pass("TIG-HMRC-TAX-CREDITS", "The customer has no tax credit overpayment debt.")
     return RuleResult(
         rule_id="TIG-HMRC-TAX-CREDITS",
         severity="flag",
         triggered=True,
         message=(
-            "Tax credit overpayment debt present — treated as priority debt. "
-            "Confirm whether DWP is already making deductions before including in IVA."
+            "The customer has a tax credit overpayment debt, which is treated as a priority debt. "
+            "The caseworker must confirm whether the Department for Work and Pensions (DWP) is already taking deductions for this before it is included in the IVA."
         ),
     )
 
@@ -1711,16 +1721,16 @@ def _tig_hmrc_06(c: dict) -> RuleResult:
                 rule_id="TIG-HMRC-NI-CLASS",
                 severity="flag",
                 triggered=True,
-                message="HMRC is a creditor but debt sub-type could not be determined — manually confirm whether National Insurance applies before proposing.",
+                message="HMRC is a creditor, but the system could not tell what type of debt is owed. The caseworker must manually confirm whether this includes National Insurance before the case is proposed.",
             )
-        return _pass("TIG-HMRC-NI-CLASS", "No National Insurance debt present.")
+        return _pass("TIG-HMRC-NI-CLASS", "The customer has no National Insurance debt.")
     return RuleResult(
         rule_id="TIG-HMRC-NI-CLASS",
         severity="flag",
         triggered=True,
         message=(
-            "National Insurance debt present — confirm whether Class 2 and/or Class 4 "
-            "are included in the IVA or treated separately."
+            "The customer has National Insurance debt with HMRC. "
+            "The caseworker must confirm whether Class 2 and/or Class 4 National Insurance contributions are included in the IVA or are being treated separately."
         ),
     )
 
@@ -1736,17 +1746,17 @@ def _tig_hmrc_07(c: dict) -> RuleResult:
             rule_id="TIG-HMRC-ONGOING-TRADING",
             severity="flag",
             triggered=True,
-            message="HMRC ongoing trading rule — trading status unknown. Verify whether client is currently trading before proposing.",
+            message="The customer has HMRC debt, but it is not known whether they are currently trading. The caseworker must verify this before the case is proposed.",
         )
     if not _is_trading:
-        return _pass("TIG-HMRC-ONGOING-TRADING", "Client is not currently trading.")
+        return _pass("TIG-HMRC-ONGOING-TRADING", "The customer is not currently trading.")
     return RuleResult(
         rule_id="TIG-HMRC-ONGOING-TRADING",
         severity="flag",
         triggered=True,
         message=(
-            "Client is currently trading with HMRC debt — HMRC rarely accepts IVAs in this situation. "
-            "Specific written confirmation from HMRC required before proposing."
+            "The customer is still trading and has HMRC debt. HMRC rarely accepts an IVA in this situation. "
+            "The caseworker must get specific written confirmation from HMRC before the case is proposed."
         ),
     )
 
@@ -1764,8 +1774,8 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
             severity="hard_block",
             triggered=True,
             message=(
-                "Preferential/antecedent payment to HMRC detected — hard reject. "
-                "Potential clawback risk makes IVA non-viable."
+                "The customer made a payment to HMRC that put them in a better position than their other creditors shortly before the case started. "
+                "This creates a risk that the payment could later be clawed back, so the IVA is not viable and this case must be rejected."
             ),
         )
     if not at and not c.get("has_open_banking"):
@@ -1773,9 +1783,9 @@ def _tig_hmrc_08(c: dict) -> RuleResult:
             rule_id="TIG-HMRC-ANTECEDENT",
             severity="flag",
             triggered=True,
-            message="Antecedent transaction data not available — confirm no preferential payments were made to HMRC in the last 2 years.",
+            message="There is no bank transaction data available to check for this. The caseworker must confirm the customer made no preferential payments to HMRC in the last two years.",
         )
-    return _pass("TIG-HMRC-ANTECEDENT", "No antecedent transactions to HMRC identified.")
+    return _pass("TIG-HMRC-ANTECEDENT", "No preferential payments to HMRC were identified.")
 
 
 def _tig_16(c: dict) -> RuleResult:
@@ -1799,7 +1809,7 @@ def _tig_16(c: dict) -> RuleResult:
         if not has_property:
             return _pass(
                 "TIG-16",
-                "No property — TIG-16 not applicable.",
+                "The customer does not own a property, so this check does not apply.",
             )
         pv = _parse_amount(c.get("property_value") or 0)
         if pv <= 0:
@@ -1809,23 +1819,22 @@ def _tig_16(c: dict) -> RuleResult:
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"Client owns property but no valuation found in system "
-                    f"(mortgage balance: £{mb:,.2f}). "
-                    "WATCH-22.4 cannot evaluate equity until valuation is provided. "
-                    "Manual valuation required before proceeding."
+                    f"The customer owns a property with a mortgage balance of £{mb:,.2f}, but no valuation is recorded in the system. "
+                    "The equity in the property cannot be worked out until a valuation is provided. "
+                    "The caseworker must get a valuation before the case can proceed."
                 ),
             )
         equity = pv - c["mortgage_balance"]
         liabilities = c["total_debt"]
         return _pass(
             "TIG-16",
-            "WPM/WATCH case — equity handled by WATCH-22.4; TIG-16 not applicable.",
+            "This is a WATCH case, so the equity in the property is assessed under the WATCH equity rule instead of this check.",
             threshold=liabilities,
             actual_value=equity,
         )
 
     if not has_property:
-        return _pass("TIG-16", "Client does not own property.")
+        return _pass("TIG-16", "The customer does not own a property.")
 
     pv = _parse_amount(c.get("property_value", 0))
     # Owns property but no valuation in the system — can't compute equity → flag.
@@ -1834,9 +1843,8 @@ def _tig_16(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIG-16", severity="flag", triggered=True,
             message=(
-                f"Client owns property but no valuation found in system "
-                f"(mortgage balance: £{mb:,.2f}). "
-                "Manual valuation required — equity cannot be assessed until provided."
+                f"The customer owns a property with a mortgage balance of £{mb:,.2f}, but no valuation is recorded in the system. "
+                "The equity cannot be worked out until a valuation is provided, so the caseworker must get one before this can be assessed."
             )
         )
 
@@ -1846,13 +1854,13 @@ def _tig_16(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIG-16", severity="flag", triggered=True,
             message=(
-                f"Equity £{equity:,.2f} exceeds total liabilities £{liabilities:,.2f} — "
-                "greater return likely in bankruptcy. A reason is needed for why the "
-                "client is not remortgaging to repay their debts."
+                f"The customer's equity in their property is £{equity:,.2f}, which is more than their total debt of £{liabilities:,.2f}. "
+                "In this situation, creditors are likely to get more money back through bankruptcy than through an IVA. "
+                "The proposal must explain why the customer is not remortgaging to repay their debts instead."
             ),
             threshold=liabilities, actual_value=equity,
         )
-    return _pass("TIG-16", f"Equity £{equity:,.2f} does not exceed total liabilities £{liabilities:,.2f}.",
+    return _pass("TIG-16", f"The customer's equity of £{equity:,.2f} does not exceed their total debt of £{liabilities:,.2f}.",
                  threshold=liabilities, actual_value=equity)
 
 
@@ -1864,22 +1872,22 @@ def _tig_17(c: dict) -> RuleResult:
     Only fires when both conditions are true.
     """
     if not c["council_is_majority"]:
-        return _pass("TIG-17", "Council is not the majority creditor.")
+        return _pass("TIG-17", "The council is not the majority creditor.")
     if c["income_deductions_active"] is None:
         return RuleResult(
             rule_id="TIG-17",
             severity="flag",
             triggered=True,
-            message="Council is majority creditor — confirm whether any income or benefit deductions are active before proposing.",
+            message="The council is the majority creditor. The caseworker must confirm whether any deductions are currently being taken from the customer's income or benefits before the case is proposed.",
         )
     if not c["income_deductions_active"]:
-        return _pass("TIG-17", "Council is majority creditor but no income/benefit deductions active.")
+        return _pass("TIG-17", "The council is the majority creditor, but no income or benefit deductions are currently active.")
     return RuleResult(
         rule_id="TIG-17", severity="flag", triggered=True,
         message=(
-            "Council creditor holds >25% of debt by value — income/benefit deductions are "
-            "active. Council will reject IVA while deductions are in place. "
-            "Case-by-case review required — check council list."
+            "The council holds more than 25% of the total debt by value, and deductions are currently being taken from the customer's income or benefits. "
+            "The council is expected to reject the IVA while these deductions remain in place. "
+            "The caseworker must review this case individually and check it against the council list."
         ),
     )
 
@@ -1891,19 +1899,19 @@ def _tig_18(c: dict) -> RuleResult:
             rule_id="TIG-18",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — recent spend check could not be completed. Verify manually.",
+            message="There is no open banking data loaded, so the recent spending check could not be completed. The caseworker must verify this manually.",
         )
     monthly_income = c["total_income"]
     spend = c["total_spend_2mo"]
     if monthly_income <= 0:
-        return _pass("TIG-18", "No income data — TIG-18 skipped.")
+        return _pass("TIG-18", "There is no income data available, so this check has been skipped.")
     if spend >= monthly_income:
         return RuleResult(
             rule_id="TIG-18", severity="flag", triggered=True,
-            message=f"Total spend in last 2 months £{spend:,.2f} equals or exceeds monthly income £{monthly_income:,.2f}. Assessor review required.",
+            message=f"The customer spent £{spend:,.2f} in the last two months. Their monthly income is £{monthly_income:,.2f}. The spending is at or above their income, so an assessor must review the case.",
             threshold=monthly_income, actual_value=spend,
         )
-    return _pass("TIG-18", f"Recent spend £{spend:,.2f} is within monthly income £{monthly_income:,.2f}.")
+    return _pass("TIG-18", f"The customer's recent spend of £{spend:,.2f} is within their monthly income of £{monthly_income:,.2f}.")
 
 
 def _tig_19(c: dict) -> RuleResult:
@@ -1913,19 +1921,18 @@ def _tig_19(c: dict) -> RuleResult:
             rule_id="TIG-19",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — Shop Direct transaction check could not be completed. Verify manually.",
+            message="There is no open banking data loaded, so the check for recent Shop Direct spending could not be completed. The caseworker must verify this manually.",
         )
     if c["shop_direct_tx_3mo"]:
         return RuleResult(
             rule_id="TIG-19", severity="hard_block", triggered=True,
             # EXCEL_CRITERIA_REFERENCE.md — TIG Shop Direct: 3-month spend = hard reject
-            message=f"{len(c['shop_direct_tx_3mo'])} Shop Direct / Very / Littlewoods transaction(s) in the last 3 months.",
+            message=f"The customer's bank statements show {len(c['shop_direct_tx_3mo'])} transaction(s) with Shop Direct, Very, or Littlewoods in the last three months. Recent spending with these creditors within three months is not allowed, so this case cannot proceed.",
         )
     return _pass(
         "TIG-19",
-        "No Shop Direct / Very / Littlewoods / JD Williams / Simply Be / "
-        "Jacamo / Fashion World / Marisota transactions found in bank statements "
-        "in last 3 months. TIG-19 clear."
+        "No transactions with Shop Direct, Very, Littlewoods, JD Williams, Simply Be, "
+        "Jacamo, Fashion World, or Marisota were found in the bank statements from the last three months."
     )
 
 
@@ -1935,9 +1942,9 @@ def _tig_19_review(c: dict) -> RuleResult:
     if c["shop_direct_tx_4mo"] and not c["shop_direct_tx_3mo"]:
         return RuleResult(
             rule_id="TIG-SHOP-DIRECT-4MO-REVIEW", severity="flag", triggered=True,
-            message="Shop Direct spend detected in the 3–4 month window — flag for caseworker review",
+            message="The customer's bank statements show spending with Shop Direct between three and four months ago. This falls outside the strict three-month block, but the caseworker must still review it before the case proceeds.",
         )
-    return _pass("TIG-SHOP-DIRECT-4MO-REVIEW", "No Shop Direct spend in the 3–4 month window only.")
+    return _pass("TIG-SHOP-DIRECT-4MO-REVIEW", "No Shop Direct spending was found in the three-to-four month window.")
 
 
 def _tig_19_1(c: dict) -> RuleResult:
@@ -1951,15 +1958,15 @@ def _tig_19_1(c: dict) -> RuleResult:
                 rule_id="TIG-19.1",
                 severity="flag",
                 triggered=True,
-                message=f"{creditor['name']}: Shop Direct account present but account age could not be verified — confirm account is at least 6 months old before proposing.",
+                message=f"The customer has a Shop Direct account with {creditor['name']}, but its age could not be verified. The caseworker must confirm the account is at least six months old before the case is proposed.",
             )
         if age < 6:
             return RuleResult(
                 rule_id="TIG-19.1", severity="hard_block", triggered=True,
-                message=f"{creditor['name']}: account is only {age} months old (minimum 6 months required).",
+                message=f"The customer's Shop Direct account with {creditor['name']} is only {age} months old. The account must be at least 6 months old, so this case cannot proceed.",
                 threshold=6.0, actual_value=float(age),
             )
-    return _pass("TIG-19.1", "No Shop Direct account under 6 months old.")
+    return _pass("TIG-19.1", "The customer has no Shop Direct account under six months old.")
 
 
 def _tig_20(c: dict) -> RuleResult:
@@ -1969,14 +1976,14 @@ def _tig_20(c: dict) -> RuleResult:
             rule_id="TIG-20",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — Creation / Sygma / Laser transaction check could not be completed. Verify manually.",
+            message="There is no open banking data loaded, so the check for recent Creation, Sygma, or Laser spending could not be completed. The caseworker must verify this manually.",
         )
     if c["creation_tx_4mo"]:
         return RuleResult(
             rule_id="TIG-20", severity="flag", triggered=True,
-            message=f"{len(c['creation_tx_4mo'])} Creation / Sygma / Laser transaction(s) in the last 4 months. See TIG-20.1.",
+            message=f"The customer's bank statements show {len(c['creation_tx_4mo'])} transaction(s) with Creation, Sygma, or Laser in the last four months. This is checked further below, but the caseworker should be aware of it.",
         )
-    return _pass("TIG-20", "No recent Creation / Sygma / Laser transactions.")
+    return _pass("TIG-20", "No recent transactions with Creation, Sygma, or Laser were found.")
 
 
 def _tig_20_1(c: dict) -> RuleResult:
@@ -1991,31 +1998,31 @@ def _tig_20_1(c: dict) -> RuleResult:
             rule_id="TIG-20.1",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — Creation / Sygma / Laser spend check could not be completed. Verify manually.",
+            message="There is no open banking data loaded, so the check for recent Creation, Sygma, or Laser spending could not be completed. The caseworker must verify this manually.",
         )
     if c["creation_tx_4mo"]:
         return RuleResult(
             rule_id="TIG-20.1", severity="hard_block", triggered=True,
-            message="Recent spend detected with Creation / Sygma / Laser. Hard block — no trial cases accepted.",
+            message="The customer has recent spending with Creation, Sygma, or Laser. Cases with recent spending on these accounts are not accepted under any circumstances, so this case cannot proceed.",
         )
-    return _pass("TIG-20.1", "No recent Creation / Sygma / Laser spend.")
+    return _pass("TIG-20.1", "No recent spending with Creation, Sygma, or Laser was found.")
 
 
 def _tig_21_1(c: dict) -> RuleResult:
     """TIG-21.1: Link Financial creditor — must confirm Mid SFS guidelines used."""
     if not c["link_is_creditor"]:
-        return _pass("TIG-21.1", "Link Financial is not a creditor.")
+        return _pass("TIG-21.1", "Link Financial is not one of the customer's creditors.")
     link_bal = c["link_balance"]
     total_debt = c.get("total_debt", 0)
-    debt_ok = "satisfied" if total_debt >= 12000 else f"NOT satisfied (total debt £{total_debt:,.2f})"
+    debt_ok = "this is met" if total_debt >= 12000 else f"this is NOT met, as total debt is £{total_debt:,.2f}"
     return RuleResult(
         rule_id="TIG-21.1", severity="flag", triggered=True,
         message=(
-            f"Link Financial is a creditor (balance: £{link_bal:,.2f}). "
-            f"Mid SFS guidelines must be applied. "
-            f"Minimum debt £12,000 — {debt_ok}. "
-            "Benefits must not exceed 10% of income. "
-            "Manual equity check required if client owns property."
+            f"Link Financial is one of the customer's creditors, with a balance of £{link_bal:,.2f}. "
+            f"Link Financial's mid-level income and expenditure guidelines must be applied to this case. "
+            f"Total debt must be at least £12,000 — {debt_ok}. "
+            "Benefits must not make up more than 10% of the customer's income. "
+            "If the customer owns property, the caseworker must manually check the equity before proposing."
         ),
         threshold=0.0,
         actual_value=float(link_bal),
@@ -2025,22 +2032,22 @@ def _tig_21_1(c: dict) -> RuleResult:
 def _tig_21_2(c: dict) -> RuleResult:
     """TIG-21.2: total_debt < £12,000 AND Link Financial is a creditor — hard block."""
     if not c["link_is_creditor"]:
-        return _pass("TIG-21.2", "Link Financial is not a creditor.")
+        return _pass("TIG-21.2", "Link Financial is not one of the customer's creditors.")
     threshold = 12000.0
     actual = c["total_debt"]
     if actual < threshold:
         return RuleResult(
             rule_id="TIG-21.2", severity="hard_block", triggered=True,
-            message=f"Total debt £{actual:,.2f} is below the £{threshold:,.2f} minimum required when Link Financial is a creditor.",
+            message=f"The customer's total debt is £{actual:,.2f}, which is below the £{threshold:,.2f} minimum required when Link Financial is a creditor. This case cannot proceed.",
             threshold=threshold, actual_value=actual,
         )
-    return _pass("TIG-21.2", f"Total debt £{actual:,.2f} meets Link Financial minimum.")
+    return _pass("TIG-21.2", f"The customer's total debt of £{actual:,.2f} meets the minimum required for Link Financial.")
 
 
 def _tig_21_3(c: dict) -> RuleResult:
     """TIG-21.3: Property equity > Link Financial balance — hard block."""
     if not c["link_is_creditor"]:
-        return _pass("TIG-21.3", "Link Financial is not a creditor.")
+        return _pass("TIG-21.3", "Link Financial is not one of the customer's creditors.")
 
     has_property = c.get("has_property", False)
     pv = _parse_amount(c.get("property_value", 0))
@@ -2050,35 +2057,35 @@ def _tig_21_3(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIG-21.3", severity="flag", triggered=True,
             message=(
-                "Client owns property but no valuation found in system. "
-                "Manual check required before proceeding."
+                "The customer owns a property, but no valuation is recorded in the system. "
+                "The caseworker must get a valuation and check the equity before the case can proceed."
             )
         )
 
     if not has_property:
-        return _pass("TIG-21.3", "Client does not own property.")
+        return _pass("TIG-21.3", "The customer does not own a property.")
 
     if c["available_equity"] is None:
         return RuleResult(
             rule_id="TIG-21.3", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule TIG-21.3 cannot be evaluated — property_value not present in payload",
+            message="This check could not be completed because the property value was not provided.",
         )
     if c["available_equity"] > c["link_balance"]:
         return RuleResult(
             rule_id="TIG-21.3", severity="hard_block", triggered=True,
-            message=f"Available equity £{c['available_equity']:,.2f} exceeds Link Financial balance £{c['link_balance']:,.2f}.",
+            message=f"The customer's available equity of £{c['available_equity']:,.2f} is more than the Link Financial balance of £{c['link_balance']:,.2f}. This case cannot proceed.",
             threshold=c["link_balance"], actual_value=c["available_equity"],
         )
-    return _pass("TIG-21.3", "Equity does not exceed Link Financial balance.")
+    return _pass("TIG-21.3", "The customer's available equity does not exceed the Link Financial balance.")
 
 
 def _tig_21_4(c: dict) -> RuleResult:
     """TIG-21.4: Benefits > 10% of household income AND Link Financial is a creditor."""
     if not c["link_is_creditor"]:
-        return _pass("TIG-21.4", "Link Financial is not a creditor.")
+        return _pass("TIG-21.4", "Link Financial is not one of the customer's creditors.")
     total_income = c["total_income"]
     if total_income <= 0:
-        return _pass("TIG-21.4", "No income data — TIG-21.4 skipped.")
+        return _pass("TIG-21.4", "There is no income data available, so this check has been skipped.")
     
     benefit_amount = c.get("benefit_income_amount")
     if benefit_amount is None:
@@ -2095,10 +2102,10 @@ def _tig_21_4(c: dict) -> RuleResult:
     if benefit_pct > threshold:
         return RuleResult(
             rule_id="TIG-21.4", severity="hard_block", triggered=True,
-            message=f"Benefits represent {benefit_pct:.0f}% of household income, exceeding the {threshold:.0f}% limit with Link Financial as creditor.",
+            message=f"Benefits make up {benefit_pct:.0f}% of the customer's household income, which is above the {threshold:.0f}% limit allowed when Link Financial is a creditor. This case cannot proceed as it stands.",
             threshold=threshold, actual_value=benefit_pct,
         )
-    return _pass("TIG-21.4", "Benefits within 10% threshold.")
+    return _pass("TIG-21.4", "Benefits make up no more than 10% of the customer's household income.")
 
 
 def _tig_21_5(c: dict) -> RuleResult:
@@ -2111,10 +2118,10 @@ def _tig_21_5(c: dict) -> RuleResult:
     - Flag for other/unspecified failure reasons (review required).
     """
     if not c["link_is_creditor"]:
-        return _pass("TIG-21.5", "Link Financial is not a creditor.")
+        return _pass("TIG-21.5", "Link Financial is not one of the customer's creditors.")
 
     if not c["previous_iva"]:
-        return _pass("TIG-21.5", "No previous IVA — TIG-21.5 not triggered.")
+        return _pass("TIG-21.5", "The customer has no previous IVA, so this check does not apply.")
 
     _raw_reason = c.get("previous_iva_failed_reason")
     if _raw_reason is None and c.get("previous_iva_failed"):
@@ -2123,13 +2130,13 @@ def _tig_21_5(c: dict) -> RuleResult:
 
     # 1. Pass if no failure reason or explicitly completed
     if not reason or "completed" in reason:
-        return _pass("TIG-21.5", "Previous IVA on record but no failure reason detected.")
+        return _pass("TIG-21.5", "The customer has a previous IVA on record, but there is no failure reason recorded against it.")
 
     # 2. Hard block if terminated due to fraud or misrepresentation
     if "fraud" in reason or "misrepresentation" in reason:
         return RuleResult(
             rule_id="TIG-21.5", severity="hard_block", triggered=True,
-            message=f"Previous IVA terminated due to fraud or misrepresentation: '{reason}'. Link Financial will reject.",
+            message=f"The customer's previous IVA was ended because of fraud or misrepresentation (recorded reason: '{reason}'). Link Financial is expected to reject the IVA, so this case cannot proceed.",
         )
 
     # 3. Hard block if failed due to client breach or missed payments (arrears) —
@@ -2138,13 +2145,13 @@ def _tig_21_5(c: dict) -> RuleResult:
     if any(kw in reason for kw in breach_keywords):
         return RuleResult(
             rule_id="TIG-21.5", severity="hard_block", triggered=True,
-            message=f"Previous IVA failed due to arrears/breach: '{reason}'. Link Financial will reject.",
+            message=f"The customer's previous IVA failed because they fell behind or missed payments (recorded reason: '{reason}'). Link Financial is expected to reject the IVA, so this case cannot proceed.",
         )
 
     # 4. Default to flag for other failures
     return RuleResult(
         rule_id="TIG-21.5", severity="flag", triggered=True,
-        message=f"Previous IVA failed for reason: '{reason}'. Link Financial review required.",
+        message=f"The customer's previous IVA failed for the following recorded reason: '{reason}'. The caseworker must review this with Link Financial before proceeding.",
     )
 
 
@@ -2160,8 +2167,8 @@ def _watch_22_1(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="WATCH-22.1", severity="flag", triggered=True,
             message=(
-                "Vulnerability has been claimed but no supporting evidence has been uploaded. "
-                "Speak to Tom or Debra before proceeding. Evidence must be obtained and documented."
+                "The customer has been recorded as vulnerable, but no supporting evidence for this has been uploaded. "
+                "The caseworker must speak to Tom or Debra before proceeding, and the evidence must be obtained and documented."
             ),
         )
     return _pass("WATCH-22.1", "Vulnerability claimed and supporting evidence uploaded.")
@@ -2177,10 +2184,9 @@ def _watch_22_2(c: dict) -> RuleResult:
             severity="hard_block",
             triggered=True,
             message=(
-                "Disposable income is zero or negative "
-                "— debt can never be repaid within 72 "
-                "months. WATCH requires IVA to run at "
-                "least 6 years."
+                "The customer has no disposable income (it is zero or negative), so their debt could never be repaid "
+                "within 72 months even outside an IVA. WATCH requires an IVA to run for at least 6 years, so this creditor "
+                "is expected to reject the IVA."
             ),
             threshold=72.0,
             actual_value=None,
@@ -2190,9 +2196,9 @@ def _watch_22_2(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="WATCH-22.2", severity="hard_block", triggered=True,
             message=(
-                f"Debt repayable in {actual / 12:.1f} years — within the 6-year "
-                "threshold. WATCH rejects cases where debt can be repaid "
-                "without an IVA within 6 years."
+                f"Based on the customer's disposable income, their debt could be repaid in {actual / 12:.1f} years, "
+                "which is within 6 years. WATCH rejects cases where the debt could be repaid without an IVA within "
+                "6 years, so this creditor is expected to reject the IVA."
             ),
             threshold=threshold, actual_value=actual,
         )
@@ -2209,7 +2215,11 @@ def _watch_22_3(c: dict) -> RuleResult:
     if br > iva_return:
         return RuleResult(
             rule_id="WATCH-22.3", severity="hard_block", triggered=True,
-            message=f"Bankruptcy return £{br:,.2f} exceeds IVA projected return £{iva_return:,.2f}.",
+            message=(
+                f"If the customer went bankrupt instead, creditors would get back an estimated £{br:,.2f}, which is more "
+                f"than the £{iva_return:,.2f} they are projected to receive from the IVA. Because bankruptcy would pay "
+                "creditors more, this creditor is expected to reject the IVA."
+            ),
             threshold=iva_return, actual_value=br,
         )
     return _pass("WATCH-22.3", "IVA return exceeds bankruptcy return.")
@@ -2226,14 +2236,19 @@ def _watch_22_4(c: dict) -> RuleResult:
     if property_value is None:
         return RuleResult(
             rule_id="WATCH-22.4", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule WATCH-22.4 cannot be evaluated — property_value not present in payload",
+            message="This check could not be completed because the property value was not provided. Please verify manually.",
         )
     pv = _parse_amount(property_value)
     equity_at_85 = (pv * 0.85) - c["mortgage_balance"]
     if equity_at_85 > c["total_debt"]:
         return RuleResult(
             rule_id="WATCH-22.4", severity="hard_block", triggered=True,
-            message=f"Equity at 85% LTV £{equity_at_85:,.2f} exceeds total unsecured debt £{c['total_debt']:,.2f}.",
+            message=(
+                f"The customer's property has an estimated £{equity_at_85:,.2f} of equity available (based on 85% of its "
+                f"value, after the mortgage), which is more than their total unsecured debt of £{c['total_debt']:,.2f}. "
+                "WATCH expects available equity like this to be used to pay off the debt, so this creditor is expected "
+                "to reject the IVA."
+            ),
             threshold=c["total_debt"], actual_value=equity_at_85,
         )
     return _pass("WATCH-22.4", f"Equity at 85% LTV £{equity_at_85:,.2f} does not exceed total debt.")
@@ -2285,7 +2300,11 @@ def _watch_22_5(c: dict) -> RuleResult:
     if count <= 1:
         return RuleResult(
             rule_id="WATCH-22.5", severity="hard_block", triggered=True,
-            message=f"Only {count} qualifying lender(s) with balance > £{threshold:,.2f} ({names_str}). WATCH requires at least two separate lenders.",
+            message=(
+                f"The customer only has {count} lender ({names_str}) with a balance above £{threshold:,.2f}. WATCH "
+                "requires at least two separate lenders above this amount, so this creditor is expected to reject "
+                "the IVA."
+            ),
             threshold=threshold, actual_value=float(count),
         )
     return _pass("WATCH-22.5", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
@@ -2297,7 +2316,7 @@ def _watch_22_6(c: dict) -> RuleResult:
     if not c.get("has_open_banking"):
         return RuleResult(
             rule_id="WATCH-22.6", severity="flag", triggered=True,
-            message="No open banking data loaded — luxury spend in last 3 months could not be verified.",
+            message="Open banking data was not available, so luxury or non-essential spending in the last 3 months could not be checked. Please verify manually.",
         )
 
     assessment_date = c["assessment_date"]
@@ -2324,8 +2343,8 @@ def _watch_22_6(c: dict) -> RuleResult:
             return RuleResult(
                 rule_id="WATCH-22.6", severity="flag", triggered=True,
                 message=(
-                    f"Luxury/non-essential spend of £{luxury_total:,.2f} in last 90 days identified. "
-                    "Review with client before proposing."
+                    f"The customer spent £{luxury_total:,.2f} on luxury or non-essential items in the last 90 days. "
+                    "This spending must be discussed with the customer before the solution is proposed."
                 ),
                 actual_value=luxury_total,
             )
@@ -2355,7 +2374,11 @@ def _watch_22_7(c: dict) -> RuleResult:
     if not c["sustainability_paragraph_present"]:
         return RuleResult(
             rule_id="WATCH-22.7", severity="hard_block", triggered=True,
-            message="Client has child(ren) aged over 13 and no sustainability paragraph in the IVA proposal.",
+            message=(
+                "The customer has one or more children aged over 13, and the IVA proposal does not include a "
+                "sustainability paragraph explaining how the plan will be maintained. This must be added before "
+                "the case can proceed."
+            ),
         )
     return _pass("WATCH-22.7", "Sustainability paragraph present.")
 
@@ -2368,7 +2391,10 @@ def _watch_22_8(c: dict) -> RuleResult:
     if age >= 80:
         return RuleResult(
             rule_id="WATCH-22.8", severity="info", triggered=False,
-            message=f"Client is {age} years old. WATCH will abstain rather than vote. Note this in the proposal.",
+            message=(
+                f"The customer is {age} years old. WATCH will abstain rather than vote on cases where the customer "
+                "is 80 or older, so this should be noted in the proposal."
+            ),
             threshold=80.0, actual_value=float(age),
         )
     return _pass("WATCH-22.8", f"Client aged {age} — under 80, WATCH-22.8 not triggered.")
@@ -2384,7 +2410,10 @@ def _watch_22_9(c: dict) -> RuleResult:
     if actual > threshold:
         return RuleResult(
             rule_id="WATCH-22.9", severity="flag", triggered=True,
-            message=f"Vehicle value £{actual:,.2f} exceeds £{threshold:,.2f}. WATCH may request reduction to £4,500.",
+            message=(
+                f"The customer's vehicle is worth £{actual:,.2f}, which is above WATCH's £{threshold:,.2f} guideline. "
+                "WATCH may ask for this to be reduced to a car worth no more than £4,500."
+            ),
             threshold=threshold, actual_value=actual,
         )
     return _pass("WATCH-22.9", f"Vehicle value £{actual:,.2f} within threshold.")
@@ -2399,12 +2428,15 @@ def _watch_22_10(c: dict) -> RuleResult:
             rule_id="WATCH-22.10",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — HP monthly payment could not be verified. Confirm HP payment amount manually.",
+            message="Open banking data was not available, so the customer's car finance (HP) monthly payment could not be checked. Please confirm the payment amount manually.",
         )
     if actual > threshold:
         return RuleResult(
             rule_id="WATCH-22.10", severity="flag", triggered=True,
-            message=f"Car HP payment £{actual:,.2f}/month exceeds £{threshold:,.2f}. Evidence required.",
+            message=(
+                f"The customer pays £{actual:,.2f} a month towards car finance, which is above WATCH's £{threshold:,.2f} "
+                "monthly guideline. Evidence supporting this payment must be provided."
+            ),
             threshold=threshold, actual_value=actual,
         )
     return _pass("WATCH-22.10", f"HP payment £{actual:,.2f}/month within threshold.")
@@ -2417,8 +2449,8 @@ def _watch_22_11(c: dict) -> RuleResult:
     return RuleResult(
         rule_id="WATCH-22.11", severity="flag", triggered=True,
         message=(
-            "Gambling identified as the main cause of debt. "
-            "3 months of clean bank statements are required before proceeding."
+            "Gambling has been identified as the main cause of the customer's debt. Before the case can proceed, "
+            "3 months of bank statements showing no gambling activity are required."
         ),
     )
 
@@ -2430,18 +2462,18 @@ def _watch_22_12(c: dict) -> RuleResult:
     failed = c.get("previous_iva_failed", False)
     reason = c.get("previous_iva_failed_reason") or ""
     if failed and reason:
-        failure_str = f"Failure reason on record: {reason}. "
+        failure_str = f"It failed, and the recorded reason is: '{reason}'. "
     elif failed:
-        failure_str = "Previous IVA marked as failed — no reason recorded. "
+        failure_str = "It failed, but no reason has been recorded for this. "
     else:
-        failure_str = "No failure reason detected. "
+        failure_str = "No failure reason has been detected. "
     return RuleResult(
         rule_id="WATCH-22.12", severity="flag", triggered=True,
         message=(
-            f"Previous IVA on record. {failure_str}"
-            "WATCH requires I&E, assets and liabilities to be consistent with "
-            "the previous proposal or written explanation provided. "
-            "Termination report required."
+            f"The customer has had a previous IVA. {failure_str}"
+            "WATCH requires the income and expenditure, assets and liabilities in this case to be consistent with the "
+            "previous proposal, or a written explanation to be provided for any differences. A termination report "
+            "for the previous IVA is also required before this case can proceed."
         ),
         threshold=0.0,
         actual_value=1.0,
@@ -2454,17 +2486,21 @@ def _watch_22_13(c: dict) -> RuleResult:
     if at is True:
         return RuleResult(
             rule_id="WATCH-22.13", severity="hard_block", triggered=True,
-            message="Antecedent transactions identified — case cannot proceed.",
+            message=(
+                "Antecedent transactions (payments made shortly before insolvency that unfairly favour one creditor) "
+                "have been identified on this case. WATCH does not allow any exceptions for this, so the case cannot "
+                "proceed."
+            ),
         )
     if at is None:
         return RuleResult(
             rule_id="WATCH-22.13", severity="flag", triggered=True,
-            message="[RULE-CANNOT-EVALUATE] Antecedent transaction check failed — verify manually before proceeding.",
+            message="The check for antecedent transactions could not be completed. Please verify manually that none exist before proceeding.",
         )
     if not c.get("has_open_banking"):
         return RuleResult(
             rule_id="WATCH-22.13", severity="flag", triggered=True,
-            message="No open banking data loaded — confirm no antecedent transactions exist before proceeding.",
+            message="Open banking data was not available, so please confirm manually that no antecedent transactions exist before proceeding.",
         )
     return _pass("WATCH-22.13", "No antecedent transactions identified.")
 
@@ -2474,20 +2510,26 @@ def _watch_22_14(c: dict) -> RuleResult:
     if not c.get("has_open_banking"):
         return RuleResult(
             rule_id="WATCH-22.14", severity="flag", triggered=True,
-            message="No open banking data loaded — car finance taken in last 3 months could not be verified.",
+            message="Open banking data was not available, so recent car finance payments in the last 3 months could not be checked.",
         )
     if c["car_finance_tx_3mo"]:
-        detail = "; ".join(
-            f"{t.get('description') or ''} £{abs(_parse_amount(t.get('amount', 0))):.2f} "
-            f"({t.get('transaction_date') or t.get('date') or 'unknown date'})"
-            for t in c["car_finance_tx_3mo"]
-        )
+        tx_list = list(c["car_finance_tx_3mo"])
+        tx_sentences = [
+            f"a car finance payment of £{abs(_parse_amount(t.get('amount', 0))):.2f} to "
+            f"{t.get('description') or 'an unnamed lender'} on {t.get('transaction_date') or t.get('date') or 'an unknown date'}"
+            for t in tx_list
+        ]
+        if len(tx_sentences) == 1:
+            tx_summary = tx_sentences[0]
+        else:
+            tx_summary = "; ".join(tx_sentences[:-1]) + f"; and {tx_sentences[-1]}"
         return RuleResult(
             rule_id="WATCH-22.14", severity="hard_block", triggered=True,
             message=(
-                "Car finance transaction within the last 3 months detected. "
-                "Hard block unless evidence provided (old car scrapped, accident, employment requirement). "
-                f"Transactions: {detail}."
+                f"The customer made {tx_summary}, within the last 3 months. This can cause the IVA to be rejected "
+                "unless there is evidence explaining why the car finance was needed — for example the old car was "
+                "scrapped, damaged in an accident, or the car is needed for work. Until this evidence is provided, "
+                "this creditor is expected to reject the IVA."
             ),
         )
     return _pass("WATCH-22.14", "No car finance transactions identified in the last 3 months.")
@@ -2507,12 +2549,16 @@ def _tix_01(c: dict) -> RuleResult:
             rule_id="TIX-01",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — Shop Direct / Very / Littlewoods spend check (TIX) could not be completed. Verify manually.",
+            message="Open banking data was not available, so recent spending with Shop Direct, Very or Littlewoods could not be checked. Please verify manually.",
         )
     if c["shop_direct_tx_3mo"]:
+        count = len(c["shop_direct_tx_3mo"])
         return RuleResult(
             rule_id="TIX-01", severity="hard_block", triggered=True,
-            message=f"{len(c['shop_direct_tx_3mo'])} Shop Direct / Very / Littlewoods transaction(s) in the last 3 months. TIX hard block.",
+            message=(
+                f"The customer has made {count} transaction(s) with Shop Direct, Very or Littlewoods in the last "
+                "3 months. TIX does not allow this, so this creditor is expected to reject the IVA."
+            ),
         )
     return _pass("TIX-01", "No recent Shop Direct transactions.")
 
@@ -2528,12 +2574,18 @@ def _tix_02(c: dict) -> RuleResult:
                 rule_id="TIX-02",
                 severity="flag",
                 triggered=True,
-                message=f"{creditor['name']}: Shop Direct account present but account age could not be verified — confirm account is at least 6 months old before proposing.",
+                message=(
+                    f"The customer has a Shop Direct account with {creditor['name']}, but its age could not be "
+                    "confirmed. Please confirm the account is at least 6 months old before the solution is proposed."
+                ),
             )
         if age < 6:
             return RuleResult(
                 rule_id="TIX-02", severity="hard_block", triggered=True,
-                message=f"{creditor['name']}: account is {age} months old (minimum 6 required). TIX hard block.",
+                message=(
+                    f"The customer's account with {creditor['name']} is only {age} month(s) old. TIX requires "
+                    "accounts to be at least 6 months old, so this creditor is expected to reject the IVA."
+                ),
                 threshold=6.0, actual_value=float(age),
             )
     return _pass("TIX-02", "No Shop Direct account under 6 months old.")
@@ -2549,12 +2601,16 @@ def _tix_03(c: dict) -> RuleResult:
             rule_id="TIX-03",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — Creation / Sygma / Laser spend check (TIX) could not be completed. Verify manually.",
+            message="Open banking data was not available, so recent spending with Creation, Sygma or Laser could not be checked. Please verify manually.",
         )
     if c["creation_tx_4mo"]:
+        count = len(c["creation_tx_4mo"])
         return RuleResult(
             rule_id="TIX-03", severity="hard_block", triggered=True,
-            message=f"{len(c['creation_tx_4mo'])} Creation / Sygma / Laser transaction(s) in the last 4 months. TIX hard block.",
+            message=(
+                f"The customer has made {count} transaction(s) with Creation, Sygma or Laser in the last 4 months. "
+                "TIX does not allow this, so this creditor is expected to reject the IVA."
+            ),
         )
     return _pass("TIX-03", "No recent Creation / Sygma / Laser transactions.")
 
@@ -2568,12 +2624,15 @@ def _tix_04(c: dict) -> RuleResult:
             rule_id="TIX-04",
             severity="flag",
             triggered=True,
-            message="No open banking data loaded — HP monthly payment could not be verified. Confirm HP payment amount manually.",
+            message="Open banking data was not available, so the customer's car finance (HP) monthly payment could not be checked. Please confirm the payment amount manually.",
         )
     if actual > threshold:
         return RuleResult(
             rule_id="TIX-04", severity="flag", triggered=True,
-            message=f"Car HP payment £{actual:,.2f}/month exceeds TIX threshold £{threshold:,.2f}. Evidence required.",
+            message=(
+                f"The customer pays £{actual:,.2f} a month towards car finance, which is above TIX's £{threshold:,.2f} "
+                "monthly guideline. Evidence supporting this payment must be provided."
+            ),
             threshold=threshold, actual_value=actual,
         )
     return _pass("TIX-04", f"HP payment £{actual:,.2f}/month within TIX threshold.")
@@ -2585,7 +2644,7 @@ def _tix_05(c: dict) -> RuleResult:
         if _in_set(creditor["name"], _DEREGISTERED_TIX):
             return RuleResult(
                 rule_id="TIX-05", severity="info", triggered=False,
-                message=f"{creditor['name']} is no longer represented by TIX after 30 June 2023.",
+                message=f"{creditor['name']} has not been represented by TIX since 30 June 2023, so TIX's positions no longer apply to this creditor.",
             )
     return _pass("TIX-05", "No deregistered TIX creditors present.")
 
@@ -2598,8 +2657,8 @@ def _tix_06(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="TIX-06", severity="flag", triggered=True,
             message=(
-                "Vulnerability has been claimed but no supporting evidence has been uploaded. "
-                "Speak to Tom or Debra before proceeding. Evidence must be obtained and documented."
+                "The customer has been recorded as vulnerable, but no supporting evidence for this has been uploaded. "
+                "The caseworker must speak to Tom or Debra before proceeding, and the evidence must be obtained and documented."
             ),
         )
     return _pass("TIX-06", "Vulnerability claimed and supporting evidence uploaded.")
@@ -2619,7 +2678,7 @@ def _evolve_01(c: dict) -> RuleResult:
     if property_value is None:
         return RuleResult(
             rule_id="EVOLVE-01", severity="info", triggered=False,
-            message="[RULE-CANNOT-EVALUATE] Rule EVOLVE-01 cannot be evaluated — property_value not present in payload",
+            message="This check could not be completed because the property value was not provided. Please verify manually.",
         )
     # EVOLVE uses 85% LTV
     pv = _parse_amount(property_value)
@@ -2627,7 +2686,12 @@ def _evolve_01(c: dict) -> RuleResult:
     if equity_at_85 > c["total_debt"]:
         return RuleResult(
             rule_id="EVOLVE-01", severity="hard_block", triggered=True,
-            message=f"Equity at 85% LTV £{equity_at_85:,.2f} exceeds total debt £{c['total_debt']:,.2f}. EVOLVE hard block.",
+            message=(
+                f"The customer's property has an estimated £{equity_at_85:,.2f} of equity available (based on 85% of "
+                f"its value, after the mortgage), which is more than their total debt of £{c['total_debt']:,.2f}. "
+                "EVOLVE expects available equity like this to be used to pay off the debt, so this creditor is "
+                "expected to reject the IVA."
+            ),
             threshold=c["total_debt"], actual_value=equity_at_85,
         )
     return _pass("EVOLVE-01", f"Equity at 85% LTV £{equity_at_85:,.2f} does not exceed total debt.")
@@ -2643,7 +2707,11 @@ def _evolve_02(c: dict) -> RuleResult:
     if count <= 1:
         return RuleResult(
             rule_id="EVOLVE-02", severity="hard_block", triggered=True,
-            message=f"Only {count} qualifying lender(s) with balance > £{threshold:,.2f} ({names_str}). EVOLVE requires at least two separate lenders.",
+            message=(
+                f"The customer only has {count} lender ({names_str}) with a balance above £{threshold:,.2f}. EVOLVE "
+                "requires at least two separate lenders above this amount, so this creditor is expected to reject "
+                "the IVA."
+            ),
             threshold=threshold, actual_value=float(count),
         )
     return _pass("EVOLVE-02", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
@@ -2658,8 +2726,8 @@ def _evolve_03(c: dict) -> RuleResult:
         return RuleResult(
             rule_id="EVOLVE-03", severity="flag", triggered=True,
             message=(
-                "Vulnerability has been claimed but no supporting evidence has been uploaded. "
-                "Speak to Tom or Debra before proceeding. Evidence must be obtained and documented."
+                "The customer has been recorded as vulnerable, but no supporting evidence for this has been uploaded. "
+                "The caseworker must speak to Tom or Debra before proceeding, and the evidence must be obtained and documented."
             ),
         )
     return _pass("EVOLVE-03", "Vulnerability claimed and supporting evidence uploaded.")
@@ -2688,9 +2756,10 @@ def _phase4_vw_termination(c: dict, criteria_map: dict) -> RuleResult:
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"{name}: VW Group creditor detected but debt type is "
-                    f"'{creditor['debt_type_normalised']}' not hire_purchase — confirm whether "
-                    "vehicle is on HP and termination risk applies."
+                    f"{name} is a VW Group creditor, but the debt is recorded as "
+                    f"'{creditor['debt_type_normalised']}' rather than hire purchase. Please confirm whether the "
+                    "vehicle is actually on hire purchase, as this affects whether the creditor may terminate the "
+                    "agreement."
                 ),
             )
 
@@ -2698,17 +2767,19 @@ def _phase4_vw_termination(c: dict, criteria_map: dict) -> RuleResult:
             return RuleResult(
                 rule_id="PHASE4-VW-TERMINATION", severity="hard_block", triggered=True,
                 message=(
-                    f"{name} is a VW Financial Services group creditor on hire purchase. "
-                    "Termination risk — hard block."
+                    f"{name} is a VW Financial Services group creditor and the customer's vehicle is on hire "
+                    "purchase with them. This creditor can terminate the agreement and repossess the vehicle, so "
+                    "this creditor is expected to reject the IVA."
                 ),
             )
-        
+
         criteria = criteria_map.get(name)
         if criteria and criteria.termination_risk_if_vehicle_on_finance:
             return RuleResult(
                 rule_id="PHASE4-VW-TERMINATION", severity="hard_block", triggered=True,
                 message=(
-                    f"{name} has termination risk flagged on vehicle finance. Hard block."
+                    f"{name} is known to terminate vehicle finance agreements when a customer enters an IVA. "
+                    "This creditor is expected to reject the IVA."
                 ),
             )
 
@@ -2726,8 +2797,9 @@ def _phase4_dmp_reject(c: dict, criteria_map: dict) -> RuleResult:
             return RuleResult(
                 rule_id="PHASE4-DMP-REJECT", severity="hard_block", triggered=True,
                 message=(
-                    f"{creditor['name']} rejects cases where the client is currently "
-                    "in a DMP. Hard block."
+                    f"The customer is currently in a Debt Management Plan (DMP), and {creditor['name']} does not "
+                    "accept IVA cases where the customer is currently in a DMP. This creditor is expected to reject "
+                    "the IVA."
                 ),
             )
 
@@ -2760,9 +2832,9 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
             continue
 
         routing_messages.append(
-            f"{county_name}: county council routing found — districts: "
+            f"{county_name} County Council routes council tax through its districts: "
             + ", ".join(r.district_name for r in routings)
-            + "."
+            + ". Each district's own position is evaluated separately below."
         )
 
         # The district vote below is calculated the normal way regardless — this
@@ -2782,10 +2854,10 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"{county_obj.county_name} County Council has its own recorded "
-                    f"criteria (status: {county_obj.get_status_display()}) — review "
-                    f"before finalising the district-level vote below. "
-                    f"Notes: {county_obj.blocked_reason or '(none recorded)'}"
+                    f"{county_obj.county_name} County Council has its own recorded position "
+                    f"(status: {county_obj.get_status_display()}), separate from its districts. The caseworker must "
+                    "review this before finalising the district-level decision below. "
+                    f"Recorded notes: {county_obj.blocked_reason or 'none recorded'}."
                 ),
             ))
 
@@ -2803,8 +2875,8 @@ def _phase4_county_council(c: dict) -> tuple:  # EXCEL_CRITERIA_REFERENCE.md —
                     severity="info",
                     triggered=False,
                     message=(
-                        f"{county_name} → {district_name}: district has no CouncilRule"
-                        " — manual review required"
+                        f"{district_name} (a district of {county_name}) has no recorded council tax position on "
+                        "file. The caseworker must review this manually."
                     ),
                 ))
                 continue
@@ -2849,80 +2921,89 @@ def _build_creditor_reason(criteria, cr: dict, case: dict) -> str:
     total_debt = float(case.get("total_debt") or 0)
     if total_debt > 0 and balance > 0:
         share = (balance / total_debt) * 100
-        balance_str = f"Balance: £{balance:,.0f} ({share:.1f}% of total debt)."
+        balance_str = f"{canonical} is owed £{balance:,.0f}, which is {share:.1f}% of the customer's total debt."
     elif balance > 0:
-        balance_str = f"Balance: £{balance:,.0f}."
+        balance_str = f"{canonical} is owed £{balance:,.0f}."
     else:
         balance_str = ""
 
+    _STANCE_PHRASE = {
+        "ACCEPT":        "normally accepts an IVA",
+        "REJECT":        "normally rejects an IVA",
+        "WILL_CONSIDER": "reviews IVA proposals on a case-by-case basis",
+        "DO_NOT_VOTE":   "does not vote on IVA proposals — it only submits a proof of debt",
+        "UNKNOWN":       "has no recorded standing position on IVA proposals",
+    }
+    stance = _STANCE_PHRASE.get(status_label, f"has standing position {status_label}")
+
     # --- Profile header ---
     if rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS"):
-        header = f"{canonical}: {rep} representative creditor"
-        if group:
-            header += f" ({group})"
-        header += f". Standing position: {status_label}."
+        rep_label = "an EVERYDAY LOANS" if rep == "EVERYDAY_LOANS" else f"a {rep}"
+        group_str = f" (part of {group})" if group else ""
+        header = f"{canonical} is represented by {rep_label} body{group_str}, which {stance}."
     else:
-        header = f"{canonical}: standing position — {status_label}"
-        if group:
-            header += f" ({group})"
-        header += "."
+        group_str = f" (part of {group})" if group else ""
+        header = f"{canonical}{group_str} {stance}."
 
     # --- Configured conditions (creditor policy, not case-specific evaluation) ---
     conditions = []
 
     if criteria.blocked_until_cleared:
         reason = (criteria.blocked_reason or "blocked until further notice").strip()
-        conditions.append(f"currently blocked — {reason}")
+        conditions.append(f"This creditor is currently blocked — {reason}.")
     if criteria.reject_if_never_made_payment:
-        conditions.append("requires at least one payment to have been made")
+        conditions.append("It will reject if the customer has not made at least one payment.")
     if criteria.reject_if_ccj:
-        conditions.append("rejects if CCJ present on credit file")
+        conditions.append("It will reject if a CCJ appears on the customer's credit file.")
     if criteria.reject_if_aoe:
-        conditions.append("rejects if attachment of earnings is in place")
+        conditions.append("It will reject if an attachment of earnings is in place.")
     if criteria.reject_if_second_iva:
-        conditions.append("rejects if client has a prior IVA")
+        conditions.append("It will reject if the customer has had a previous IVA.")
     if criteria.reject_if_equity_exceeds_debt:
-        conditions.append("rejects if property equity (85% LTV) exceeds total unsecured debt")
+        conditions.append(
+            "It will reject if the customer's property equity (at 85% loan-to-value) "
+            "exceeds their total unsecured debt."
+        )
     if criteria.reject_if_client_still_has_asset:
-        conditions.append("rejects if financed asset is still held by client")
+        conditions.append("It will reject if the financed asset is still in the customer's possession.")
     if criteria.account_age_months is not None:
-        conditions.append(f"rejects if account is less than {criteria.account_age_months} months old")
+        conditions.append(f"It will reject if the account is less than {criteria.account_age_months} months old.")
     if criteria.reject_if_majority_share_exceeds_pct is not None:
         conditions.append(
-            f"rejects if creditor holds more than "
-            f"{criteria.reject_if_majority_share_exceeds_pct:.0f}% of total debt"
+            "It will reject if this creditor holds more than "
+            f"{criteria.reject_if_majority_share_exceeds_pct:.0f}% of the customer's total debt."
         )
     if criteria.reject_if_debt_repayable_within_months is not None:
         conditions.append(
-            f"rejects if debt repayable within "
-            f"{criteria.reject_if_debt_repayable_within_months} months from disposable income"
+            "It will reject if the debt could be repaid within "
+            f"{criteria.reject_if_debt_repayable_within_months} months from disposable income."
         )
     if criteria.requires_arrangement_call_before_proposing:
-        conditions.append("arrangement call required before proposing")
+        conditions.append("An arrangement call with this creditor is required before proposing.")
     if criteria.requires_grant_overpayment_only:
-        conditions.append("accepts grant overpayment debts only")
+        conditions.append("This creditor only accepts grant overpayment debts.")
     if criteria.vehicle_arrears_repossession_months is not None:
         conditions.append(
-            f"rejects if vehicle arrears exceed "
-            f"{criteria.vehicle_arrears_repossession_months} months"
+            "It will reject if vehicle arrears exceed "
+            f"{criteria.vehicle_arrears_repossession_months} months."
         )
     if criteria.fees_cap_percentage is not None:
-        conditions.append(f"IP fees capped at {criteria.fees_cap_percentage:.0f}%")
+        conditions.append(f"Insolvency practitioner fees are capped at {criteria.fees_cap_percentage:.0f}% for this creditor.")
     if criteria.fraud_claim_risk:
-        conditions.append("known fraud claim risk — caseworker review required before proposing")
+        conditions.append("There is a known fraud claim risk — the caseworker must review this before proposing.")
     if criteria.termination_risk_if_vehicle_on_finance:
-        conditions.append("may terminate agreement if vehicle is on finance")
+        conditions.append("This creditor may terminate the agreement if the vehicle is on finance.")
 
     # --- Dividend / conditional voter ---
     dividend_parts = []
     if criteria.min_dividend_pence is not None:
-        dividend_parts.append(f"minimum dividend: {criteria.min_dividend_pence}p/£1")
+        dividend_parts.append(f"The minimum dividend for this creditor is {criteria.min_dividend_pence}p in the pound.")
     if criteria.conditional_voter:
         cv = criteria.conditional_voter_min_dividend_pence
         if cv is not None:
-            dividend_parts.append(f"conditional voter — votes only if dividend ≥ {cv}p/£1")
+            dividend_parts.append(f"This creditor only votes if the dividend offered is at least {cv}p in the pound.")
         else:
-            dividend_parts.append("conditional voter")
+            dividend_parts.append("This creditor is a conditional voter.")
 
     # --- Notes from spreadsheet ---
     notes = (criteria.criteria_notes or criteria.dividend_notes or "").strip()
@@ -2931,10 +3012,8 @@ def _build_creditor_reason(criteria, cr: dict, case: dict) -> str:
     parts = [header]
     if balance_str:
         parts.append(balance_str)
-    if conditions:
-        parts.append(f"Conditions: {'; '.join(conditions)}.")
-    if dividend_parts:
-        parts.append(f"{'; '.join(dividend_parts).capitalize()}.")
+    parts.extend(conditions)
+    parts.extend(dividend_parts)
     if notes:
         parts.append(f"Note: {notes}")
 
@@ -2952,73 +3031,71 @@ def _build_council_reason(rule, cr: dict, case: dict, effective_status: str) -> 
     base_status = (rule.status or "UNKNOWN").upper()
 
     _STATUS_DESC = {
-        "REJECT":            "rejects IVA proposals",
-        "ACCEPT":            "accepts IVA proposals",
-        "DO_NOT_VOTE":       "submits proof of debt only (does not vote)",
-        "WILL_CONSIDER":     "reviews proposals on a case-by-case basis",
-        "CONDITIONAL_VOTER": "votes conditionally based on the dividend offered",
+        "REJECT":            "normally rejects IVA proposals",
+        "ACCEPT":            "normally accepts IVA proposals",
+        "DO_NOT_VOTE":       "does not vote on IVA proposals — it only submits a proof of debt",
+        "WILL_CONSIDER":     "reviews IVA proposals on a case-by-case basis",
+        "CONDITIONAL_VOTER": "votes on IVA proposals based on the dividend offered",
     }
-    base_desc = _STATUS_DESC.get(base_status, f"base status: {base_status}")
+    base_desc = _STATUS_DESC.get(base_status, f"has base status: {base_status}")
 
     # --- Balance and share of total debt (case-specific) ---
     balance = float(cr.get("balance") or 0)
     total_debt = float(case.get("total_debt") or 0)
     if total_debt > 0 and balance > 0:
         share = (balance / total_debt) * 100
-        balance_str = f"Balance: £{balance:,.0f} ({share:.1f}% of total debt)."
+        balance_str = f"{name} is owed £{balance:,.0f}, which is {share:.1f}% of the customer's total debt."
     elif balance > 0:
-        balance_str = f"Balance: £{balance:,.0f}."
+        balance_str = f"{name} is owed £{balance:,.0f}."
     else:
         balance_str = ""
 
     # --- Configured conditional rejection rules (policy) ---
     conditions = []
     if rule.reject_if_employed:
-        conditions.append("rejects if client is employed")
+        conditions.append("It will reject if the customer is employed.")
     if rule.reject_if_unemployed_and_homeowner:
-        conditions.append("rejects if client is unemployed and owns property")
+        conditions.append("It will reject if the customer is unemployed and owns their property.")
     if rule.reject_if_benefits_only:
-        conditions.append("rejects if client's income is benefits only")
+        conditions.append("It will reject if the customer's income is from benefits only.")
     if rule.reject_if_any_benefits:
-        conditions.append("rejects if client receives any benefits")
+        conditions.append("It will reject if the customer receives any benefits.")
     if rule.reject_if_previous_iva:
-        conditions.append("rejects if client has a prior IVA")
+        conditions.append("It will reject if the customer has had a previous IVA.")
     if rule.reject_if_dro_criteria_met:
-        conditions.append("rejects if client meets DRO criteria")
+        conditions.append("It will reject if the customer meets the Debt Relief Order criteria.")
     if rule.reject_if_aoe_in_place:
-        conditions.append("rejects if attachment of earnings is in place")
+        conditions.append("It will reject if an attachment of earnings is in place.")
     if rule.reject_if_sole:
-        conditions.append("rejects sole IVA applications")
+        conditions.append("It will reject sole IVA applications.")
     if rule.reject_if_joint_one_party_only:
-        conditions.append("rejects if joint debt is included in a sole IVA")
+        conditions.append("It will reject if a joint debt is included in a sole IVA.")
     if rule.reject_if_joint_both_parties:
-        conditions.append("rejects joint IVA proposals")
+        conditions.append("It will reject joint IVA proposals.")
     if rule.reject_if_joint_one_employed:
-        conditions.append("rejects joint cases where one party is employed")
+        conditions.append("It will reject joint cases where one party is employed.")
 
     # --- Informational flags ---
     info_parts = []
     if rule.do_not_chase:
-        info_parts.append("do not contact proactively — council may reject if chased")
+        info_parts.append("Do not contact this council proactively — it may reject the case if chased.")
     if rule.include_current_year_ct:
         info_parts.append(
-            "include current-year council tax in proposal even if not yet in arrears"
+            "Current-year council tax should be included in the proposal even if it is not yet in arrears."
         )
     if rule.min_dividend_pence is not None:
-        info_parts.append(f"minimum dividend: {rule.min_dividend_pence}p/£1")
+        info_parts.append(f"The minimum dividend for this council is {rule.min_dividend_pence}p in the pound.")
 
     # blocked_reason stores raw notes from the Excel sheet (operational instructions,
     # email contacts, submission requirements etc.) — always surface them.
     raw_notes = (rule.blocked_reason or "").strip()
 
     # --- Compose ---
-    parts = [f"{name}: {base_desc}."]
+    parts = [f"{name} {base_desc}."]
     if balance_str:
         parts.append(balance_str)
-    if conditions:
-        parts.append(f"Conditions: {'; '.join(conditions)}.")
-    if info_parts:
-        parts.append(f"Note: {'; '.join(info_parts)}.")
+    parts.extend(conditions)
+    parts.extend(info_parts)
     if raw_notes:
         parts.append(f"Caseworker notes: {raw_notes}")
 
@@ -3976,9 +4053,9 @@ def _check_special_employer(case: dict) -> list:
                     severity="info",
                     triggered=False,
                     message=(
-                        f"{cr['name']}: client is a Royal Mail employee — "
-                        "Penny Post Credit Union has special employment implications. "
-                        "Note for caseworker."
+                        f"The client is a Royal Mail employee and {cr['name']} is one of their "
+                        "creditors. Penny Post Credit Union has special rules for Royal Mail "
+                        "staff, so the caseworker should review this before proceeding."
                     ),
                 ))
                 break
@@ -3995,8 +4072,9 @@ def _check_special_employer(case: dict) -> list:
                     severity="hard_block",
                     triggered=True,
                     message=(
-                        f"{cr['name']}: creditor rejects IVA proposals where the client "
-                        "is a serving police officer. Hard block."
+                        f"The client is a serving police officer, and {cr['name']} does not "
+                        "accept IVA proposals in this situation. This means the IVA cannot "
+                        "proceed with this creditor included."
                     ),
                 ))
 
@@ -4036,8 +4114,10 @@ def _check_ie_match(case: dict) -> list:
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"{cr['name']}: I&E does not match the original loan application. "
-                    "Creditor requires I&E consistency — flag for caseworker review."
+                    f"The client's income and expenditure figures do not match what was "
+                    f"declared on the original loan application with {cr['name']}. This "
+                    "creditor requires the two to be consistent, so a caseworker needs to "
+                    "review and explain the difference before the IVA can proceed."
                 ),
             ))
 
@@ -4082,10 +4162,12 @@ def _check_debt_repayability(case: dict) -> list:
                 severity="hard_block",
                 triggered=True,
                 message=(
-                    f"{cr['name']}: balance £{balance:,.2f} is repayable in "
-                    f"{months_to_repay:.1f} months from DI — under the "
-                    f"{threshold}-month threshold. Creditor rejects where IVA "
-                    "is not the most appropriate solution."
+                    f"The debt of £{balance:,.2f} owed to {cr['name']} could be repaid in "
+                    f"about {months_to_repay:.1f} months out of the client's available "
+                    f"income, which is faster than this creditor's {threshold}-month "
+                    "threshold for considering an IVA appropriate. Because the debt could "
+                    "be cleared quickly through other means, this creditor is expected to "
+                    "reject the IVA."
                 ),
                 threshold=float(threshold),
                 actual_value=months_to_repay,
@@ -4121,9 +4203,9 @@ def _check_guarantor_rules(case: dict) -> list:
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"{cr['name']}: personal guarantee has not been called up. "
-                    "This creditor requires the guarantee to be called before "
-                    "an IVA can be proposed."
+                    f"{cr['name']} holds a personal guarantee on this debt, but it has not "
+                    "yet been called up. This creditor requires the guarantee to be called "
+                    "before an IVA proposal can be put forward."
                 ),
             ))
 
@@ -4178,8 +4260,10 @@ def _check_conditional_voters(case: dict, positions: list) -> list:
                 severity="info",
                 triggered=False,
                 message=(
-                    f"{cname}: conditional voter — majority achievable without their vote. "
-                    "Note their conditions but no blocking action needed."
+                    f"{cname} is a conditional voter, but the 75% majority needed to pass "
+                    "the IVA can still be reached without their vote. Their conditions "
+                    "should still be noted, but no further action is needed to secure "
+                    "the majority."
                 ),
             ))
         else:
@@ -4188,8 +4272,9 @@ def _check_conditional_voters(case: dict, positions: list) -> list:
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"{cname}: conditional voter — majority is NOT achievable without "
-                    "their vote. Their conditions must be satisfied for the IVA to pass."
+                    f"{cname} is a conditional voter, and the 75% majority needed to pass "
+                    "the IVA cannot be reached without their vote. Their conditions must "
+                    "be met for the IVA to have a chance of passing."
                 ),
             ))
             try:
@@ -4201,8 +4286,9 @@ def _check_conditional_voters(case: dict, positions: list) -> list:
                         severity="flag",
                         triggered=True,
                         message=(
-                            f"{cname}: pre-proposal contact is required before the IVA "
-                            f"can be sent. Contact: {cv_rule.contact_name or 'see creditor notes'}."
+                            f"{cname} requires direct contact before the IVA proposal is "
+                            f"sent. Please contact {cv_rule.contact_name or 'the creditor (see creditor notes for details)'} "
+                            "before proceeding."
                         ),
                     ))
             except (CreditorCriteria.DoesNotExist, ConditionalVoterRule.DoesNotExist):
@@ -4284,7 +4370,8 @@ def _equity_age(c: dict) -> RuleResult:
     if age is not None and age >= 55 and "WATCH" in reps:
         return _pass(
             "EQUITY-AGE",
-            f"Client aged {age} on a WATCH case — equity/age check does not apply.",
+            f"The client is aged {age} on a WATCH case, so the property equity check does "
+            "not apply here.",
         )
 
     equity = c.get("available_equity")
@@ -4293,16 +4380,21 @@ def _equity_age(c: dict) -> RuleResult:
             rule_id="EQUITY-AGE",
             severity="info",
             triggered=True,
-            message="[RULE-CANNOT-EVALUATE] Rule EQUITY-AGE cannot be evaluated — property_value not present in payload",
+            message=(
+                "The property equity check could not be completed because a property "
+                "valuation was not provided. This will need to be supplied before the "
+                "check can be assessed."
+            ),
         )
 
     total_debt = c.get("total_debt", 0)
     if equity < total_debt or equity < EQUITY_CEILING:
         return _pass(
             "EQUITY-AGE",
-            f"Available equity £{equity:,.2f} is below the total debt "
-            f"(£{total_debt:,.2f}) or the £{EQUITY_CEILING:,.2f} ceiling — "
-            "IVA-eligible on this criterion.",
+            f"The client has £{equity:,.2f} of available property equity, which is below "
+            f"the total debt of £{total_debt:,.2f} and/or the £{EQUITY_CEILING:,.2f} "
+            "ceiling used for this check. This means the client is eligible for an IVA "
+            "on this criterion.",
             threshold=EQUITY_CEILING, actual_value=equity,
         )
     return RuleResult(
@@ -4310,9 +4402,10 @@ def _equity_age(c: dict) -> RuleResult:
         severity="hard_block",
         triggered=True,
         message=(
-            f"Available equity £{equity:,.2f} exceeds total debt £{total_debt:,.2f} "
-            f"and is at or above the £{EQUITY_CEILING:,.2f} ceiling — there is "
-            "sufficient property equity that an IVA is not appropriate."
+            f"The client has £{equity:,.2f} of available property equity, which is more "
+            f"than both the total debt of £{total_debt:,.2f} and the £{EQUITY_CEILING:,.2f} "
+            "ceiling used for this check. Because there is enough equity in the property "
+            "to cover the debt, an IVA is not considered the appropriate solution."
         ),
         threshold=EQUITY_CEILING, actual_value=equity,
     )
@@ -4468,31 +4561,31 @@ def _apply_representative_outcomes(positions: list, outcomes: dict) -> list:
 
             if st == "ACCEPT":
                 return (
-                    f"All {rep_name} body criteria satisfied for this case "
-                    f"— this creditor votes Accept."
+                    f"There are no issues affecting {rep_name}'s vote on this case. "
+                    "This creditor is expected to accept the IVA."
                 )
             if st == "REJECT":
                 if rid and msg:
-                    return (
-                        f"{rid}: {msg} "
-                        f"— this creditor votes Reject."
-                    )
-                return f"{rep_name} body criteria not met — this creditor votes Reject."
+                    return msg
+                return (
+                    f"{rep_name}'s criteria have not been met on this case, so this "
+                    "creditor is expected to reject the IVA."
+                )
             if st == "WILL_CONSIDER":
                 if rid and msg:
                     return (
-                        f"{rid}: {msg} "
-                        f"— modification may be required. This creditor will consider."
+                        f"{msg} As a result, a modification may be required before this "
+                        "creditor will consider the IVA."
                     )
                 return (
-                    f"{rep_name} raised a flag on this case "
-                    f"— modification may be required. This creditor will consider."
+                    f"{rep_name} raised a concern on this case, so a modification may be "
+                    "required before this creditor will consider the IVA."
                 )
             if st == "DO_NOT_VOTE":
                 if rid:
-                    return f"{rid}: {rep_name} abstains on this case."
-                return f"{rep_name} abstains on this case."
-            return f"{rep_name} body outcome: {st}."
+                    return f"{rep_name} is not expected to vote on this case."
+                return f"{rep_name} is not expected to vote on this case."
+            return f"{rep_name}'s outcome on this case is {st}."
 
         # Normalise ABSTAIN → DO_NOT_VOTE for the outcome line so the new
         # function's DO_NOT_VOTE branch handles the WATCH-22.8 abstain case.
@@ -5003,13 +5096,14 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
             severity="flag",
             triggered=True,
             message=(
-                f"Aryza property tables are empty, but the credit report shows an "
-                f"active mortgage with {lender_names or 'an unidentified lender'} "
-                f"(balance £{cr_mortgage_balance:,.2f}). Using the credit report as a "
-                f"fallback source for mortgage_balance — property_value is unknown "
-                f"(credit reports show debt, not valuation), so equity cannot be "
-                f"computed automatically. Caseworker must verify property ownership "
-                f"and obtain a valuation."
+                f"The customer's case file has no property details recorded, but the "
+                f"credit report shows an active mortgage with "
+                f"{lender_names or 'an unidentified lender'} with a balance of "
+                f"£{cr_mortgage_balance:,.2f}. This balance has been used as a stand-in, "
+                f"but the property's value cannot be worked out from a credit report, so "
+                f"the amount of equity in the property cannot be calculated automatically. "
+                f"The caseworker must confirm the customer owns this property and get a "
+                f"valuation before this can be resolved."
             ),
         ))
 
@@ -5019,7 +5113,7 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
         if diff > 50.0:
             higher = max(aryza_mortgage_balance, cr_mortgage_balance)
             higher_source = (
-                "Aryza" if aryza_mortgage_balance >= cr_mortgage_balance else "credit report"
+                "case file" if aryza_mortgage_balance >= cr_mortgage_balance else "credit report"
             )
             c["mortgage_balance"] = higher
             # Recompute available_equity with the corrected balance where property
@@ -5032,11 +5126,13 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"Mortgage balance conflict: Aryza mortgage_balance=£{aryza_mortgage_balance:,.2f}, "
-                    f"credit report mortgage_balance=£{cr_mortgage_balance:,.2f} "
-                    f"(difference £{diff:,.2f}). "
-                    f"Using higher value conservatively (£{higher:,.2f} from {higher_source}). "
-                    "Caseworker must verify actual balance."
+                    f"The customer's case file and the credit report disagree on the "
+                    f"mortgage balance: the case file shows £{aryza_mortgage_balance:,.2f}, "
+                    f"while the credit report shows £{cr_mortgage_balance:,.2f} — a "
+                    f"difference of £{diff:,.2f}. To be cautious, the higher figure of "
+                    f"£{higher:,.2f} (from the {higher_source}) has been used for now. "
+                    f"The caseworker must check with the customer or the lender to confirm "
+                    f"the correct balance."
                 ),
             ))
     # Case 2 — Aryza has data and credit report agrees or has no mortgage: no action.
@@ -5316,8 +5412,9 @@ def _enrich_from_credit_report(case_data: dict) -> str:
                     case_data.setdefault("credit_report_flags", []).append({
                         "creditor": creditor["name"],
                         "message": (
-                            f"{creditor['name']}: upload a credit report to "
-                            "complete evaluation of this creditor's criteria"
+                            f"A credit report is needed for {creditor['name']} before this "
+                            "creditor's criteria can be fully checked. Please upload the "
+                            "customer's credit report to complete this assessment."
                         ),
                     })
             except CreditorCriteria.DoesNotExist:
@@ -5339,14 +5436,14 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
     and from _derive_recommended_solution). Reads c["dmp_checklist"] (the 11-field
     checklist dict) and c["total_debt"].
 
-    Confirmed with user 2026-07-15: Musa's "current gas/electricity bills cannot
+    Confirmed with user 2026-07-15: "current gas/electricity bills cannot
     be included" means exclude that specific debt from the DMP arrangement, NOT
-    reject the whole case. Azzam's checkbox framing (flat true/false, no amount)
+    reject the whole case. The original checkbox framing (flat true/false, no amount)
     lost that nuance — current_gas_bill/current_electric_bill/current_phone_contract
     are therefore non-blocking notes here, not rejection triggers.
 
     previous_gas_provider_debt/previous_electric_provider_debt/current_water_bill
-    have no rejection rule (Musa: these "can be included" in the DMP total) —
+    have no rejection rule (these "can be included" in the DMP total) —
     they surface as informational notes only, never rejection triggers.
 
     Returns {"status": "DMP_ELIGIBLE" | "DMP_REJECTED" | "DMP_NOT_EVALUATED",
@@ -5362,7 +5459,11 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
 
     total_debt = float(c.get("total_debt") or 0)
     if total_debt <= DMP_MIN_TOTAL_DEBT:
-        reasons.append("Total debt below £3,000 minimum")
+        reasons.append(
+            f"The customer's total debt is £{total_debt:,.2f}, which is at or below the "
+            f"£{DMP_MIN_TOTAL_DEBT:,.2f} minimum needed for a debt management plan. This "
+            "case cannot proceed as a DMP unless the total debt is higher than this."
+        )
 
     if (
         checklist.get("current_year_council_tax")
@@ -5370,17 +5471,24 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
         and checklist.get("lost_right_to_pay_instalments")
     ):
         reasons.append(
-            "Lost right to pay instalments with both current and previous "
-            "year council tax outstanding"
+            "The customer has lost the right to pay their council tax by "
+            "instalments, and has council tax arrears for both the current year "
+            "and the previous year. This case cannot proceed as a DMP."
         )
 
     # HMRC/self-employment split
     if c.get("hmrc_is_creditor"):
         income_source = c.get("income_source", "").lower()
         if income_source == "self_employed":
-            notes.append("HMRC debt — excluded, client is self-employed")
+            notes.append(
+                "The customer owes HMRC money. Because they are self-employed, "
+                "this debt is left out of the DMP total."
+            )
         else:
-            notes.append("HMRC debt — included, client not self-employed")
+            notes.append(
+                "The customer owes HMRC money. Because they are not "
+                "self-employed, this debt is included in the DMP total."
+            )
 
     excluded_bills = [
         label for field, label in (
@@ -5393,16 +5501,24 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
     ]
     if excluded_bills:
         notes.append(
-            "Exclude the following debt(s) from the DMP arrangement: "
-            + ", ".join(excluded_bills)
+            "The following debt(s) must be left out of the DMP arrangement: "
+            + ", ".join(excluded_bills) + "."
         )
 
     if checklist.get("previous_gas_provider_debt"):
-        notes.append("Previous gas provider debt — included in DMP total.")
+        notes.append(
+            "The customer has a debt with a previous gas provider. This is "
+            "included in the DMP total."
+        )
     if checklist.get("previous_electric_provider_debt"):
-        notes.append("Previous electricity provider debt — included in DMP total.")
+        notes.append(
+            "The customer has a debt with a previous electricity provider. "
+            "This is included in the DMP total."
+        )
     if checklist.get("current_water_bill"):
-        notes.append("Current water bill — included in DMP total.")
+        notes.append(
+            "The customer's current water bill is included in the DMP total."
+        )
 
     status = "DMP_REJECTED" if reasons else "DMP_ELIGIBLE"
     return {"status": status, "reasons": reasons, "notes": notes}
@@ -5474,7 +5590,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 rule_id=_func_to_rule_id(rule_func.__name__),
                 severity="hard_block",
                 triggered=True,
-                message=f"Rule evaluation error: {exc}",
+                message=f"This check could not be completed due to a system error ({exc}). A caseworker must review this case manually.",
             )
         if r.severity == "hard_block" and r.triggered:
             hard_blocks.append(r)
@@ -5603,7 +5719,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                     rule_id="CREDITOR-BLOCKED",
                     severity="hard_block",
                     triggered=True,
-                    message=f"{_pos['creditor_name']}: {_finding['reason']}",
+                    message=f"{_pos['creditor_name']} is expected to block this IVA. Reason: {_finding['reason']}",
                 ))
     council_positions = _check_council_rules(c)
 
@@ -5642,10 +5758,15 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 _cp["effective_status"] = "REJECT"
                 _cp.setdefault("findings", []).append({
                     "code": "COUNCIL-TIG17-INCOME-DEDUCTION",
-                    "reason": "Income/benefit deduction active — council will reject IVA (TIG-17)",
+                    "reason": (
+                        "The customer already has money being taken directly from their "
+                        "income or benefits to pay this council. Because of this, the "
+                        "council is expected to reject the IVA."
+                    ),
                 })
                 _cp["reason"] = (
-                    "Income/benefit deduction in place — council will reject this IVA (TIG-17). "
+                    "This council is already taking money directly from the customer's "
+                    "income or benefits, so it is expected to reject the IVA. "
                     + (_cp.get("reason") or "")
                 ).strip()
 
@@ -5708,8 +5829,10 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
             severity="flag",
             triggered=True,
             message=(
-                f"{cname}: estimated dividend {est_p}p is below required minimum {min_p}p"
-                " — creditor likely to reject"
+                f"{cname} would receive an estimated {est_p}p in the pound, but this "
+                f"creditor requires at least {min_p}p in the pound to accept an IVA. "
+                "Because the amount on offer is too low, this creditor is expected to "
+                "reject the IVA."
             ),
         ))
 
@@ -5730,11 +5853,14 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"75% creditor majority cannot yet be confirmed: confirmed support is "
-                    f"£{majority_analysis['voting_debt']:,.2f} of the required "
-                    f"£{majority_analysis['threshold']:,.2f}, with "
-                    f"£{majority_analysis['unknown_debt']:,.2f} from unidentified creditor(s). "
-                    "Identify the unknown creditor(s) before the vote can be relied upon."
+                    f"To approve the IVA, creditors holding at least "
+                    f"£{majority_analysis['threshold']:,.2f} of the debt must vote in "
+                    f"favour. So far, only £{majority_analysis['voting_debt']:,.2f} of "
+                    f"confirmed support is in place, and "
+                    f"£{majority_analysis['unknown_debt']:,.2f} of debt belongs to "
+                    f"creditor(s) who have not yet been identified. The caseworker must "
+                    "identify these creditor(s) before this vote can be relied upon, as "
+                    "their support could still be enough to reach the required majority."
                 ),
                 threshold=float(majority_analysis["threshold"]),
                 actual_value=float(majority_analysis["voting_debt"]),
@@ -5745,11 +5871,12 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 severity="hard_block",
                 triggered=True,
                 message=(
-                    f"75% creditor majority is not achievable: even counting every "
-                    f"undecided creditor as a yes vote, only "
-                    f"£{majority_analysis['voting_debt_optimistic']:,.2f} of the required "
-                    f"£{majority_analysis['threshold']:,.2f} threshold can be reached. "
-                    "The IVA cannot be approved without additional creditor support."
+                    f"To approve the IVA, creditors holding at least "
+                    f"£{majority_analysis['threshold']:,.2f} of the debt must vote in "
+                    f"favour. Even if every undecided creditor voted yes, only "
+                    f"£{majority_analysis['voting_debt_optimistic']:,.2f} of support "
+                    "could be reached, which is not enough. This case cannot proceed as "
+                    "an IVA unless more creditor support is found."
                 ),
             ))
             overall = "blocked"
@@ -5767,9 +5894,11 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 severity="flag",
                 triggered=True,
                 message=(
-                    f"£{float(_unknown_debt):,.2f} of debt ({_unknown_pct * 100:.1f}%) is owed to "
-                    "unidentified creditor(s). Identify them before relying on this assessment — "
-                    "their voting position and any creditor-specific rules are unknown."
+                    f"£{float(_unknown_debt):,.2f} of the customer's debt "
+                    f"({_unknown_pct * 100:.1f}% of the total) is owed to creditor(s) that "
+                    "could not be identified. The caseworker must identify them before "
+                    "relying on this assessment, because it is not known how they would "
+                    "vote or whether any creditor-specific rules apply to them."
                 ),
                 threshold=float(UNKNOWN_REFERRAL_PCT * 100),
                 actual_value=float(_unknown_pct * 100),
