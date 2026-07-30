@@ -2505,34 +2505,91 @@ def _watch_22_13(c: dict) -> RuleResult:
     return _pass("WATCH-22.13", "No antecedent transactions identified.")
 
 
+_VEHICLE_HP_LENDER_NAMES = frozenset({
+    "black horse", "motonovo", "alphera", "close brothers",
+    "volkswagen financial services", "vwfs", "audi finance",
+    "skoda finance", "seat finance", "porsche financial services",
+})
+
+
+def _is_vehicle_hp_creditor(cr: dict) -> bool:
+    """normalise_debt_type() buckets ALL hire-purchase debt (furniture,
+    appliances, logbook loans, cars) under the single DEBT_TYPE_HP value —
+    WATCH-22.14 is specifically about car finance, so a raw-type or lender-name
+    signal is needed to exclude non-vehicle HP from the credit-report check."""
+    raw = (cr.get("creditor_type") or "").lower()
+    if any(kw in raw for kw in ("car", "vehicle", "motor", "auto", "logbook", "log book")):
+        return True
+    return _contains_any(cr.get("name", ""), _VEHICLE_HP_LENDER_NAMES)
+
+
+def _tx_matches_creditor_name(tx: dict, creditor_name: str) -> bool:
+    desc = _norm(tx.get("description") or "")
+    name = _norm(creditor_name or "")
+    if not desc or not name:
+        return False
+    return name in desc or desc in name
+
+
 def _watch_22_14(c: dict) -> RuleResult:
-    """WATCH-22.14: Car finance taken in last 3 months — hard block unless valid evidence."""
-    if not c.get("has_open_banking"):
-        return RuleResult(
-            rule_id="WATCH-22.14", severity="flag", triggered=True,
-            message="Open banking data was not available, so recent car finance payments in the last 3 months could not be checked.",
-        )
-    if c["car_finance_tx_3mo"]:
-        tx_list = list(c["car_finance_tx_3mo"])
-        tx_sentences = [
-            f"a car finance payment of £{abs(_parse_amount(t.get('amount', 0))):.2f} to "
-            f"{t.get('description') or 'an unnamed lender'} on {t.get('transaction_date') or t.get('date') or 'an unknown date'}"
-            for t in tx_list
-        ]
-        if len(tx_sentences) == 1:
-            tx_summary = tx_sentences[0]
-        else:
-            tx_summary = "; ".join(tx_sentences[:-1]) + f"; and {tx_sentences[-1]}"
+    """WATCH-22.14: New car finance (HP) agreement taken out in the last 3 months — hard block.
+
+    Only a *new* HP agreement is a hard block, verified via the credit report's
+    account start date (account_age_months, set by _enrich_from_credit_report).
+    Ongoing repayments on the bank statement are not evidence of a new
+    agreement on their own — an HP account can be years old and still show a
+    monthly debit — so bank-statement activity alone never hard-blocks.
+
+    Each car-finance transaction is checked against the specific vehicle-HP
+    creditor it belongs to (by name), not just "is any HP creditor on the case
+    old" — otherwise one old, confirmed HP account (or an unrelated non-vehicle
+    HP debt) would silently clear the flag for a second, undeclared car
+    finance agreement that happens to also show up on the bank statement.
+    """
+    from debt_app.helpers import DEBT_TYPE_HP
+
+    hp_creditors = [
+        cr for cr in c["creditors"]
+        if cr.get("debt_type_normalised") == DEBT_TYPE_HP and _is_vehicle_hp_creditor(cr)
+    ]
+
+    new_hp = [
+        cr for cr in hp_creditors
+        if cr.get("account_age_months") is not None and cr["account_age_months"] < 3
+    ]
+    if new_hp:
+        names = ", ".join(cr["name"] for cr in new_hp)
         return RuleResult(
             rule_id="WATCH-22.14", severity="hard_block", triggered=True,
             message=(
-                f"The customer made {tx_summary}, within the last 3 months. This can cause the IVA to be rejected "
-                "unless there is evidence explaining why the car finance was needed — for example the old car was "
-                "scrapped, damaged in an accident, or the car is needed for work. Until this evidence is provided, "
-                "this creditor is expected to reject the IVA."
+                f"The credit report shows a hire purchase / car finance agreement with {names} taken out within "
+                "the last 3 months. This can cause the IVA to be rejected unless there is evidence explaining why "
+                "the car finance was needed — for example the old car was scrapped, damaged in an accident, or the "
+                "car is needed for work. Until this evidence is provided, this creditor is expected to reject the IVA."
             ),
         )
-    return _pass("WATCH-22.14", "No car finance transactions identified in the last 3 months.")
+
+    # Old/confirmed HP creditors (known age, so >= 3 months since they didn't
+    # match new_hp above) — their transactions are just ongoing instalments.
+    old_hp = [cr for cr in hp_creditors if cr.get("account_age_months") is not None]
+
+    unexplained_tx = [
+        t for t in c["car_finance_tx_3mo"]
+        if not any(_tx_matches_creditor_name(t, cr["name"]) for cr in old_hp)
+    ]
+
+    if unexplained_tx:
+        return RuleResult(
+            rule_id="WATCH-22.14", severity="flag", triggered=True,
+            message=(
+                "Car finance / hire purchase repayments were identified on the bank statements, but no matching "
+                "hire purchase agreement could be confirmed on the credit report, so it's not possible to tell "
+                "whether this is an existing agreement or one taken out in the last 3 months. Please request "
+                "evidence of when the agreement was taken out before proceeding."
+            ),
+        )
+
+    return _pass("WATCH-22.14", "No new car finance (HP) agreement identified in the last 3 months.")
 
 
 # ---------------------------------------------------------------------------

@@ -580,7 +580,7 @@ class Command(BaseCommand):
                 'severity': 'hard_block',
                 'is_active': True,
                 'threshold_value': None,
-                'description': 'WATCH will hard block an IVA where the client has taken out new car finance within the 3 months prior to application.',
+                'description': 'WATCH will hard block an IVA where the credit report confirms a new hire purchase / car finance agreement was taken out within the 3 months prior to application. Ongoing repayments seen on bank statements for an existing agreement do not trigger this on their own; if repayments appear on the bank statement but no matching agreement can be confirmed on the credit report, this is flagged for evidence instead of blocked.',
             },
 
             # ------------------------------------------------------------------ TIX
