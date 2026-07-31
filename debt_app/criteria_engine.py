@@ -927,7 +927,7 @@ def _tig_03(c: dict) -> RuleResult:
                 breaches.append(category)
 
     if breaches:
-        breach_details = []
+        breach_clauses = []
         for item in sfs if isinstance(sfs, list) else []:
             category = item.get("category", "Unknown")
             declared = _parse_amount(item.get("monthly_amount", 0))
@@ -939,20 +939,23 @@ def _tig_03(c: dict) -> RuleResult:
                 pct = round(((effective - guideline) / guideline) * 100) if guideline > 0 else 0
                 over_amount = effective - guideline
                 if declared > 0 and bank > 0:
-                    amount_desc = f"has declared £{declared:,.2f} per month for {category.lower()}, with £{bank:,.2f} confirmed from the bank statement,"
+                    amount_desc = f"£{declared:,.2f} declared / £{bank:,.2f} bank-confirmed"
                 elif bank > 0:
-                    amount_desc = f"has £{bank:,.2f} per month confirmed from the bank statement for {category.lower()}"
+                    amount_desc = f"£{bank:,.2f} bank-confirmed"
                 else:
-                    amount_desc = f"has declared £{declared:,.2f} per month for {category.lower()}"
-                breach_details.append(
-                    f"The customer {amount_desc}. The usual guideline is £{guideline:,.2f}, "
-                    f"which is £{over_amount:,.2f} ({pct}%) over the limit."
+                    amount_desc = f"£{declared:,.2f} declared"
+                breach_clauses.append(
+                    f"{category} ({amount_desc} vs £{guideline:,.2f} guideline, "
+                    f"£{over_amount:,.2f}/{pct}% over)"
                 )
-        detail_str = " ".join(breach_details)
+        count = len(breach_clauses)
+        category_word = "category" if count == 1 else "categories"
+        detail_str = "; ".join(breach_clauses)
         return RuleResult(
             rule_id="TIG-03", severity="flag", triggered=True,
             message=(
-                f"{detail_str} These must all be explained in the IVA proposal."
+                f"The customer's expenditure is above the usual SFS guideline in {count} {category_word}: "
+                f"{detail_str}. These must all be explained in the IVA proposal."
             ),
             threshold=0.0,
             actual_value=float(len(breaches)),
@@ -1235,83 +1238,100 @@ def _tig_11(c: dict) -> RuleResult:
 def _tig_11_gambling(c: dict) -> RuleResult:
     """TIG-11-GAMBLING: Gambling spend check against bank statements."""
     gm = c["gambling_monthly"]  # last 30 days
-    all_gtx = c.get("gambling_all_transactions", [])
-    
-    # Build transaction detail string for caseworker
-    def _tx_detail(txs):
-        lines = []
+
+    # Bank feeds can carry the same transaction twice (e.g. overlapping
+    # statement uploads) — dedupe by description+amount+date before
+    # summarising, so the same payment is never counted or shown twice.
+    seen = set()
+    all_gtx = []
+    for t in c.get("gambling_all_transactions", []):
+        key = (
+            (t.get("description") or "").strip().lower(),
+            round(abs(_parse_amount(t.get("amount", 0))), 2),
+            t.get("transaction_date") or t.get("date"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        all_gtx.append(t)
+
+    # Short, grouped summary instead of listing every individual transaction —
+    # e.g. eight small lottery payments collapse into one clause.
+    def _tx_summary(txs):
+        if not txs:
+            return "no transactions on record"
+        groups: dict[str, list] = {}
         for t in txs:
-            date = t.get("transaction_date") or t.get("date") or "unknown date"
-            desc = t.get("description") or ""
-            amt = abs(_parse_amount(t.get("amount", 0)))
-            lines.append(f"{desc} £{amt:.2f} ({date})")
-        return "; ".join(lines) if lines else "none"
-    
+            payee = (t.get("description") or "an unnamed payee").strip()
+            groups.setdefault(payee, []).append(t)
+        clauses = []
+        for payee, group_txs in groups.items():
+            total = sum(abs(_parse_amount(t.get("amount", 0))) for t in group_txs)
+            if len(group_txs) == 1:
+                date = group_txs[0].get("transaction_date") or group_txs[0].get("date") or "an unknown date"
+                clauses.append(f"a £{total:,.2f} payment to {payee} on {date}")
+            else:
+                clauses.append(f"{len(group_txs)} payments to {payee} totalling £{total:,.2f}")
+        return "; ".join(clauses)
+
     all_total = sum(
         abs(_parse_amount(t.get("amount", 0))) for t in all_gtx
     )
-    
+
     # Hard block: last 30 days >= £1,000
     if gm >= 1000:
-        detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="hard_block", triggered=True,
             message=(
                 f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which meets or exceeds "
-                f"the £1,000 threshold at which the case cannot proceed. "
-                f"All gambling transactions found: {detail}."
+                f"the £1,000 threshold at which the case cannot proceed ({_tx_summary(all_gtx)})."
             ),
             threshold=1000.0, actual_value=gm,
         )
 
     # Flag: last 30 days > £200
     if gm > 200:
-        detail = _tx_detail(all_gtx)
         if c.get("gamstop_registered"):
             return RuleResult(
                 rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
                 message=(
-                    f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200. "
-                    f"The customer is registered with GAMSTOP (the gambling self-exclusion scheme) — the caseworker must confirm this registration is still active. "
-                    f"All gambling transactions found: {detail}."
+                    f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200 "
+                    f"({_tx_summary(all_gtx)}). The customer is registered with GAMSTOP (the gambling "
+                    "self-exclusion scheme) — the caseworker must confirm this registration is still active."
                 ),
                 threshold=200.0, actual_value=gm,
             )
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200. "
-                f"Proof of GAMSTOP registration (the gambling self-exclusion scheme) is required. "
-                f"All gambling transactions found: {detail}."
+                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200 "
+                f"({_tx_summary(all_gtx)}). Proof of GAMSTOP registration (the gambling self-exclusion scheme) "
+                "is required."
             ),
             threshold=200.0, actual_value=gm,
         )
 
     # Flag: last 30 days > 0 but under £200
     if gm > 0:
-        detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"Some gambling transactions were found in the last 30 days, totalling £{gm:,.2f}. "
-                f"This is within the acceptable limit. "
-                f"All gambling transactions found: {detail}. "
-                f"The caseworker should still review this with the customer."
+                f"Some gambling transactions were found in the last 30 days, totalling £{gm:,.2f} "
+                f"({_tx_summary(all_gtx)}). This is within the acceptable limit, but the caseworker should "
+                "still review this with the customer."
             ),
             threshold=0.0, actual_value=gm,
         )
 
     # No gambling in last 30 days — check all time
     if all_total > 0:
-        detail = _tx_detail(all_gtx)
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
             message=(
-                f"Gambling transactions were found in the customer's bank statements "
-                f"(totalling £{all_total:,.2f}, all outside the last 30 days). "
-                f"There has been no recent gambling, so this is within the acceptable limit. "
-                f"Transactions found: {detail}. "
-                f"The caseworker should still review this with the customer."
+                f"Gambling transactions were found in the customer's bank statements, totalling £{all_total:,.2f} "
+                f"and all outside the last 30 days ({_tx_summary(all_gtx)}). There has been no recent gambling, "
+                "so this is within the acceptable limit, but the caseworker should still review this with the "
+                "customer."
             ),
             threshold=0.0, actual_value=all_total,
         )
