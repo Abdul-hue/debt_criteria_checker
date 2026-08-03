@@ -1027,6 +1027,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "type_code": type_code,
         "normalised_name": normalised,
         "matched_creditor": matched,
+        "start_date": start_date_str if start_date_str else None,
         "account_age_months": account_age_months,
         "missed_payments_last_3_months": missed_payments_last_3_months,
         "recent_spending": recent_spending,
