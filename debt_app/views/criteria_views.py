@@ -40,7 +40,7 @@ from debt_app.models import (
     CountyCouncil, CreditorVoteSummary, CrmSyncRun, CreditorVoteChangeEvent,
     CreditorMocAlert, CreditorNonAcceptMilestone,
 )
-from debt_app.credit_report_extractor import extract_credit_report
+from debt_app.credit_report_extractor import extract_credit_report, normalise_start_date_iso
 from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally, get_last_5_tally
 import threading
 
@@ -754,6 +754,11 @@ class AssessCaseView(APIView):
                         cd['cr_account_status']            = acc.get('account_status') or ''
                         cd['cr_account_status_subjective'] = acc.get('account_status_subjective') or ''
                         cd['cr_credit_limit']   = acc.get('credit_limit')
+                        # ISO YYYY-MM-DD. Normalised on read as well as on
+                        # extraction so credit reports stored before
+                        # normalise_start_date_iso() existed (Experian
+                        # DD-MM-YYYY, or no start_date at all) still render.
+                        cd['cr_start_date']     = normalise_start_date_iso(acc.get('start_date'))
                         cd['cr_account_age_months'] = acc.get('account_age_months')
                         cd['cr_missed_payments_3m'] = acc.get('missed_payments_last_3_months')
 
@@ -1030,6 +1035,7 @@ class AssessCaseView(APIView):
                 pos['cr_account_status']            = pc.get('cr_account_status') or ''
                 pos['cr_account_status_subjective'] = pc.get('cr_account_status_subjective') or ''
                 pos['cr_credit_limit']       = pc.get('cr_credit_limit')
+                pos['cr_start_date']         = pc.get('cr_start_date')
                 pos['cr_account_age_months'] = pc.get('cr_account_age_months')
                 pos['cr_missed_payments_3m'] = pc.get('cr_missed_payments_3m')
 
@@ -1101,6 +1107,7 @@ class AssessCaseView(APIView):
                     'cr_account_status': _acc.get('account_status') or '',
                     'cr_account_status_subjective': _acc.get('account_status_subjective') or '',
                     'cr_credit_limit': _acc.get('credit_limit'),
+                    'cr_start_date': normalise_start_date_iso(_acc.get('start_date')),
                     'cr_account_age_months': _acc.get('account_age_months'),
                     'cr_missed_payments_3m': _acc.get('missed_payments_last_3_months'),
                 }

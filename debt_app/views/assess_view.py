@@ -57,6 +57,7 @@ class DirectAssessView(APIView):
         # Enrich creditors with credit report data
         try:
             from debt_app.models import CreditReport
+            from debt_app.credit_report_extractor import normalise_start_date_iso
             aryza_reference = case_json.get("application_id") or case_json.get("aryza_reference")
             if aryza_reference:
                 recent_reports = CreditReport.objects.filter(
@@ -126,6 +127,11 @@ class DirectAssessView(APIView):
                             c['cr_account_status'] = acc.get('account_status') or ''
                             c['cr_account_status_subjective'] = acc.get('account_status_subjective') or ''
                             c['cr_credit_limit'] = acc.get('credit_limit')
+                            # ISO YYYY-MM-DD. Normalised on read as well as on
+                            # extraction so credit reports stored before
+                            # normalise_start_date_iso() existed (Experian
+                            # DD-MM-YYYY, or no start_date at all) still render.
+                            c['cr_start_date'] = normalise_start_date_iso(acc.get('start_date'))
                             c['cr_account_age_months'] = acc.get('account_age_months')
                             c['cr_missed_payments_3m'] = acc.get('missed_payments_last_3_months')
 
@@ -199,6 +205,7 @@ class DirectAssessView(APIView):
                     pos['cr_account_status']            = pc.get('cr_account_status') or ''
                     pos['cr_account_status_subjective'] = pc.get('cr_account_status_subjective') or ''
                     pos['cr_credit_limit']       = pc.get('cr_credit_limit')
+                    pos['cr_start_date']         = pc.get('cr_start_date')
                     pos['cr_account_age_months'] = pc.get('cr_account_age_months')
                     pos['cr_missed_payments_3m'] = pc.get('cr_missed_payments_3m')
 
@@ -293,6 +300,7 @@ class DirectAssessView(APIView):
                         "cr_account_status":            c.get("cr_account_status") or "",
                         "cr_account_status_subjective": c.get("cr_account_status_subjective") or "",
                         "cr_credit_limit":         c.get("cr_credit_limit"),
+                        "cr_start_date":           c.get("cr_start_date"),
                         "cr_account_age_months":   c.get("cr_account_age_months"),
                         "cr_missed_payments_3m":   c.get("cr_missed_payments_3m"),
                         "outcomes_approved":      c.get("outcomes_approved", 0),

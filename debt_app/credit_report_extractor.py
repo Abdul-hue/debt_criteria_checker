@@ -620,6 +620,33 @@ def _months_since_dmy(date_str: str) -> int | None:
         return None
 
 
+def normalise_start_date_iso(date_str: str | None) -> str | None:
+    """
+    Normalise a credit-report account Start Date to ISO YYYY-MM-DD.
+
+    Aryza Advize prints Start Date as YYYY-MM-DD; Experian CAIS prints it as
+    DD-MM-YYYY. Both are emitted on the same `start_date` key, and downstream
+    consumers (the CA Tool verification table) parse the value with JS
+    `new Date()`, which reads "16-09-2021" as an Invalid Date. Normalising at
+    the single point that produces the field keeps every consumer format-agnostic.
+
+    Returns None when the value is missing or in no recognised format — better a
+    blank cell than a date rendered with the day and month transposed.
+    """
+    if not date_str:
+        return None
+    raw = str(date_str).strip()
+    # ISO first: a 4-digit leading year is unambiguous, so it can never be
+    # mistaken for the day-first Experian layout.
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    logger.debug("[START DATE] unrecognised format %r — emitting None", raw)
+    return None
+
+
 def _extract_experian_report_date(text: str) -> str:
     """
     Extract the report date from an Experian consumer credit report.
@@ -781,7 +808,7 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
         "payment_history_months": 0,
         "monthly_payment": None,
         "account_number": account_number,
-        "start_date": start_date_str if start_date_str else None,
+        "start_date": normalise_start_date_iso(start_date_str),
         "cais_last_updated": cais_last_updated,
         "reconciliation_only": reconciliation_only,
     }
@@ -1027,7 +1054,7 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "type_code": type_code,
         "normalised_name": normalised,
         "matched_creditor": matched,
-        "start_date": start_date_str if start_date_str else None,
+        "start_date": normalise_start_date_iso(start_date_str),
         "account_age_months": account_age_months,
         "missed_payments_last_3_months": missed_payments_last_3_months,
         "recent_spending": recent_spending,

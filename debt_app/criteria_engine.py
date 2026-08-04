@@ -507,6 +507,11 @@ def _parse_case(case_json: dict) -> dict:
             "cr_account_status": c.get("cr_account_status"),
             "cr_account_status_subjective": c.get("cr_account_status_subjective"),
             "cr_credit_limit": c.get("cr_credit_limit"),
+            # Credit-report account Start Date (ISO YYYY-MM-DD). Same class of
+            # drop as the fields above: the CA Tool verification table's START
+            # DATE column was blank for every representative-aggregated row
+            # because this whitelist did not carry the key through.
+            "cr_start_date": c.get("cr_start_date"),
             "cr_account_age_months": c.get("cr_account_age_months"),
             "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
         })
@@ -3279,6 +3284,9 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
                 "cr_balance": cr.get("cr_balance"),
                 "cr_account_status": cr.get("cr_account_status"),
                 "cr_account_status_subjective": cr.get("cr_account_status_subjective"),
+                "cr_credit_limit": cr.get("cr_credit_limit"),
+                "cr_start_date": cr.get("cr_start_date"),
+                "cr_account_age_months": cr.get("cr_account_age_months"),
                 "cr_missed_payments_3m": cr.get("cr_missed_payments_3m"),
             })
             continue
@@ -3685,6 +3693,13 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
             "cr_balance": cr.get("cr_balance"),
             "cr_account_status": cr.get("cr_account_status"),
             "cr_account_status_subjective": cr.get("cr_account_status_subjective"),
+            # cr_credit_limit / cr_start_date / cr_account_age_months were absent
+            # here while the reconciliation backfill below carried them, so an
+            # assessed creditor showed LESS credit-report detail than an
+            # unassessed one. Kept in the same order as _parse_case above.
+            "cr_credit_limit": cr.get("cr_credit_limit"),
+            "cr_start_date": cr.get("cr_start_date"),
+            "cr_account_age_months": cr.get("cr_account_age_months"),
             "cr_missed_payments_3m": cr.get("cr_missed_payments_3m"),
         })
 
@@ -4081,6 +4096,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_account_status": c.get("cr_account_status"),
                 "cr_account_status_subjective": c.get("cr_account_status_subjective"),
                 "cr_credit_limit": c.get("cr_credit_limit"),
+                "cr_start_date": c.get("cr_start_date"),
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
                 "debt_type_normalised": c.get("debt_type_normalised"),
@@ -4102,6 +4118,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_account_status": c.get("cr_account_status"),
                 "cr_account_status_subjective": c.get("cr_account_status_subjective"),
                 "cr_credit_limit": c.get("cr_credit_limit"),
+                "cr_start_date": c.get("cr_start_date"),
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
                 "debt_type_normalised": c.get("debt_type_normalised"),
