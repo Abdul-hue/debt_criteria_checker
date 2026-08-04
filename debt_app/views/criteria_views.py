@@ -21,7 +21,11 @@ from debt_app.aryza_client import (
     AryaTimeoutError,
     AryzaDataError,
 )
-from debt_app.criteria_engine import assess_case, detect_representatives
+from debt_app.criteria_engine import (
+    assess_case,
+    detect_representatives,
+    _sanitize_dmp_checklist,
+)
 from debt_app.recommendation_engine import get_recommendation
 from debt_app.helpers import (
     GlobalCriteria, CreditorCriteria, CriteriaDecision, CouncilRule,
@@ -325,7 +329,12 @@ def build_dmp_checklist(creditor_rows, case_level_raw):
         elif debt_type == "mobile" and value == "current":
             checklist["current_phone_contract"] = True
 
-    return checklist
+    # Server-side guard: hmrc_previous_year_vat is only honoured when its parent
+    # hmrc_debt_has_vat is also true. The frontend enforces this by only showing
+    # the child tick once the parent is set, but a raw API call can submit the
+    # child alone — and that tick is the highest-precedence forced-DMP override.
+    # See _sanitize_dmp_checklist in criteria_engine.py.
+    return _sanitize_dmp_checklist(checklist)
 
 
 def enrich_rules_with_meta(rule_list):
@@ -918,6 +927,23 @@ class AssessCaseView(APIView):
             from debt_app.models import Application, EvidenceLedger
             app_obj = Application.objects.filter(aryza_reference=aryza_reference).first()
             if app_obj:
+                # First-assessment department tagging. Permanent snapshot of the
+                # submitting user's department — set once, never overwritten by
+                # later runs/users. This view allows anonymous access (AllowAny),
+                # so we don't assume request.user is authenticated; if there's no
+                # profile, get_user_department() falls back to "Default", which we
+                # store as a real signal ("not Lead Gen") rather than leaving null.
+                # We never create the Application row here — creation is admin-only
+                # via ApplicationListView.post elsewhere.
+                if not app_obj.source_department:
+                    dept = get_user_department(request.user)
+                    app_obj.source_department = dept.name if dept else None
+                    app_obj.save(update_fields=['source_department'])
+
+                # Feed into the engine payload so assess_case() can gate the
+                # Lead Gen disposable-income formula / £399 auto-DRO rule on it.
+                case_data["source_department"] = app_obj.source_department
+
                 # Map EvidenceLedger to the format engine expects
                 # Engine expects: [{"ref": "...", "is_verified": True, "category": "..."}]
                 local_evidence = list(app_obj.evidence.all().values('entry_type', 'created_at'))
@@ -1110,7 +1136,14 @@ class AssessCaseView(APIView):
         # must honour it rather than silently recompute a different decision from
         # hard_blocks/flags alone (that was the bug: this view used to discard it).
         vat_forced = result.get("recommended_solution") == "FORCED_DMP_VAT"
-        recommendations = get_recommendation(decision, result, case_data, vat_forced=vat_forced)
+        # Same capture pattern as vat_forced, for the Lead Gen £399 auto-DRO rule.
+        # Mutually exclusive with vat_forced by construction — assess_case routes
+        # a case where both conditions fire to "REVIEW_REQUIRED" instead, so at
+        # most one of vat_forced/dro_forced is ever True here.
+        dro_forced = result.get("recommended_solution") == "FORCED_DRO_LG"
+        recommendations = get_recommendation(
+            decision, result, case_data, vat_forced=vat_forced, dro_forced=dro_forced,
+        )
         result["recommended_solution"] = recommendations.get("recommended_solution")
         result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
 
@@ -1121,6 +1154,7 @@ class AssessCaseView(APIView):
         # Without this, reloading from history always shows disposable_income = 0.
         serialized["disposable_income"] = case_data.get("disposable_income")
         serialized["total_unsecured_debt"] = case_data.get("total_unsecured_debt")
+        serialized["lead_gen_disposable_income"] = result.get("lead_gen_disposable_income")
 
         # Step 4 — Save to CriteriaDecision
         try:

@@ -31,7 +31,9 @@ from debt_app.aryza_client import CaseData
 from debt_app.criteria_engine import (
     _derive_recommended_solution,
     _equity_age,
+    _sanitize_dmp_checklist,
 )
+from debt_app.views.criteria_views import build_dmp_checklist
 from debt_app.helpers import CreditorCriteria
 from debt_app.models import CouncilRule
 
@@ -247,3 +249,170 @@ class VatOverrideIntegrationTests(TestCase):
         # The ordinary INELIGIBLE-branch rationale references hard blocks, not VAT.
         self.assertIn("hard blocks", solution.get("rationale", ""))
         self.assertNotIn("VAT", solution.get("rationale", ""))
+
+
+# ---------------------------------------------------------------------------
+# PART 4 — server-side parent/child guard on the VAT ticks
+#
+# hmrc_previous_year_vat is a child of hmrc_debt_has_vat. The frontend only
+# offers the child once the parent is ticked, but the server must not rely on
+# that: a raw API call can submit the child alone, and the child is the single
+# highest-precedence forced-DMP override. _sanitize_dmp_checklist ignores the
+# child whenever the parent is false/absent.
+# ---------------------------------------------------------------------------
+
+class SanitizeDmpChecklistTests(SimpleTestCase):
+
+    def test_child_true_parent_false_is_ignored(self):
+        out = _sanitize_dmp_checklist({
+            "hmrc_debt_has_vat": False,
+            "hmrc_previous_year_vat": True,
+        })
+        self.assertFalse(out["hmrc_previous_year_vat"])
+
+    def test_child_true_parent_absent_is_ignored(self):
+        out = _sanitize_dmp_checklist({"hmrc_previous_year_vat": True})
+        self.assertFalse(out["hmrc_previous_year_vat"])
+
+    def test_both_true_is_preserved(self):
+        out = _sanitize_dmp_checklist({
+            "hmrc_debt_has_vat": True,
+            "hmrc_previous_year_vat": True,
+        })
+        self.assertTrue(out["hmrc_previous_year_vat"])
+
+    def test_parent_only_is_untouched(self):
+        out = _sanitize_dmp_checklist({
+            "hmrc_debt_has_vat": True,
+            "hmrc_previous_year_vat": False,
+        })
+        self.assertTrue(out["hmrc_debt_has_vat"])
+        self.assertFalse(out["hmrc_previous_year_vat"])
+
+    def test_other_fields_are_not_disturbed_when_correcting(self):
+        out = _sanitize_dmp_checklist({
+            "hmrc_previous_year_vat": True,
+            "current_year_council_tax": True,
+            "current_water_bill": True,
+        })
+        self.assertFalse(out["hmrc_previous_year_vat"])
+        self.assertTrue(out["current_year_council_tax"])
+        self.assertTrue(out["current_water_bill"])
+
+    def test_input_dict_is_not_mutated(self):
+        # The caller's payload must be left alone — the guard returns a copy.
+        raw = {"hmrc_previous_year_vat": True}
+        _sanitize_dmp_checklist(raw)
+        self.assertTrue(raw["hmrc_previous_year_vat"])
+
+    def test_none_and_non_dict_pass_through(self):
+        # None must survive so _evaluate_dmp_eligibility still reports
+        # DMP_NOT_EVALUATED rather than being handed an empty dict.
+        self.assertIsNone(_sanitize_dmp_checklist(None))
+        self.assertEqual(_sanitize_dmp_checklist({}), {})
+
+
+class BuildDmpChecklistVatGuardTests(SimpleTestCase):
+    """The view-layer finalisation point must apply the same guard."""
+
+    def test_child_without_parent_is_dropped(self):
+        built = build_dmp_checklist([], {"hmrc_previous_year_vat": True})
+        self.assertFalse(built["hmrc_previous_year_vat"])
+
+    def test_child_with_parent_survives(self):
+        built = build_dmp_checklist([], {
+            "hmrc_debt_has_vat": True,
+            "hmrc_previous_year_vat": True,
+        })
+        self.assertTrue(built["hmrc_previous_year_vat"])
+
+    def test_per_row_selections_still_aggregate_alongside_the_guard(self):
+        built = build_dmp_checklist(
+            [{"debt_type_normalised": "council_tax", "value": "previous"}],
+            {"hmrc_previous_year_vat": True},
+        )
+        self.assertTrue(built["previous_year_council_tax"])
+        self.assertFalse(built["hmrc_previous_year_vat"])
+
+
+class VatParentChildGuardIntegrationTests(TestCase):
+    """Raw API calls that bypass the frontend must NOT force a DMP off an
+    inconsistent payload. Same fixture as VatOverrideIntegrationTests: a real
+    TIG-01 hard block fires, so the expected outcome is the ordinary
+    INELIGIBLE branch of get_recommendation() — code "DMP" but with the
+    hard-block rationale, NOT the VAT rationale. Asserting on the rationale is
+    what distinguishes "forced by VAT" from "ineligible anyway"."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def _post(self, checklist):
+        return self.client.post(
+            "/api/v1/criteria/assess/",
+            data={"aryza_reference": "TEST-VAT-001", "dmp_checklist": checklist},
+            format="json",
+        )
+
+    @patch("debt_app.views.criteria_views.fetch_case_by_reference")
+    def test_child_true_parent_false_does_not_force_dmp(self, mock_fetch):
+        mock_fetch.return_value = _vat_case_data_obj()
+
+        resp = self._post({
+            "hmrc_debt_has_vat": False,
+            "hmrc_previous_year_vat": True,
+        })
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        solution = body.get("recommended_solution")
+        self.assertIsInstance(solution, dict)
+        rationale = solution.get("rationale", "")
+        self.assertNotIn("VAT", rationale)
+        self.assertIn("hard blocks", rationale)
+
+    @patch("debt_app.views.criteria_views.fetch_case_by_reference")
+    def test_child_true_parent_missing_does_not_force_dmp(self, mock_fetch):
+        mock_fetch.return_value = _vat_case_data_obj()
+
+        resp = self._post({"hmrc_previous_year_vat": True})
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        rationale = body["recommended_solution"].get("rationale", "")
+        self.assertNotIn("VAT", rationale)
+        self.assertIn("hard blocks", rationale)
+
+    @patch("debt_app.views.criteria_views.fetch_case_by_reference")
+    def test_assess_case_direct_call_is_also_guarded(self, mock_fetch):
+        """assess_case is called directly by other code paths too, so the guard
+        lives there as well as in build_dmp_checklist — a caller that never
+        touches the view still cannot force a DMP with a child-only payload."""
+        mock_fetch.return_value = _vat_case_data_obj()
+
+        from debt_app.criteria_engine import assess_case
+
+        payload = {
+            "aryza_reference": "TEST-VAT-DIRECT",
+            "creditors": [],
+            "dmp_checklist": {"hmrc_previous_year_vat": True},
+        }
+        result = assess_case(payload, detected_representatives=set())
+        self.assertNotEqual(result.get("recommended_solution"), "FORCED_DMP_VAT")
+
+    @patch("debt_app.views.criteria_views.fetch_case_by_reference")
+    def test_assess_case_direct_call_with_valid_parent_still_forces(self, mock_fetch):
+        """No regression: a consistent payload still forces DMP at engine level."""
+        mock_fetch.return_value = _vat_case_data_obj()
+
+        from debt_app.criteria_engine import assess_case
+
+        payload = {
+            "aryza_reference": "TEST-VAT-DIRECT",
+            "creditors": [],
+            "dmp_checklist": {
+                "hmrc_debt_has_vat": True,
+                "hmrc_previous_year_vat": True,
+            },
+        }
+        result = assess_case(payload, detected_representatives=set())
+        self.assertEqual(result.get("recommended_solution"), "FORCED_DMP_VAT")

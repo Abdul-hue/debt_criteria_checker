@@ -604,6 +604,15 @@ def _parse_case(case_json: dict) -> dict:
             mortgage_balance_raw = case_json.get("mortgage_balance", 0)
         mortgage_balance = _parse_amount(mortgage_balance_raw)
 
+    # Monthly mortgage payment — distinct from the balance above. Only ever
+    # populated from a credit report's mortgage account(s) via
+    # _cross_check_property_from_credit_report; there is no Aryza source for
+    # this figure, so it stays None unless the credit report enrichment step
+    # sets it later in the pipeline.
+    mortgage_monthly_payment = prop_data.get("mortgage_monthly_payment")
+    if mortgage_monthly_payment is not None:
+        mortgage_monthly_payment = _parse_amount(mortgage_monthly_payment)
+
     available_equity = 0.0
     if has_property and property_value is not None:
         available_equity = _parse_amount(property_value) - mortgage_balance
@@ -725,6 +734,7 @@ def _parse_case(case_json: dict) -> dict:
         # Metadata
         "aryza_reference": case_json.get("aryza_reference") or case_json.get("application_id", ""),
         "client_name": case_json.get("client_name") or client_info.get("client_name", ""),
+        "source_department": case_json.get("source_department"),
         # Core financials
         "total_debt": total_debt,
         "disposable_income": disposable_income,
@@ -763,6 +773,7 @@ def _parse_case(case_json: dict) -> dict:
         "property_value": property_value,          # TODO: missing from payload
         "available_equity": available_equity,       # None until property_value added
         "mortgage_balance": mortgage_balance,
+        "mortgage_monthly_payment": mortgage_monthly_payment,
         # Client
         "client_age": client_age,
         # Gambling
@@ -4392,6 +4403,38 @@ def is_core_evidence_complete(c: dict) -> bool:
     return True
 
 
+def _sanitize_dmp_checklist(checklist: Optional[dict]) -> Optional[dict]:
+    """Server-side consistency guard for the DMP checklist payload.
+
+    hmrc_previous_year_vat is a CHILD of hmrc_debt_has_vat: the frontend only
+    offers the previous-year tick once the caseworker has confirmed the HMRC
+    debt includes VAT at all. A raw API call (or a stale/partial client) can
+    still submit hmrc_previous_year_vat=True with the parent false or absent,
+    which would force the case to DMP off an internally inconsistent payload —
+    the single highest-precedence override in _derive_recommended_solution.
+    Do not trust the caller to be the only place that relationship is enforced:
+    when the parent is not set, the child is ignored (treated as false).
+
+    Called wherever dmp_checklist is finalised before _derive_recommended_solution
+    reads it (assess_case here, build_dmp_checklist in criteria_views). Returns a
+    shallow copy when a correction is made; the original object otherwise, and
+    None/non-dicts unchanged so the DMP_NOT_EVALUATED path is preserved.
+    """
+    if not isinstance(checklist, dict):
+        return checklist
+    if checklist.get("hmrc_previous_year_vat") and not checklist.get("hmrc_debt_has_vat"):
+        logger.warning(
+            "[DMP CHECKLIST GUARD] hmrc_previous_year_vat=True with "
+            "hmrc_debt_has_vat=%r — inconsistent payload, ignoring the "
+            "previous-year VAT tick (no forced DMP).",
+            checklist.get("hmrc_debt_has_vat"),
+        )
+        sanitized = dict(checklist)
+        sanitized["hmrc_previous_year_vat"] = False
+        return sanitized
+    return checklist
+
+
 def _derive_recommended_solution(
     hard_blocks: list,
     flags: list,
@@ -4408,10 +4451,35 @@ def _derive_recommended_solution(
     # from the manual DMP checklist (case["dmp_checklist"]); the tick itself is
     # only offered when HMRC is a creditor, reusing the existing hmrc_is_creditor
     # detection (no creditor-name re-matching happens here).
+    # SAME PRECEDENCE TIER — Lead Gen £399 auto-DRO rule. A Lead Generation
+    # case whose lead_gen_disposable_income (Total Household Income minus
+    # rent-or-mortgage payment, see assess_case) is below £399 is forced to a
+    # DRO. This sits alongside the VAT override above (not above or below it)
+    # because the spec does not say which wins when both fire on the same
+    # case — that is treated as a genuine data conflict, not something to
+    # silently resolve, so BOTH firing together forces REVIEW_REQUIRED instead
+    # of picking either forced outcome.
     if case is not None:
         _checklist = case.get("dmp_checklist") or {}
-        if _checklist.get("hmrc_previous_year_vat"):
+        _vat_forced = bool(_checklist.get("hmrc_previous_year_vat"))
+        _lg_di = case.get("lead_gen_disposable_income")
+        _dro_forced = (
+            case.get("source_department") == "Lead Generation"
+            and _lg_di is not None
+            and _lg_di < 399
+        )
+        if _vat_forced and _dro_forced:
+            logger.warning(
+                "[FORCED-SOLUTION CONFLICT] ref=%s VAT-forced-DMP and DRO-forced "
+                "(lead_gen_disposable_income=%s) both fired — routing to "
+                "REVIEW_REQUIRED rather than silently picking a winner.",
+                case.get("aryza_reference"), _lg_di,
+            )
+            return "REVIEW_REQUIRED"
+        if _vat_forced:
             return "FORCED_DMP_VAT"
+        if _dro_forced:
+            return "FORCED_DRO_LG"
     if hard_blocks:
         return "IVA_NOT_VIABLE"
     for pos in creditor_positions:
@@ -5128,6 +5196,18 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
         (acct.get("current_balance") or 0) for acct in cr_active_mortgages
     ) / 100.0
 
+    # monthly_payment (also pence) — a genuine monthly figure distinct from the
+    # balance above, extracted from the credit report's "Payment Amount" grid.
+    # Set unconditionally whenever active mortgage accounts exist, regardless of
+    # which balance source (Aryza vs credit report) wins below — there is no
+    # Aryza equivalent for this figure, so the credit report is the only source.
+    _cr_mortgage_payments = [
+        acct.get("monthly_payment") for acct in cr_active_mortgages
+        if acct.get("monthly_payment")
+    ]
+    if _cr_mortgage_payments:
+        c["mortgage_monthly_payment"] = sum(_cr_mortgage_payments) / 100.0
+
     aryza_has_property = bool(c.get("has_property"))
     aryza_mortgage_balance = float(c.get("mortgage_balance") or 0.0)
     # Use owns_property as the sole ownership signal — a non-zero mortgage_balance
@@ -5631,6 +5711,22 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     logger.warning("[PROPERTY ENRICH] ref=%s has_property=%s property_value=%s mortgage_balance=%s enrich_status=%s",
         c.get("aryza_reference"), c["has_property"], c["property_value"], c["mortgage_balance"], credit_report_status)
 
+    # Lead Gen disposable income — distinct from c["disposable_income"], which
+    # remains untouched for Advisor-case rules (e.g. TIG-02). Only computed for
+    # Lead Generation cases; formula is Total Household Income minus the
+    # rent-or-mortgage monthly payment, falling back to Total Household Income
+    # alone when no such payment was extracted (there is no structured rent
+    # figure anywhere in the system — only a mortgage monthly_payment from the
+    # credit report, via _cross_check_property_from_credit_report above).
+    lead_gen_disposable_income = None
+    if c.get("source_department") == "Lead Generation":
+        rent_or_mortgage_payment = c.get("mortgage_monthly_payment")
+        if rent_or_mortgage_payment:
+            lead_gen_disposable_income = c["total_income"] - rent_or_mortgage_payment
+        else:
+            lead_gen_disposable_income = c["total_income"]
+    c["lead_gen_disposable_income"] = lead_gen_disposable_income
+
     if detected_representatives is None:
         detected_representatives = detect_representatives(
             case_json.get("creditors") or [],
@@ -5640,7 +5736,10 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     # Expose detected representatives to the always-run rules (e.g. TIG-16 scopes
     # itself to NON-WPM cases — WATCH/WPM equity is handled by WATCH-22.4).
     c["detected_representatives"] = detected_representatives
-    c["dmp_checklist"] = case_json.get("dmp_checklist")
+    # Sanitised here, not at the view layer alone — assess_case is also called
+    # directly (tests, other services), so the parent/child VAT relationship is
+    # enforced at the last point before _derive_recommended_solution reads it.
+    c["dmp_checklist"] = _sanitize_dmp_checklist(case_json.get("dmp_checklist"))
 
     # Load disabled rule_keys once — single DB query for the whole assessment.
     try:
@@ -6026,6 +6125,10 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         "overall": overall,
         "overall_status": overall.upper(),
         "disposable_income": float(c["disposable_income"]),
+        "lead_gen_disposable_income": (
+            float(c["lead_gen_disposable_income"])
+            if c.get("lead_gen_disposable_income") is not None else None
+        ),
         "total_unsecured_debt": float(c["total_debt"]),
         "total_secured_debt": float(c.get("total_secured_debt") or 0),
         "passes_all_hard_blocks": tig_eligible,

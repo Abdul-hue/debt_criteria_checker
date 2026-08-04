@@ -607,7 +607,8 @@ def get_user_department(user):
         profile = user.profile
         if profile.department_id:
             return profile.department
-    except UserProfile.DoesNotExist:
+    except (UserProfile.DoesNotExist, AttributeError):
+        # AttributeError covers AnonymousUser/None, which have no `.profile`.
         pass
     try:
         return Department.objects.get(name='Default')

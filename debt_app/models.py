@@ -825,6 +825,17 @@ class Application(models.Model):
     aryza_reference = models.CharField(max_length=255, unique=True)
     client_name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
+    source_department = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text=(
+            "Name of the department the user belonged to at the moment the "
+            "first assessment was run for this case. A permanent snapshot — "
+            "set once, never overwritten by later runs, and unaffected by "
+            "later renames/deletion of the Department record itself."
+        ),
+    )
 
     def __str__(self):
         return f"{self.client_name} ({self.aryza_reference})"
@@ -871,6 +882,7 @@ class CriteriaDecision(models.Model):
         ('IVA NOT SUITABLE', 'IVA Not Suitable'),
         ('IVA POSSIBLE', 'IVA Possible - Review Flagged Items'),
         ('DMP', 'DMP - Debt Management Plan'),
+        ('DRO', 'DRO - Debt Relief Order'),
         ('BREATHING_SPACE', 'Debt Respite Scheme (Breathing Space)'),
         ('FREE_SECTOR', 'Free Sector Solution'),
         ('UNCLEAR', 'Unclear'),

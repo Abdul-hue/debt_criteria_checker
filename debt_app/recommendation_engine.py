@@ -11,6 +11,7 @@ def get_recommendation(
     engine_output: Dict[str, Any],
     case_data: Dict[str, Any],
     vat_forced: bool = False,
+    dro_forced: bool = False,
 ) -> Dict[str, Any]:
     """
     Determines the recommended debt solution and alternative solutions.
@@ -26,6 +27,13 @@ def get_recommendation(
             this mirrors _derive_recommended_solution's own precedence (the VAT
             check sits above hard_blocks there too) so the override cannot be
             diluted into "one more elif" alongside ELIGIBLE/REFERRED/INELIGIBLE.
+        dro_forced: True when _derive_recommended_solution already determined a
+            Lead Generation case must be forced to DRO because
+            lead_gen_disposable_income < £399
+            (engine_output["recommended_solution"] == "FORCED_DRO_LG"). Same
+            precedence tier as vat_forced — the two are mutually exclusive by
+            construction, since the engine routes their simultaneous case to
+            REVIEW_REQUIRED before returning here.
 
     Returns:
         A dictionary containing recommended_solution and alternative_solutions
@@ -39,6 +47,22 @@ def get_recommendation(
                     "A previous-year HMRC VAT debt is confirmed — this is an "
                     "automatic IVA fail, so a Debt Management Plan is required "
                     "regardless of all other criteria."
+                ),
+                "confidence": "HIGH",
+            },
+            "alternative_solutions": [],
+        }
+
+    if dro_forced:
+        return {
+            "recommended_solution": {
+                "code": "DRO",
+                "label": "Debt Relief Order",
+                "rationale": (
+                    "This is a Lead Generation case with disposable income "
+                    "below £399 (Total Household Income minus rent-or-mortgage "
+                    "payment) — a Debt Relief Order is required regardless of "
+                    "all other criteria."
                 ),
                 "confidence": "HIGH",
             },

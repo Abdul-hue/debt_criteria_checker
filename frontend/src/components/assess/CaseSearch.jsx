@@ -55,7 +55,18 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
   ]
   const [dmpChecklistOpen, setDmpChecklistOpen] = useState(false)
   const handleDmpChecklistToggle = (key) => {
-    onDmpChecklistChange((prev) => ({ ...prev, [key]: !prev[key] }))
+    onDmpChecklistChange((prev) => {
+      const next = !prev[key]
+      // Unticking the parent hides the nested "Previous year VAT" checkbox
+      // (it only renders when hmrc_debt_has_vat is true), but its own state
+      // otherwise survives untouched — orphaning hmrc_previous_year_vat=true
+      // with no visible control left to clear it, and the backend forces DMP
+      // off that stale flag alone regardless of the parent's state.
+      if (key === 'hmrc_debt_has_vat' && !next) {
+        return { ...prev, hmrc_debt_has_vat: false, hmrc_previous_year_vat: false }
+      }
+      return { ...prev, [key]: next }
+    })
   }
 
   const onSubmit = (values) => {
