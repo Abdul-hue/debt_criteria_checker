@@ -4896,6 +4896,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
             "voting_debt": Decimal("0"), "voting_debt_optimistic": Decimal("0"),
             "unknown_debt": Decimal("0"), "shortfall": Decimal("0"),
             "achievable": True, "indeterminate": False,
+            "unknown_creditors": [],
         }
     threshold = (full_total * Decimal("0.75")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -4940,8 +4941,16 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         def _creditor_names(c):
             return [n for n in (c.get("creditor_name"), c.get("original_name"), c.get("name")) if n]
 
+        # The caseworker needs to know WHICH creditors make up unknown_debt so
+        # they can go and identify them — a bare total is not actionable.
+        # Balances are kept as float here (not Decimal) so this list stays
+        # JSON-safe for the /api/v1/assess/ payload consumed by the CA tool.
+        def _display_name(c):
+            return (c.get("original_name") or c.get("name") or c.get("creditor_name") or "").strip() or "Unnamed creditor"
+
         voting_debt = Decimal("0")
         unknown_debt = Decimal("0")
+        unknown_creditors = []
         for c in creditors:
             if _is_do_not_vote(c):
                 continue
@@ -4955,6 +4964,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                     voting_debt += c["crm_balance"]
                 elif _is_unknown(pos):
                     unknown_debt += c["crm_balance"]
+                    unknown_creditors.append({"name": _display_name(c), "balance": float(c["crm_balance"] or 0)})
                 continue
             names = _creditor_names(c)
             if any(n in yes_names for n in names):
@@ -4963,10 +4973,18 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                 # Explicit UNKNOWN, or a creditor with no position at all:
                 # excluded from voting_debt, but tracked as a could-flip balance.
                 unknown_debt += c["crm_balance"]
+                unknown_creditors.append({"name": _display_name(c), "balance": float(c["crm_balance"] or 0)})
     else:
         # No positions computed — treat the whole book as unidentified, not as yes.
         voting_debt = Decimal("0")
         unknown_debt = full_total
+        unknown_creditors = [
+            {
+                "name": (c.get("original_name") or c.get("name") or c.get("creditor_name") or "").strip() or "Unnamed creditor",
+                "balance": float(c.get("crm_balance") or 0),
+            }
+            for c in creditors
+        ]
 
     voting_debt_optimistic = voting_debt + unknown_debt
     shortfall = max(Decimal("0"), threshold - voting_debt)
@@ -4983,7 +5001,25 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         "shortfall": shortfall,
         "achievable": achievable,
         "indeterminate": indeterminate,
+        # Largest balance first — the ones worth chasing appear at the top.
+        "unknown_creditors": sorted(unknown_creditors, key=lambda u: u["balance"], reverse=True),
     }
+
+
+def _format_unknown_creditor_list(entries: list, limit: int = 8) -> str:
+    """Render unidentified creditors as a readable, named list for rule messages.
+
+    Returns '' when there is nothing to name, so callers can append unconditionally.
+    """
+    entries = [e for e in (entries or []) if e.get("name")]
+    if not entries:
+        return ""
+    shown = entries[:limit]
+    parts = [f"{e['name']} (£{float(e['balance']):,.2f})" for e in shown]
+    remaining = len(entries) - len(shown)
+    if remaining > 0:
+        parts.append(f"and {remaining} other{'s' if remaining != 1 else ''}")
+    return ", ".join(parts)
 
 
 def calculate_estimated_dividend_pence(case: dict) -> int:
@@ -6040,6 +6076,9 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     # never a hard block. This prevents a false INELIGIBLE driven purely by an
     # unidentified creditor.
     if majority_analysis["total_debt"] > 0 and not majority_analysis["achievable"]:
+        # Name the unidentified creditors in the message — the caseworker cannot
+        # act on a bare "£X of debt belongs to unidentified creditor(s)" total.
+        _unknown_names = _format_unknown_creditor_list(majority_analysis.get("unknown_creditors"))
         if majority_analysis.get("indeterminate"):
             flags.append(RuleResult(
                 rule_id="MAJORITY-INDETERMINATE",
@@ -6051,7 +6090,9 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                     f"favour. So far, only £{majority_analysis['voting_debt']:,.2f} of "
                     f"confirmed support is in place, and "
                     f"£{majority_analysis['unknown_debt']:,.2f} of debt belongs to "
-                    f"creditor(s) who have not yet been identified. The caseworker must "
+                    f"creditor(s) who have not yet been identified"
+                    + (f": {_unknown_names}" if _unknown_names else "")
+                    + ". The caseworker must "
                     "identify these creditor(s) before this vote can be relied upon, as "
                     "their support could still be enough to reach the required majority."
                 ),
@@ -6070,6 +6111,12 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                     f"£{majority_analysis['voting_debt_optimistic']:,.2f} of support "
                     "could be reached, which is not enough. This case cannot proceed as "
                     "an IVA unless more creditor support is found."
+                    + (
+                        f" Unidentified creditor(s) holding "
+                        f"£{majority_analysis['unknown_debt']:,.2f} of the debt: "
+                        f"{_unknown_names}."
+                        if _unknown_names else ""
+                    )
                 ),
             ))
             overall = "blocked"
@@ -6089,7 +6136,12 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 message=(
                     f"£{float(_unknown_debt):,.2f} of the customer's debt "
                     f"({_unknown_pct * 100:.1f}% of the total) is owed to creditor(s) that "
-                    "could not be identified. The caseworker must identify them before "
+                    "could not be identified"
+                    + (
+                        f": {_format_unknown_creditor_list(majority_analysis.get('unknown_creditors'))}"
+                        if majority_analysis.get("unknown_creditors") else ""
+                    )
+                    + ". The caseworker must identify them before "
                     "relying on this assessment, because it is not known how they would "
                     "vote or whether any creditor-specific rules apply to them."
                 ),

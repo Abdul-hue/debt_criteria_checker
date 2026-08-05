@@ -337,6 +337,18 @@ class DirectAssessView(APIView):
                     "voting_debt": float(maj.get("voting_debt") or 0),
                     "shortfall":   float(maj.get("shortfall") or 0),
                     "achievable":  bool(maj.get("achievable", False)),
+                    # Unidentified-creditor detail so the CA tool can show the
+                    # caseworker WHICH creditors the majority gap depends on.
+                    "unknown_debt":             float(maj.get("unknown_debt") or 0),
+                    "voting_debt_optimistic":   float(maj.get("voting_debt_optimistic") or 0),
+                    "indeterminate":            bool(maj.get("indeterminate", False)),
+                    "unknown_creditors": [
+                        {
+                            "name":    u.get("name", ""),
+                            "balance": float(u.get("balance") or 0),
+                        }
+                        for u in (maj.get("unknown_creditors") or [])
+                    ],
                 },
 
                 # ── dividend analysis ─────────────────────────────────────
