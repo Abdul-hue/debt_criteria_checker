@@ -351,7 +351,7 @@ class AryzaClient:
                     if client_row[3]:
                         try:
                             case.dob = datetime.fromtimestamp(int(client_row[3])).date().isoformat()
-                        except (ValueError, TypeError, OverflowError):
+                        except (ValueError, TypeError, OverflowError, OSError):
                             case.dob = None
                     self._audit(case, "client", "FOUND", f"Name: {case.client_name}")
                 else:
@@ -396,7 +396,7 @@ class AryzaClient:
                                                - ((today.month, today.day) < (born.month, born.day)))
                                         if 0 <= age <= 120:
                                             case.dependants.append({"age": age})
-                                    except (ValueError, TypeError, OverflowError):
+                                    except (ValueError, TypeError, OverflowError, OSError):
                                         pass
                             if case.dependants:
                                 self._audit(case, "client_dependant", "FOUND",

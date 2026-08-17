@@ -368,9 +368,49 @@ class Command(BaseCommand):
         else:
             p("  BACKFILL CHECK:  some creditors silently dropped  see above")
 
+        # -- Part 3: alias-map integrity ------------------------------------------
+        # Runs the same check as `manage.py validate_alias_map`: every VALUE in
+        # _RAW_CREDITOR_ALIAS_MAP must point to an active CreditorCriteria row.
+        # A broken alias (e.g. pointing to a row deleted by a later
+        # `seed_creditor_criteria` "strict sync" run, or a typo in the target
+        # name) means every real-world creditor name that hits that alias
+        # silently resolves to NONE/UNKNOWN forever — this is exactly how the
+        # Klarna alias-collision bug went unnoticed for an unknown period, and
+        # 20 further dead aliases (Zilch, Cashplus, Northridge Finance, etc.)
+        # were found the same way. Invoking the existing validator here (rather
+        # than re-implementing the check) means this audit and the standalone
+        # command can never silently drift apart.
+        p("")
+        p(_hr())
+        p("PART 3  Alias-map integrity (CREDITOR_ALIAS_MAP targets vs active DB rows)")
+        p(_hr())
+
+        import io
+        from django.core.management import call_command
+
+        alias_report = io.StringIO()
+        try:
+            call_command("validate_alias_map", stdout=alias_report)
+            alias_ok = True
+        except SystemExit as e:
+            alias_ok = (e.code == 0)
+        for line in alias_report.getvalue().splitlines():
+            p(f"  {line}")
+        p("")
+        if alias_ok:
+            p("  ALIAS-MAP CHECK:  all alias targets resolve to an active CreditorCriteria row")
+        else:
+            p("  ALIAS-MAP CHECK:  BROKEN ALIASES FOUND  see above  fix before deploy")
+
         # -- Final summary --------------------------------------------------------
         p("")
         p(_hr("="))
         p("AUDIT COMPLETE")
+        if not alias_ok:
+            p("STATUS: FAIL  broken creditor aliases present (see PART 3)")
+        elif not backfill_ok:
+            p("STATUS: FAIL  creditor(s) silently dropped from output (see PART 2b)")
+        else:
+            p("STATUS: PASS")
         p(_hr("="))
         p("")

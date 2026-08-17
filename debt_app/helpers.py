@@ -220,6 +220,12 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'zopa bank limited': 'Zopa - IVA or BKY',
     'zopa limited': 'Zopa - IVA or BKY',
     'halifax': 'HBOS - Halifax - IVA',
+    'halifax personal loan': 'HBOS - Halifax - IVA',
+    'halifax bank': 'HBOS - Halifax - IVA',
+    'halifax plc': 'HBOS - Halifax - IVA',
+    'bank of scotland': 'HBOS - Bank of Scotland - IVA',
+    'bank of scotland credit card': 'HBOS - Bank of Scotland - IVA',
+    'bank of scotland plc': 'HBOS - Bank of Scotland - IVA',
     'hsbc': 'HSBC',
     'santander': 'Santander',
     'santander cards': 'Santander Cards',
@@ -258,6 +264,7 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'portfolio recovery': 'PRA (Portfolio Recovery Associates) - IVA',
     'pra group (uk) limited (tix)': 'PRA Group',
     'pra group (uk) ltd c/o wpm': 'PRA Group',
+    'pulse': 'Pulse - IVA',
     'lantern': 'Lantern',
     'lantern debt recovery': 'Lantern',
     'lantern debt recovery services ltd': 'Lantern',
@@ -287,12 +294,20 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'grove': 'Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - IVA',
     'tti spc': 'TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - IVA',
     'klarna': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
-    'klarna uk ltd': 'Klarna',
-    'klarna pay later and pay in 3': 'Klarna',
+    'klarna bank ab': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'klarna uk': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'klarna uk ltd': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'klarna pay later and pay in 3': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'klarna bank ab pay later and pay in 3': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'zilch': 'Zilch',
     'zilch technology limited': 'Zilch',
-    'zable': 'NewDay',
-    'lendable limited t/a zable': 'Zable',
+    # Zable is a trading name of Lendable — not its own CreditorCriteria row.
+    # (Previously 'zable' pointed to the unrelated 'NewDay' and was silently
+    # shadowed by 'lendable limited t/a zable' pointing to a non-existent
+    # 'Zable' row — both normalise to the same key "zable", so only the last
+    # one written ever took effect. Fixed to the one real target for both.)
+    'zable': 'Lendable',
+    'lendable limited t/a zable': 'Lendable',
     'aquis': 'Aquis',
     'fluid': 'Fluid',
     'opus': 'Opus',
@@ -344,13 +359,21 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'ikano': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'granite': 'Granite (Vanquis)',
     'gracombex ltd t/a the money platform': 'The Money Platform',
-    'brighton & hove city council': 'Brighton and Hove City Council',
-    'north east lincolnshire borough council': 'North East Lincolnshire Council',
-    'mansfield district council': 'Mansfield District Council',
+    # Councils never go through CREDITOR_ALIAS_MAP / CreditorCriteria — they're
+    # matched entirely via _match_council_rule() against CouncilRule, which has
+    # its own name normalisation and fuzzy fallback. These 3 entries pointed at
+    # CreditorCriteria rows that were never meant to exist and were dead code:
+    # removed rather than "fixed", since there's nothing here for them to do.
     'west sussex & surrey credit union limited t/a boom community bank': 'Boom Credit Union ALSO known as East Sussex Credit Union Ltd t/a Wave Community Bank:',
     'department for work & pensions (dwp)': 'DWP',
     'hm revenue & customs': 'HM Revenue & Customs',
-    'northridge finance ltd': 'Northridge Finance',
+    # Northridge Finance is Santander Consumer Finance's motor-finance brand,
+    # not its own CreditorCriteria row (a migration once added it as a
+    # trading_name on that row, but trading_names is reset to [] by every
+    # `seed_creditor_criteria` run — pointing the alias straight at the real
+    # row is what actually survives).
+    'northridge finance ltd': 'Santander Consumer Finance',
+    'northridge finance': 'Santander Consumer Finance',
     'castle community bank': 'Castle Community Bank',
     'advanced payment solutions ltd t/a cashplus bank': 'Cashplus',
     'zempler bank limited': 'Cashplus',
@@ -373,6 +396,29 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'secure trust bank plc': 'Secure Trust Bank',
     'mbna ltd': 'MBNA - IVA',
     'jd williams ta jacamo': 'Shop Direct',
+
+    # Found via a sweep of real Aryza creditor names that were silently failing
+    # to match any CreditorCriteria row (verified against the DB, not guessed —
+    # see conversation re: case 394638 WATCH detection investigation).
+    'jaja finance': 'Jaja Finance Ltd',
+    'marks and spencer': 'Marks & Spencer',
+    "sainsbury's bank": 'Sainsburys Bank',
+    'sainsbury bank': 'Sainsburys Bank',
+    'vanquis loans': 'Vanquis Bank',
+    'co-operative bank': 'The Co-operative Bank',
+    'the cooperative': 'The Co-operative Bank',
+    'grattans': 'Grattan',
+    'bank of ireland': 'AA Bank of Ireland',
+    'monozo bank': 'Monzo Bank',  # typo seen in live data
+    'bank of scotland personal loan': 'HBOS - Bank of Scotland - IVA',
+    # PayPal's legal-entity name has "(Europe)" in the MIDDLE of the string, so
+    # normalise_creditor_name's end-anchored parenthetical strip never reaches
+    # it — explicit aliases needed for the real Aryza/credit-report renderings.
+    'paypal': 'Paypal Europe Ltd',
+    'paypal (europe) sarl et cie sca': 'Paypal Europe Ltd',
+    'paypal (europe) sarl & cia, sca': 'Paypal Europe Ltd',
+    'paypal credit': 'Paypal Europe Ltd',
+    'redcats catalogue': 'Redcats UK',
 }
 
 # Apply normalisation to all keys in the alias map to ensure robust lookups
@@ -424,6 +470,78 @@ def log_criteria_decision(application_id: str, client_name: str,
     )
 
 
+def _cosmetic_normalise(s: str) -> str:
+    """
+    Lightweight, symmetric cleanup applied to BOTH sides of a comparison
+    (unlike normalise_creditor_name, which is asymmetric and aggressively
+    strips legal suffixes — only meant for generating alias-map keys).
+
+    Only touches cosmetic noise that never changes brand identity:
+    apostrophes, '&' vs 'and', bracketed asides anywhere in the string
+    (not just at the end), and punctuation/whitespace. Never strips
+    suffix words like "Ltd"/"Bank" — that's normalise_creditor_name's job
+    and doing both here would risk collapsing genuinely different names.
+    """
+    if not s:
+        return ""
+    s = s.lower()
+    s = s.replace("’", "'").replace("‘", "'").replace("'", "")
+    s = re.sub(r"&", " and ", s)
+    s = re.sub(r"\([^)]*\)", " ", s)   # strip bracketed asides anywhere, not just at the end
+    s = re.sub(r"[.,]", " ", s)        # "S.A.R.L." / "Cia," style punctuation noise
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+# Words that are pure suffix/connector noise in split "BRAND - SUFFIX" style
+# CreditorCriteria names (e.g. "Pulse - IVA", "Zopa - IVA or BKY") — a segment
+# composed ENTIRELY of these words (e.g. "IVA or BKY", "TD or SEQ") carries no
+# brand identity and must never be used as a standalone match target.
+_DB_NAME_SUFFIX_WORDS = frozenset({
+    "iva", "td", "bky", "seq", "das", "dro", "or", "and", "bankruptcy",
+    "ltd", "limited", "plc",
+})
+
+# Generic business-descriptor words that carry no brand identity on their
+# own — a segment consisting of exactly ONE of these (e.g. "Bank", "Finance"
+# split out of "Somelender - Bank - IVA") must never be used as a standalone
+# match target, or it would match almost any unrelated creditor whose name
+# happens to contain that common word. Multi-word segments (e.g. "Bank of
+# Scotland") are unaffected — this only excludes single bare generic nouns.
+_GENERIC_SINGLE_WORD_SEGMENTS = frozenset({
+    "bank", "banking", "bancorp", "card", "cards", "finance", "financial",
+    "loan", "loans", "group", "services", "service", "credit", "capital",
+    "company", "co", "insurance", "recovery", "recoveries", "holdings",
+    "holding", "consumer", "personal", "retail", "direct", "solutions",
+})
+
+
+def _db_name_segments(creditor_name: str) -> list:
+    """
+    Split a CreditorCriteria.creditor_name on ' - ' into candidate brand
+    segments, dropping segments that are pure suffix/connector noise (every
+    word in the segment is a suffix word), a single bare generic business
+    word (e.g. "Bank" alone), or too short to be a safe standalone target.
+
+    e.g. "HBOS - Halifax - IVA"       -> ["hbos", "halifax"]
+         "Pulse - IVA"                -> ["pulse"]
+         "Zopa - IVA or BKY"          -> ["zopa"]     ("iva or bky" dropped)
+         "Somelender - Bank - IVA"    -> ["somelender"]  ("bank" alone dropped)
+    """
+    segments = []
+    for part in re.split(r"\s*-\s*", creditor_name.lower()):
+        part = part.strip()
+        if len(part) < 4:
+            continue
+        words = [w for w in re.split(r"[\s/]+", part) if w]
+        if all(w in _DB_NAME_SUFFIX_WORDS for w in words):
+            continue  # pure suffix segment, e.g. "iva or bky", "td or seq"
+        if len(words) == 1 and words[0] in _GENERIC_SINGLE_WORD_SEGMENTS:
+            continue  # bare generic noun, e.g. "bank", "finance", "group"
+        segments.append(part)
+    return segments
+
+
 def get_creditor_by_trading_name(name: str, all_names=None):
     """
     Find CreditorCriteria row for a given creditor name.
@@ -435,7 +553,15 @@ def get_creditor_by_trading_name(name: str, all_names=None):
     4. Substring: creditor_name is contained in the input name
        e.g. DB="NatWest", Aryza="Natwest Group Plc"
        "natwest" is in "natwest group plc" → match
-    5. Raise DoesNotExist
+    5. Cosmetic-normalised exact match (apostrophes/&/brackets ignored on both
+       sides) — catches punctuation-only variants with no alias needed,
+       e.g. "Sainsbury's Bank" == "Sainsburys Bank".
+    6. Segment substring — DB names shaped "BRAND - IVA" or "PREFIX - BRAND -
+       SUFFIX" (the WATCH/TIX seed convention) are unreachable by whole-string
+       substring matching in either direction. Splitting on " - " and trying
+       each brand segment generalises the Pulse/Halifax/Bank-of-Scotland
+       pattern to every similarly-shaped row without a hand-written alias.
+    7. Raise DoesNotExist
     """
     from debt_app.models import CreditorCriteria
 
@@ -481,6 +607,11 @@ def get_creditor_by_trading_name(name: str, all_names=None):
     if row:
         return row
 
+    # 4-6. Single pass over active rows, checking (in priority order) whole-name
+    # substring, cosmetic-normalised exact match, and segment substring. One
+    # query + one Python pass instead of three, since this runs on every
+    # creditor in every case assessment.
+    #
     # 4. Substring: DB name contained in Aryza name, matched on a word boundary.
     # e.g. "NatWest" in "Natwest Group Plc" → match.
     # A plain `in` check on short names caused false positives (e.g. "AO" inside
@@ -491,11 +622,46 @@ def get_creditor_by_trading_name(name: str, all_names=None):
     # rejects "AO" inside "MBNA" (no boundary before/after "ao") while still
     # matching "dwp" inside "dwp.docx" (the "." is a non-word character), so
     # the length floor is no longer needed for correctness.
-    all_active = CreditorCriteria.objects.filter(is_active=True)
-    for row in all_active:
-        db_lower = row.creditor_name.strip().lower()
+    #
+    # 5. Cosmetic-normalised exact match — apostrophes, &/and, brackets anywhere
+    #    ignored on both sides. e.g. "Sainsbury's Bank" == "Sainsburys Bank".
+    #
+    # 6. Segment substring for "BRAND - SUFFIX" shaped DB names (the WATCH/TIX
+    #    seed convention, e.g. "Pulse - IVA", "HBOS - Halifax - IVA"). Whole-
+    #    string substring matching can never reach these since the DB name has
+    #    extra text ("- IVA", "HBOS - ") the input doesn't. Splitting on " - "
+    #    and matching brand segments generalises the fix to every similarly
+    #    shaped row instead of needing a hand-written alias per creditor.
+    all_active = list(CreditorCriteria.objects.filter(is_active=True))
+    cosmetic_input = _cosmetic_normalise(cleaned)
+
+    # Precompute each row's comparison values once (avoids re-normalising the
+    # same DB name 3 times across the 3 passes below), but keep the 3 passes
+    # STRICTLY SEQUENTIAL — each must finish scanning every row before the
+    # next begins, exactly preserving the original step-4-before-5-before-6
+    # priority. Interleaving them into one combined loop would let a lower-
+    # priority match (e.g. step 6, found early in iteration order) win over a
+    # higher-priority one (step 4, found later) purely by list position.
+    _precomputed = [
+        (row, row.creditor_name.strip().lower(),
+         _cosmetic_normalise(row.creditor_name) if cosmetic_input else None,
+         _db_name_segments(row.creditor_name) if cosmetic_input else ())
+        for row in all_active
+    ]
+
+    for row, db_lower, _cosmetic_db, _segments in _precomputed:
         if db_lower and re.search(rf"\b{re.escape(db_lower)}\b", cleaned_lower):
             return row
+
+    if cosmetic_input:
+        for row, _db_lower, cosmetic_db, _segments in _precomputed:
+            if cosmetic_db == cosmetic_input:
+                return row
+
+        for row, _db_lower, _cosmetic_db, segments in _precomputed:
+            for segment in segments:
+                if re.search(rf"\b{re.escape(segment)}\b", cosmetic_input):
+                    return row
 
     raise CreditorCriteria.DoesNotExist(
         f"No criteria row found for: {name!r}"

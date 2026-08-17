@@ -1067,6 +1067,9 @@ class AssessCaseView(APIView):
                 for pos in all_creditor_positions
                 if pos.get('cr_raw_name')
             }
+            from debt_app.helpers import get_creditor_by_trading_name, normalise_creditor_name
+            from debt_app.models import CreditorResolutionMiss
+
             for _acc in _cr_unmatched:
                 _raw = ((_acc.get('raw_name') or '')).strip()
                 if not _raw:
@@ -1074,25 +1077,54 @@ class AssessCaseView(APIView):
                 if _raw.lower() in _already_stamped:
                     continue
                 _cr_bal_pence = _acc.get('current_balance')
+                _cr_name = _acc.get('matched_creditor') or _raw
+
+                # Resolve against the SAME CreditorCriteria table/alias map used
+                # for declared creditors — a CR-only (undeclared) account is not
+                # exempt from representative-body voting just because it never
+                # reached _check_creditor_individual(). Previously this branch
+                # hardcoded representative='NONE' unconditionally, which meant a
+                # genuinely WATCH/TIX/EVOLVE creditor that only showed up as an
+                # undeclared credit-report account silently lost its badge.
+                try:
+                    _cr_criteria = get_creditor_by_trading_name(_cr_name)
+                    _cr_representative = _cr_criteria.representative
+                except CreditorCriteria.DoesNotExist:
+                    _cr_representative = 'NONE'
+                    try:
+                        CreditorResolutionMiss.objects.create(
+                            raw_name=_raw,
+                            normalised_name=normalise_creditor_name(_raw) or _raw,
+                            case_reference=aryza_reference,
+                            client_name=case_data.get('client_name', ''),
+                            balance=(_cr_bal_pence or 0) / 100.0,
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to log CreditorResolutionMiss for CR-only account {_raw!r}: {e}")
+
                 _cr_only_pos = {
                     'criteria_id': None,
-                    'creditor_name': _acc.get('matched_creditor') or _raw,
+                    'creditor_name': _cr_name,
                     'display_name': None,
-                    'original_aryza_name': _raw if _raw != (_acc.get('matched_creditor') or _raw) else None,
-                    'resolved_canonical_name': _acc.get('matched_creditor') or _raw,
-                    'representative': 'NONE',
+                    'original_aryza_name': _raw if _raw != _cr_name else None,
+                    'resolved_canonical_name': _cr_name,
+                    'representative': _cr_representative,
                     'effective_status': 'UNKNOWN',
                     'findings': [{
                         'code': 'CREDITOR-CR-ONLY',
                         'reason': (
-                            'Account is present in the credit report but has not '
-                            'been declared in the database.'
+                            'This account appears on the customer\'s credit report but '
+                            'was not declared as a debt on this case. The caseworker '
+                            'should confirm with the customer whether this debt exists '
+                            'and should be added.'
                         ),
                         'severity': 'info',
                     }],
                     'reason': (
-                        'Account is present in the credit report but has not '
-                        'been declared in the database.'
+                        'This account appears on the customer\'s credit report but '
+                        'was not declared as a debt on this case. The caseworker '
+                        'should confirm with the customer whether this debt exists '
+                        'and should be added.'
                     ),
                     'rule_ids': ['CREDITOR-CR-ONLY'],
                     'balance': 0.0,  # £0 — not declared in case
@@ -1116,6 +1148,19 @@ class AssessCaseView(APIView):
                     f"[CR-ONLY] Backfilled undeclared account: {_raw!r} "
                     f"(CR balance: {_cr_bal_pence}p, status: {_acc.get('account_status')!r})"
                 )
+
+            # Re-apply the representative-body outcome mapping now that CR-only
+            # accounts have been appended. The first call (above, before this
+            # block) ran before these positions existed, so a CR-only account
+            # correctly resolved to e.g. TIX would otherwise show the TIX badge
+            # but stay stuck at effective_status='UNKNOWN' — the outcome was
+            # never applied because the position didn't exist yet when that
+            # call ran. Documented as idempotent, so re-running it over
+            # everything (not just the new positions) is safe.
+            _apply_representative_outcomes(
+                all_creditor_positions,
+                result.get("representative_outcomes") or {},
+            )
 
         enrich_positions_with_tallies(all_creditor_positions)
         result["creditor_positions"] = all_creditor_positions

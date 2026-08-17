@@ -201,13 +201,18 @@ def _fetch_crm_vote_data(log=print, set_stage=None):
             "total_votes": int(total_votes),
         }
 
-    # Step 2: Fetch only the LATEST vote per creditor (not full history — the previous
-    # version fetched every individual vote row ever cast and sorted in Python, which
-    # meant transferring the entire vote history on every single sync run. A window
-    # function pushes the "latest per creditor" computation into MySQL so we only ever
-    # transfer one row per creditor.
+    # Step 2: Fetch only the LATEST vote per (creditor, status) - not full history (the
+    # previous version fetched every individual vote row ever cast and sorted in Python,
+    # which meant transferring the entire vote history on every single sync run), and not
+    # just the single latest vote per creditor either (that only gives _sync_vote_summary's
+    # latest_date_by_status a real date for whichever ONE status happened to be a
+    # creditor's overall-latest vote, leaving every other status with new events stamped
+    # with the sync's wall-clock time instead of its own real meeting_date). Partitioning
+    # by (c.id, mra.first_vote) instead of just c.id returns at most one row per status per
+    # creditor - still a small, bounded result set - while giving latest_date_by_status
+    # real per-status coverage.
     if set_stage:
-        set_stage("Fetching latest vote per creditor")
+        set_stage("Fetching latest vote per creditor/status")
 
     cursor.execute("""
         SELECT id, meeting_date, first_vote
@@ -216,7 +221,7 @@ def _fetch_crm_vote_data(log=print, set_stage=None):
                 c.id AS id,
                 m.meeting_date AS meeting_date,
                 mra.first_vote AS first_vote,
-                ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY m.meeting_date DESC) AS rn
+                ROW_NUMBER() OVER (PARTITION BY c.id, mra.first_vote ORDER BY m.meeting_date DESC) AS rn
             FROM theinsolvencygroup.iva_client_meeting_attendee mra
             INNER JOIN theinsolvencygroup.iva_client_debt cd ON cd.id = mra.attendee_id
             INNER JOIN theinsolvencygroup.creditor c ON c.id = cd.creditorid
