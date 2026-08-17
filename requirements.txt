@@ -1,4 +1,4 @@
-Django>=6.0.4
+Django>=6.0.4,<6.1
 mysqlclient
 pytest
 pytest-django
