@@ -6177,7 +6177,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     sfs_breakdown_raw = case_json.get('sfs_expenditure_breakdown', {})
     dependants_raw = case_json.get('dependants', {})
 
-    _default_adults = 2 if has_partner_on_case else 1
+    _default_adults = 2 if c.get("has_partner_on_case") else 1
     if isinstance(dependants_raw, dict):
         _sfs_adults = dependants_raw.get('adults', _default_adults)
         _sfs_children = dependants_raw.get('children', 0)
