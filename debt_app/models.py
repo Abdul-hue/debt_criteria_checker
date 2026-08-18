@@ -974,6 +974,18 @@ class ExpenditureGuideline(models.Model):
     min = models.BooleanField(default=False)
     sort_order = models.IntegerField(default=0)
 
+    # Aryza sends human labels ("MOT and Maintenance") while `category` holds a
+    # slug ("mot_spares"). Normalising both sides matches most of them; the
+    # rest are genuine naming differences that are FIRM POLICY, not something
+    # to guess in code — does "Groceries" belong to housekeeping? Maintain
+    # them here (comma-separated, case-insensitive) so a new Aryza category is
+    # an admin edit rather than a deploy. Mirrors case-assessment-tool.
+    aryza_aliases = models.TextField(
+        blank=True, default="",
+        help_text="Comma-separated Aryza expense category names that map to "
+                  "this guideline, e.g. 'Groceries, Food Shopping'.",
+    )
+
     # Single-adult and dual-adult (no children)
     adult_1 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     adult_2 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -995,6 +1007,12 @@ class ExpenditureGuideline(models.Model):
     # Per-unit rates
     per_child = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     per_vehicle = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Optional SECOND per-vehicle rate, used when an item is a per-vehicle BAND
+    # (e.g. MOT & Spares: min £20/vehicle, max £33/vehicle). When > 0, the band
+    # is [per_vehicle x vehicles, per_vehicle_max x vehicles] and BOTH the min
+    # and max flags are enforced against those distinct floor/ceiling rates —
+    # unlike the usual single-value + flag model. Zero = not a per-vehicle band.
+    per_vehicle_max = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     first_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     additional_adult = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     child_under_16 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -1023,8 +1041,57 @@ class ExpenditureGuideline(models.Model):
         db_table = 'expenditure_guidelines'
         ordering = ['category_group__sort_order', 'sort_order', 'category']
 
+    def save(self, *args, **kwargs):
+        # For SFS group-cap rows the SFS *formula rates* (first_adult /
+        # additional_adult / child_under_16 / child_16_18) are the single
+        # source of truth — what the criteria engine and the badge read, and
+        # what the admin edits. Keep the flat Base-Rate preview cells
+        # (1 Adult / 2 Adults / Per Child) auto-derived from them so the
+        # settings grid can never show stale or conflicting numbers.
+        if self.category in GROUP_CAP_SLUGS:
+            self.adult_1 = self.first_adult
+            self.adult_2 = self.first_adult + self.additional_adult
+            self.per_child = self.child_under_16
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.label} ({self.category})"
+
+
+# Category slugs that hold a GROUP-level SFS maximum (scales by household)
+# rather than a per-item figure. One per scaled SFS group — sits inside its
+# group alongside the item rows. Mirrors Aryza theinsolvencygroup.sfs_group.
+GROUP_CAP_SLUGS = {
+    'comms_and_leisure_group',
+    'housekeep_group',
+    'personal_group',
+}
+
+
+def compute_group_cap(category, adults, children_under_16, children_16_18):
+    """
+    Household-scaled SFS maximum for a GuidelineCategory, or None when the
+    group has no SFS group-cap row.
+
+    Mirrors Aryza's formula:
+        first_adult
+        + additional_adult * (adults - 1)
+        + child_under_16   * children_under_16
+        + child_16_18      * children_16_18
+    """
+    if category is None:
+        return None
+    row = category.guidelines.filter(category__in=GROUP_CAP_SLUGS).first()
+    if row is None:
+        return None
+    adults = max(int(adults or 1), 1)
+    cap = (
+        float(row.first_adult)
+        + float(row.additional_adult) * max(adults - 1, 0)
+        + float(row.child_under_16) * int(children_under_16 or 0)
+        + float(row.child_16_18) * int(children_16_18 or 0)
+    )
+    return round(cap, 2)
 
 
 # extracted_data JSON schema:

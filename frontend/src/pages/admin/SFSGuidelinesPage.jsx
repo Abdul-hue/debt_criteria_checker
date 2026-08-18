@@ -55,7 +55,8 @@ const ROW_GROUPS = [
     textClass: 'text-emerald-700',
     rows: [
       { key: 'per_child', label: 'Per Child' },
-      { key: 'per_vehicle', label: 'Per Vehicle' },
+      { key: 'per_vehicle', label: 'Per Vehicle (Min)' },
+      { key: 'per_vehicle_max', label: 'Per Vehicle (Max)' },
     ],
   },
   {
@@ -92,6 +93,13 @@ const ROW_GROUPS = [
 ]
 
 const READ_ONLY_KEYS = new Set(['id', 'created_at', 'updated_at', 'category_group', 'category', 'label'])
+
+// Category slugs that carry a household-scaled SFS GROUP maximum (mirrors
+// Aryza sfs_group). When a group contains one of these rows, its header shows
+// the SFS scaling figures as the group's max, and the auto-derived preview
+// rows (1 Adult / 2 Adults / Per Child) are locked — edits go to the formula
+// rows (First Adult / Additional Adult / Child Under 16) instead.
+const SFS_GROUP_SLUGS = new Set(['comms_and_leisure_group', 'housekeep_group', 'personal_group'])
 
 function fmtMoney(val) {
   const n = parseFloat(val)
@@ -313,8 +321,25 @@ export default function SFSGuidelinesPage() {
                             {cat.name}
                           </span>
 
-                          {/* Group cap */}
-                          {!isCollapsed && isAdmin && (
+                          {/* SFS household-scaled group max badge */}
+                          {!isCollapsed && (() => {
+                            const sfs = (cat.guidelines ?? []).find((g) => SFS_GROUP_SLUGS.has(g.category))
+                            if (!sfs) return null
+                            const n = (v) => parseFloat(v || 0).toFixed(0)
+                            return (
+                              <span
+                                title="SFS group maximum — scales by household (1st adult + extra adults + per child under-16 / 16–18)"
+                                className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-600 text-white tabular-nums whitespace-nowrap shrink-0"
+                              >
+                                SFS £{n(sfs.first_adult)} +£{n(sfs.additional_adult)}/adult +£{n(sfs.child_under_16)}/£{n(sfs.child_16_18)} child
+                              </span>
+                            )
+                          })()}
+
+                          {/* Group cap pill — hidden for SFS groups (the green
+                              SFS badge already states the scaled max; a "No cap"
+                              flat pill next to it just reads as contradictory). */}
+                          {!isCollapsed && isAdmin && !(cat.guidelines ?? []).some((g) => SFS_GROUP_SLUGS.has(g.category)) && (
                             <div className="flex items-center gap-1 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
                               {isEditingCap ? (
                                 <>
@@ -476,7 +501,12 @@ export default function SFSGuidelinesPage() {
                             )
                           }
                           return (cat.guidelines ?? []).map((g, gi) => {
-                            const isEditing = editingColId === g.id
+                            // SFS group-cap preview rows (1 Adult / 2 Adults /
+                            // Per Child) are auto-derived from the formula rates —
+                            // keep them read-only so edits go to the formula rows.
+                            const lockedMirror = SFS_GROUP_SLUGS.has(g.category)
+                              && (row.key === 'adult_1' || row.key === 'adult_2' || row.key === 'per_child')
+                            const isEditing = editingColId === g.id && !lockedMirror
                             const val = isEditing ? editColValues[row.key] : g[row.key]
                             const isLastInCat = gi === (cat.guidelines.length - 1)
 

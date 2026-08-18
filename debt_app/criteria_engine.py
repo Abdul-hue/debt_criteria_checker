@@ -6154,13 +6154,38 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     dmp_eligibility = _evaluate_dmp_eligibility(c)
 
     # SFS guideline comparison — non-blocking, appended to result
+    #
+    # `dependants` and `sfs_expenditure_breakdown` each arrive in one of two
+    # shapes depending on the caller:
+    #   - A caller that already knows the SFS-shaped data (e.g. case-assessment,
+    #     or a direct API test) can send `dependants` as {"adults": N,
+    #     "children": N} and `sfs_expenditure_breakdown` as {slug: pence}.
+    #   - Aryza's native CaseData (aryza_client.py CaseData.dependants /
+    #     .sfs_expenditure_breakdown, as built by every _prepare_engine_payload
+    #     in this codebase) is a LIST in both cases: dependants is one
+    #     {"age": N} dict per CHILD (no adult count in this field at all —
+    #     adults come from has_partner_on_case, the same joint-application
+    #     signal already used above at line ~645), and sfs_expenditure_breakdown
+    #     is [{"category": "<human label>", "monthly_amount": <pounds>, ...}].
+    #   Previously only the first shape was handled — an `isinstance(..., dict)`
+    #   check silently failed on real Aryza data (always a list), so every
+    #   real case defaulted to adults=1/children=0 and an empty guideline
+    #   loop. Both shapes are now handled explicitly instead of assumed.
     from debt_app.sfs_calculator import derive_household_key, get_guideline_rate, apply_guideline_constraint
     from debt_app.models import ExpenditureGuideline
 
-    sfs_breakdown = case_json.get('sfs_expenditure_breakdown', {})
-    dependants = case_json.get('dependants', {})
-    _sfs_adults = dependants.get('adults', 1) if isinstance(dependants, dict) else 1
-    _sfs_children = dependants.get('children', 0) if isinstance(dependants, dict) else 0
+    sfs_breakdown_raw = case_json.get('sfs_expenditure_breakdown', {})
+    dependants_raw = case_json.get('dependants', {})
+
+    _default_adults = 2 if has_partner_on_case else 1
+    if isinstance(dependants_raw, dict):
+        _sfs_adults = dependants_raw.get('adults', _default_adults)
+        _sfs_children = dependants_raw.get('children', 0)
+    elif isinstance(dependants_raw, list):
+        _sfs_adults = _default_adults
+        _sfs_children = len(dependants_raw)
+    else:
+        _sfs_adults, _sfs_children = _default_adults, 0
     hh_key = derive_household_key(_sfs_adults, _sfs_children)
 
     guideline_map = {
@@ -6168,23 +6193,58 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
         for g in ExpenditureGuideline.objects.select_related('category_group').all()
     }
 
+    # Label/alias -> slug resolver, for when sfs_expenditure_breakdown arrives
+    # as Aryza's native list-of-labelled-items shape instead of {slug: pence}.
+    # Matches on the guideline's own `label` plus its `aryza_aliases`
+    # (comma-separated, per models.py ExpenditureGuideline.aryza_aliases) —
+    # NOTE: aryza_aliases is currently empty on every guideline in this DB, so
+    # only an exact label match will resolve until aliases are populated for
+    # the real Aryza client_expenses field names.
+    def _normalise_label(s):
+        return (s or '').strip().lower()
+
+    label_to_slug = {}
+    for slug, g in guideline_map.items():
+        label_to_slug[_normalise_label(g.label)] = slug
+        for alias in (g.aryza_aliases or '').split(','):
+            alias = alias.strip()
+            if alias:
+                label_to_slug[_normalise_label(alias)] = slug
+
     sfs_results = []
-    if not isinstance(sfs_breakdown, dict):
-        sfs_breakdown = {}
-    for category_slug, declared_pence in sfs_breakdown.items():
-        guideline = guideline_map.get(category_slug)
-        if not guideline:
-            continue
-        declared_pounds = (declared_pence or 0) / 100.0
-        rate = get_guideline_rate(guideline, hh_key)
-        constraint = apply_guideline_constraint(rate, guideline.min, guideline.max, declared_pounds)
-        sfs_results.append({
-            'category': category_slug,
-            'label': guideline.label,
-            'declared': declared_pounds,
-            'hh_key': hh_key,
-            **constraint,
-        })
+    if isinstance(sfs_breakdown_raw, dict):
+        for category_slug, declared_pence in sfs_breakdown_raw.items():
+            guideline = guideline_map.get(category_slug)
+            if not guideline:
+                continue
+            declared_pounds = (declared_pence or 0) / 100.0
+            rate = get_guideline_rate(guideline, hh_key)
+            constraint = apply_guideline_constraint(rate, guideline.min, guideline.max, declared_pounds)
+            sfs_results.append({
+                'category': category_slug,
+                'label': guideline.label,
+                'declared': declared_pounds,
+                'hh_key': hh_key,
+                **constraint,
+            })
+    elif isinstance(sfs_breakdown_raw, list):
+        for item in sfs_breakdown_raw:
+            if not isinstance(item, dict):
+                continue
+            resolved_slug = label_to_slug.get(_normalise_label(item.get('category')))
+            guideline = guideline_map.get(resolved_slug) if resolved_slug else None
+            if not guideline:
+                continue
+            declared_pounds = float(item.get('monthly_amount') or item.get('bank_proven_amount') or 0)
+            rate = get_guideline_rate(guideline, hh_key)
+            constraint = apply_guideline_constraint(rate, guideline.min, guideline.max, declared_pounds)
+            sfs_results.append({
+                'category': resolved_slug,
+                'label': guideline.label,
+                'declared': declared_pounds,
+                'hh_key': hh_key,
+                **constraint,
+            })
 
     return {
         "hard_blocks": hard_blocks,

@@ -18,7 +18,7 @@ NUMERIC_FIELDS = [
     'adult_1', 'adult_2',
     'adult_1_child_1', 'adult_1_child_2', 'adult_1_child_3', 'adult_1_child_4', 'adult_1_child_5',
     'adult_2_child_1', 'adult_2_child_2', 'adult_2_child_3', 'adult_2_child_4', 'adult_2_child_5',
-    'per_child', 'per_vehicle', 'first_adult', 'additional_adult',
+    'per_child', 'per_vehicle', 'per_vehicle_max', 'first_adult', 'additional_adult',
     'child_under_16', 'child_16_18',
     'watch_per_adult', 'non_watch_per_adult', 'watch_per_vehicle', 'non_watch_per_vehicle',
     'one_adult_cap', 'two_adults_cap',
@@ -55,6 +55,7 @@ class Command(BaseCommand):
                 'above_action': g.above_action or '',
                 'mismatch_action': g.mismatch_action or '',
                 'notes': g.notes or '',
+                'aryza_aliases': g.aryza_aliases or '',
             }
             for field in NUMERIC_FIELDS:
                 value = getattr(g, field, None)

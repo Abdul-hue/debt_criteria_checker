@@ -2623,6 +2623,7 @@ def _guideline_to_dict(g) -> dict:
         "adult_2_child_5": float(g.adult_2_child_5),
         "per_child": float(g.per_child),
         "per_vehicle": float(g.per_vehicle),
+        "per_vehicle_max": float(g.per_vehicle_max),
         "first_adult": float(g.first_adult),
         "additional_adult": float(g.additional_adult),
         "child_under_16": float(g.child_under_16),
@@ -2638,6 +2639,7 @@ def _guideline_to_dict(g) -> dict:
         "above_action": g.above_action,
         "mismatch_action": g.mismatch_action,
         "notes": g.notes,
+        "aryza_aliases": g.aryza_aliases,
         "created_at": g.created_at.isoformat(),
         "updated_at": g.updated_at.isoformat(),
     }
@@ -2787,7 +2789,7 @@ class ExpenditureGuidelineListView(APIView):
             'adult_1', 'adult_2',
             'adult_1_child_1', 'adult_1_child_2', 'adult_1_child_3', 'adult_1_child_4', 'adult_1_child_5',
             'adult_2_child_1', 'adult_2_child_2', 'adult_2_child_3', 'adult_2_child_4', 'adult_2_child_5',
-            'per_child', 'per_vehicle', 'first_adult', 'additional_adult',
+            'per_child', 'per_vehicle', 'per_vehicle_max', 'first_adult', 'additional_adult',
             'child_under_16', 'child_16_18',
             'watch_per_adult', 'non_watch_per_adult', 'watch_per_vehicle', 'non_watch_per_vehicle',
             'one_adult_cap', 'two_adults_cap',
@@ -2804,6 +2806,7 @@ class ExpenditureGuidelineListView(APIView):
             'above_action': data.get('above_action', ''),
             'mismatch_action': data.get('mismatch_action', ''),
             'notes': data.get('notes', ''),
+            'aryza_aliases': data.get('aryza_aliases', ''),
         }
         for f in decimal_fields:
             kwargs[f] = data.get(f, 0) or 0
@@ -2840,11 +2843,11 @@ class ExpenditureGuidelineDetailView(APIView):
         data = request.data
         updatable = [
             'label', 'max', 'min', 'sort_order', 'formula',
-            'below_action', 'above_action', 'mismatch_action', 'notes',
+            'below_action', 'above_action', 'mismatch_action', 'notes', 'aryza_aliases',
             'adult_1', 'adult_2',
             'adult_1_child_1', 'adult_1_child_2', 'adult_1_child_3', 'adult_1_child_4', 'adult_1_child_5',
             'adult_2_child_1', 'adult_2_child_2', 'adult_2_child_3', 'adult_2_child_4', 'adult_2_child_5',
-            'per_child', 'per_vehicle', 'first_adult', 'additional_adult',
+            'per_child', 'per_vehicle', 'per_vehicle_max', 'first_adult', 'additional_adult',
             'child_under_16', 'child_16_18',
             'watch_per_adult', 'non_watch_per_adult', 'watch_per_vehicle', 'non_watch_per_vehicle',
             'one_adult_cap', 'two_adults_cap',

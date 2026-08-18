@@ -256,6 +256,12 @@ class DirectAssessView(APIView):
                 "passes_all_hard_blocks": result.get("passes_all_hard_blocks", False),
                 "tig_eligible":           result.get("tig_eligible", False),
                 "recommended_solution":   result.get("recommended_solution"),
+                # ── SFS guideline comparison ──────────────────────────────
+                # assess_case() computes this (see criteria_engine.py) but it
+                # was never copied into the response — every caller got a 200
+                # with no SFS data regardless of what it sent.
+                "sfs_guideline_results":  result.get("sfs_guideline_results", []),
+                "sfs_household_key":      result.get("sfs_household_key"),
                 "alternative_solutions":   result.get("alternative_solutions", []),
                 "representatives_detected": sorted(result.get("representatives_detected") or []),
 
