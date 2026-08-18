@@ -156,6 +156,36 @@ STRUCTURED_CRITERIA = {
 
 
 # ---------------------------------------------------------------------------
+# Trading name overrides (engine-consumed field not representable in the MD
+# sources — Which_Representative_Criteria.md / General_Creditors.md are flat
+# name lists with no trading-names column).
+#
+# WHY THIS LIVES HERE (not a migration, not a direct DB/admin edit): the main
+# upsert above unconditionally sets `trading_names` from the parsed MD data,
+# which is always `[]` — there is nowhere else for it to come from. A value
+# added any other way (a one-off migration, a manual admin edit) is silently
+# wiped back to `[]` on the very next reseed. This is exactly what happened to
+# Northridge Finance's trading_names on Santander Consumer Finance, seeded
+# once by migration 0031 and gone by the next `seed_creditor_criteria` run.
+# Keeping trading names here means every reseed re-applies them — never
+# clobbered, same principle as STRUCTURED_CRITERIA above.
+#
+# Case-insensitive name match; entries are MERGED into whatever the row
+# already has (not replaced), so this only ever adds names, never removes one
+# added by a future MD update.
+TRADING_NAMES_OVERRIDES = {
+    "JD Williams": ["J D Williams", "JD Williams & Company", "Simply Be",
+                    "Jacamo", "Fashion World", "Marisota"],
+    "Anderson Brookes": ["Anderson Brookes Solicitors"],
+    "Credit4": ["Credit 4"],
+    "CCC Debt Management": ["CCC", "Complete Credit Control"],
+    "The Money Platform": ["Money Platform"],
+    "Cashplus": ["Cashplus Bank", "Advanced Payment Solutions Ltd", "Zempler Bank Limited"],
+    "Santander Consumer Finance": ["Northridge Finance", "Northridge Finance Ltd"],
+}
+
+
+# ---------------------------------------------------------------------------
 # Banking group mappings (manual enrichment not in the MD file)
 # ---------------------------------------------------------------------------
 
@@ -489,6 +519,28 @@ class Command(BaseCommand):
             f"Structured criteria applied to {applied} creditor row(s) "
             f"across {len(STRUCTURED_CRITERIA)} mappings "
             f"({skipped} field(s) skipped — already set in DB)."
+        ))
+
+        # 4. Apply trading name overrides — reseed-safe for the same reason as
+        # STRUCTURED_CRITERIA (see comment on TRADING_NAMES_OVERRIDES above).
+        tn_applied = 0
+        for crit_name, names in TRADING_NAMES_OVERRIDES.items():
+            objs = list(CreditorCriteria.objects.filter(creditor_name__iexact=crit_name))
+            if not objs:
+                self.stdout.write(self.style.WARNING(
+                    f"  [TRADING_NAMES] no creditor matched '{crit_name}' — names not applied"
+                ))
+                continue
+            for obj in objs:
+                current = obj.trading_names or []
+                merged = current + [n for n in names if n not in current]
+                if merged != current:
+                    obj.trading_names = merged
+                    obj.save(update_fields=["trading_names"])
+                    tn_applied += 1
+        self.stdout.write(self.style.SUCCESS(
+            f"Trading name overrides applied to {tn_applied} creditor row(s) "
+            f"across {len(TRADING_NAMES_OVERRIDES)} mappings."
         ))
 
         for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS", "NONE"):

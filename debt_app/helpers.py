@@ -192,16 +192,26 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'link financial': 'Link Financial - IVA',
     'link financial limited': 'Link Financial - IVA',
     'asset link': 'Asset Link',
-    'jd williams (n brown group)': 'Shop Direct',
-    'jd williams company limited': 'JD WIlliams (N Brown Group)',
-    'jd williams & company limited': 'JD WIlliams (N Brown Group)',
-    'jd williams and company limited': 'JD WIlliams (N Brown Group)',
-    'jd williams': 'JD WIlliams (N Brown Group)',
+    # JD Williams (its own CreditorCriteria row, restored via
+    # Which_Representative_Criteria.md — TIX — see 0021_fix_jd_williams_tix_
+    # county_routing.py for provenance). Previously these 3 raw keys all
+    # normalised to the SAME "jd williams" key ('jd williams (n brown group)',
+    # 'jd williams', 'jd williams (n brown group plc)') and silently collided
+    # — only the last one survived, and it pointed at 'Shop Direct' by
+    # accident, not design. Consolidated to one entry pointing at the real
+    # row. The 3 " ... Company Limited" variants below normalise to distinct
+    # keys and were separately broken, pointing at a name that never existed
+    # (a typo — "JD WIlliams (N Brown Group)" was never a real row).
+    'jd williams': 'JD Williams',
+    'jd williams company limited': 'JD Williams',
+    'jd williams & company limited': 'JD Williams',
+    'jd williams and company limited': 'JD Williams',
+    # Shop Direct is a separate, real N Brown Group entity distinct from JD
+    # Williams itself — left as its own target.
     'n brown': 'Shop Direct',
     'n brown group': 'Shop Direct',
     'shop direct': 'Shop Direct',
     'shop direct group': 'Shop Direct',
-    'jd williams (n brown group plc)': 'Shop Direct',
     'the very group limited (wpm)': 'Very',
     'capital one': 'Capital One',
     'capital one bank (europe) plc': 'Capital One',

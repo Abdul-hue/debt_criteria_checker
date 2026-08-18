@@ -309,6 +309,7 @@
 - HSBC
 - Hitachi
 - Home Retail Group
+- JD Williams
 - John Lewis Partnership
 - Kaleidoscope
 - Laser
