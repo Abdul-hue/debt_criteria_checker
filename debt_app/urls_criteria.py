@@ -37,6 +37,13 @@ from debt_app.views.criteria_views import (
 )
 from debt_app.views.evaluate_view import EvaluateCaseView
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
+from debt_app.views.internal_sfs_views import (
+    InternalGuidelineListView,
+    InternalGuidelineDetailView,
+    InternalGuidelineByCategoryView,
+    InternalGuidelineCategoryListView,
+    InternalGuidelineCategoryDetailView,
+)
 from debt_app.views.dept_views import (
     DepartmentListView,
     DepartmentDetailView,
@@ -94,6 +101,15 @@ urlpatterns = [
     path("sfs/categories/<int:pk>/",       ExpenditureGuidelineCategoryDetailView.as_view()),
     path("sfs/guidelines/",               ExpenditureGuidelineListView.as_view()),
     path("sfs/guidelines/<int:pk>/",      ExpenditureGuidelineDetailView.as_view()),
+
+    # --- SFS guidelines, service-to-service (no JWT; CA backend on this server) ---
+    # by-category/ is declared before <int:key> only for readability — the int
+    # converter can never swallow the literal prefix.
+    path("internal/sfs/guidelines/",                     InternalGuidelineListView.as_view(),           name="internal-sfs-guideline-list"),
+    path("internal/sfs/guidelines/by-category/<str:key>/", InternalGuidelineByCategoryView.as_view(),   name="internal-sfs-guideline-by-category"),
+    path("internal/sfs/guidelines/<int:key>/",           InternalGuidelineDetailView.as_view(),         name="internal-sfs-guideline-detail"),
+    path("internal/sfs/categories/",                     InternalGuidelineCategoryListView.as_view(),   name="internal-sfs-category-list"),
+    path("internal/sfs/categories/<int:pk>/",            InternalGuidelineCategoryDetailView.as_view(), name="internal-sfs-category-detail"),
     path("upload-credit-report/",         CreditReportUploadView.as_view(), name="upload-credit-report"),
     path("my-department/",               MyDepartmentView.as_view(), name="my-department"),
 
