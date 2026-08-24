@@ -40,6 +40,15 @@ INTERNAL_API_ALLOWED_IPS = [
     ).split(',') if ip.strip()
 ]
 
+# Reverse proxies whose X-Forwarded-For header may be believed when deciding the
+# caller IP above. Empty by default: this service is reached directly, so
+# REMOTE_ADDR is the real client and a forwarded header would just be a caller
+# claiming to be someone else. Only list a proxy that overwrites the header.
+INTERNAL_API_TRUSTED_PROXIES = [
+    ip.strip() for ip in os.environ.get('INTERNAL_API_TRUSTED_PROXIES', '').split(',')
+    if ip.strip()
+]
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

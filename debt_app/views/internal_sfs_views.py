@@ -51,11 +51,23 @@ DEFAULT_ALLOWED_WRITE_IPS = ('127.0.0.1', '::1')
 
 
 def _client_ip(request) -> str:
-    """Real caller IP, honouring X-Forwarded-For when behind nginx/gunicorn."""
-    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '') or ''
+    """
+    Caller IP for the write guard.
+
+    REMOTE_ADDR is the only value a client cannot forge, so it is what we
+    authorise on. X-Forwarded-For is honoured ONLY when the connection itself
+    comes from a proxy we listed in INTERNAL_API_TRUSTED_PROXIES — otherwise
+    any caller could send 'X-Forwarded-For: 127.0.0.1' and walk through the
+    guard. When a trusted proxy is in front, the LAST entry is the hop that
+    proxy appended; earlier entries are client-supplied and unreliable.
+    """
+    remote = request.META.get('REMOTE_ADDR', '') or ''
+    trusted = getattr(django_settings, 'INTERNAL_API_TRUSTED_PROXIES', ())
+    if remote and remote in trusted:
+        forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        if forwarded:
+            return forwarded.split(',')[-1].strip()
+    return remote
 
 
 def _write_blocked(request):

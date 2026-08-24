@@ -4,7 +4,7 @@ Covers the whole CRUD surface with NO auth header at all — a regression here
 means the CA backend starts getting 401/404 from a route it depends on.
 """
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from debt_app.models import ExpenditureGuideline, GuidelineCategory
 
@@ -141,6 +141,77 @@ class InternalSFSGuidelineAPITests(TestCase):
         self.assertEqual(
             self.client.get(f"{BASE}/guidelines/", REMOTE_ADDR="10.20.30.40").status_code, 200
         )
+
+    def test_spoofed_forwarded_header_cannot_pass_the_write_guard(self):
+        """X-Forwarded-For is caller-controlled — it must not grant write access."""
+        res = self.client.delete(
+            f"{BASE}/guidelines/{self.guideline.id}/",
+            REMOTE_ADDR="10.20.30.40",
+            HTTP_X_FORWARDED_FOR="127.0.0.1",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["code"], "WRITE_NOT_ALLOWED_FROM_HOST")
+        self.assertTrue(ExpenditureGuideline.objects.filter(pk=self.guideline.id).exists())
+
+    @override_settings(INTERNAL_API_TRUSTED_PROXIES=["10.0.0.9"])
+    def test_forwarded_header_honoured_only_behind_a_trusted_proxy(self):
+        # Connection comes from the declared proxy → believe the hop it appended.
+        allowed = self.client.patch(
+            f"{BASE}/guidelines/{self.guideline.id}/",
+            data={"notes": "via proxy"},
+            content_type="application/json",
+            REMOTE_ADDR="10.0.0.9",
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 127.0.0.1",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+        # A client prepending a fake hop cannot promote itself: the last entry wins.
+        blocked = self.client.patch(
+            f"{BASE}/guidelines/{self.guideline.id}/",
+            data={"notes": "spoof"},
+            content_type="application/json",
+            REMOTE_ADDR="10.0.0.9",
+            HTTP_X_FORWARDED_FOR="127.0.0.1, 203.0.113.7",
+        )
+        self.assertEqual(blocked.status_code, 403)
+
+    @override_settings(
+        INTERNAL_API_ALLOWED_IPS=["127.0.0.1", "::1", "localhost", "192.168.80.52"]
+    )
+    def test_ca_backend_can_write_from_the_servers_own_lan_ip(self):
+        """
+        Production .env config: CA (:2310) reaches this service (:5010) by the
+        server's LAN IP, so the connection's source address is that LAN IP —
+        NOT 127.0.0.1. Listing it is what makes CA's writes work.
+        """
+        res = self.client.patch(
+            f"{BASE}/guidelines/{self.guideline.id}/",
+            data={"adult_1": 310.00},
+            content_type="application/json",
+            REMOTE_ADDR="192.168.80.52",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["adult_1"], 310.00)
+        # Anything not on the list is still refused.
+        self.assertEqual(
+            self.client.patch(
+                f"{BASE}/guidelines/{self.guideline.id}/",
+                data={"adult_1": 1},
+                content_type="application/json",
+                REMOTE_ADDR="192.168.80.99",
+            ).status_code,
+            403,
+        )
+
+    @override_settings(INTERNAL_API_ALLOWED_IPS=["*"])
+    def test_wildcard_allows_writes_from_anywhere(self):
+        res = self.client.patch(
+            f"{BASE}/guidelines/{self.guideline.id}/",
+            data={"notes": "open"},
+            content_type="application/json",
+            REMOTE_ADDR="10.20.30.40",
+        )
+        self.assertEqual(res.status_code, 200)
 
     # --- categories ---------------------------------------------------------
 
