@@ -15,11 +15,7 @@ build/
 # Django
 *.sqlite3
 *.log
-logs/*
-!logs/.gitkeep
-# collectstatic output (regenerated at deploy time - see Dockerfile)
 staticfiles/
-static/
 media/
 
 # Environment variables

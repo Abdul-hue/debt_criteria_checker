@@ -116,16 +116,10 @@ DATABASES = {
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 STATIC_URL = '/static/'
-# collectstatic output. Kept out of the source tree (and out of git) - it is
-# regenerated on every deploy by the collectstatic step in the Dockerfile.
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = BASE_DIR / 'static'
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
-
-# Runtime log files (CRM vote sync, etc). Git-ignored; see logs/.gitkeep.
-LOG_DIR = Path(os.environ.get('LOG_DIR') or (BASE_DIR / 'logs'))
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 STATICFILES_DIRS = [
     BASE_DIR / 'frontend' / 'dist',
@@ -186,8 +180,5 @@ MOC_ALERT_RECIPIENTS = [
 ]
 MOC_ALERT_FROM_EMAIL = os.environ.get('MOC_ALERT_FROM_EMAIL', '') or DEFAULT_FROM_EMAIL
 
-# Request-tracing middleware. Off by default: it prints every request/response
-# to stdout, which floods test output and production logs. Enable per-environment
-# with REQUEST_DEBUG_MIDDLEWARE=true.
-if env_bool('REQUEST_DEBUG_MIDDLEWARE', False):
-    MIDDLEWARE.insert(0, 'debt_project.debug_middleware.RequestDebugMiddleware')
+# DEBUG MIDDLEWARE
+MIDDLEWARE.insert(0, 'debt_project.debug_middleware.RequestDebugMiddleware')

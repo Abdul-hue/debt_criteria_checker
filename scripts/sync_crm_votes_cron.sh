@@ -7,4 +7,4 @@ set -euo pipefail
 CONTAINER_NAME="debt-criteria"
 
 docker exec "$CONTAINER_NAME" python manage.py sync_creditor_vote_summaries \
-  --log-file /app/logs/creditor_vote_sync.log
+  --log-file /app/data/creditor_vote_sync.log

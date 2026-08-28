@@ -14,7 +14,7 @@ GET /api/assessments/guideline-categories/ endpoint, 2026-08-18), which
   2. Household-composition child columns (adult_1_child_1..5,
      adult_2_child_1..5) were left at 0.00 for every guideline that grades
      by household size, when production has real, non-zero, graduated
-     values in every one of them. debt_app.engine.sfs.get_guideline_rate
+     values in every one of them. debt_app.sfs_calculator.get_guideline_rate
      reads these columns directly via getattr() — it does NOT evaluate the
      'formula' text — so for any household with children these guidelines
      were silently resolving to a 0.00 floor/ceiling. Affected: hobbies,

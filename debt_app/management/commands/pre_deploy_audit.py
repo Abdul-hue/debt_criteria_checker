@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pre-deployment sign-off audit.
 
 Covers:
@@ -51,13 +51,13 @@ class Command(BaseCommand):
         p("PART 1  detect_representatives comparison + full regression")
         p(_hr())
 
-        from debt_app.integrations.aryza import fetch_case_by_reference
-        from debt_app.engine.criteria import (
+        from debt_app.aryza_client import fetch_case_by_reference
+        from debt_app.criteria_engine import (
             assess_case,
             detect_representatives,
             reconcile_creditor_positions,
         )
-        from debt_app.views.criteria import AssessCaseView
+        from debt_app.views.criteria_views import AssessCaseView
 
         view = AssessCaseView()
         part1_any_diff = False
