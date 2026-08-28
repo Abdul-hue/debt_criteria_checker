@@ -18,7 +18,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--log-file",
             type=str,
-            default=os.path.join(settings.BASE_DIR, "creditor_vote_sync.log"),
+            default=os.path.join(settings.LOG_DIR, "creditor_vote_sync.log"),
             help="Path to the log file for audit purposes.",
         )
 

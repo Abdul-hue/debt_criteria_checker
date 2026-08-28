@@ -257,7 +257,7 @@ class Command(BaseCommand):
         # exist. Idempotent and strict (raises on a missing/ambiguous/drifted
         # pin) — councils were just seeded above, so a 0-match is a real error.
         if not dry_run:
-            from debt_app.county_routing_seed import seed_county_routing, apply_alias_pins
+            from debt_app.seeds.county_routing import seed_county_routing, apply_alias_pins
             from debt_app.models import CountyCouncilRouting
             _log = lambda m: self.stdout.write(self.style.SUCCESS("  " + m))
             seed_county_routing(CouncilRule, CountyCouncilRouting, strict=True, log=_log)

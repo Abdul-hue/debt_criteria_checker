@@ -78,7 +78,7 @@ def resolve_vote_summary_creditor(vote_summary):
     Resolve a CreditorVoteSummary to (creditor_name, creditor_criteria_or_None),
     using the same three-way creditor_criteria/council_rule/county_council
     resolution as CrmSyncRunCreditorBreakdownView
-    (debt_app/views/criteria_views.py) - exactly one of the three FKs is set
+    (debt_app/views/criteria/) - exactly one of the three FKs is set
     per Prompt 5. Returns creditor_criteria (not None) only when the
     vote_summary is backed by a CreditorCriteria, since only that model has
     the representative/dividend fields get_creditor_tags() needs.
@@ -693,7 +693,7 @@ def check_and_send_non_accept_milestones(run, log=None):
     This only records rows - it does NOT send email. See the
     `send_moc_daily_digest` management command for the once-a-day send.
     """
-    from debt_app.views.criteria_views import check_non_accept_milestone
+    from debt_app.views.criteria import check_non_accept_milestone
 
     events = CreditorVoteChangeEvent.objects.filter(sync_run=run)
     vote_summary_ids = set(events.values_list("vote_summary_id", flat=True))
@@ -730,7 +730,7 @@ def run_crm_vote_sync(run=None, dry_run=False, log_file=None):
     Raises on failure (caller is responsible for catching and marking run as FAILED).
     """
     if log_file is None:
-        log_file = os.path.join(settings.BASE_DIR, "creditor_vote_sync.log")
+        log_file = os.path.join(settings.LOG_DIR, "creditor_vote_sync.log")
 
     def set_stage(stage):
         if run is not None:

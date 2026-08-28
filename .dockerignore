@@ -7,9 +7,13 @@ db.sqlite3
 .git/
 .vscode/
 .claude/
-scratch/
 docs/
-tests/
+logs/
+staticfiles/
+static/
+media/
+debt_app/tests/
+scripts/dev/
 frontend/node_modules/
 frontend/dist/
 

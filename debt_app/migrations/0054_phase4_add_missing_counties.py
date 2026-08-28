@@ -3,17 +3,17 @@ Phase 4 — add the 4 county councils present in the authoritative source
 (Excel Criteria/County_Councils_Criteria.md) but absent from CountyCouncilRouting:
 Derbyshire, Dorset, North Yorkshire, Staffordshire (32 districts).
 
-The routing data + FK-pinning logic live in debt_app/county_routing_seed.py
+The routing data + FK-pinning logic live in debt_app/seeds/county_routing.py
 (shared with the seed_all_councils command). CouncilRule rows are seeded by that
 command, not by migrations, so on a migration-only test/fresh DB the routing
 rows are created with a null FK and pinning is deferred to the next
 seed_all_councils run; on the live DB (councils present) they are pinned now.
-See county_routing_seed.py for the full rationale and the encoded decisions.
+See seeds/county_routing.py for the full rationale and the encoded decisions.
 """
 
 from django.db import migrations
 
-from debt_app.county_routing_seed import seed_county_routing, COUNTIES
+from debt_app.seeds.county_routing import seed_county_routing, COUNTIES
 
 
 def forward(apps, schema_editor):
