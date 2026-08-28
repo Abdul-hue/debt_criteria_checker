@@ -2948,8 +2948,16 @@ class CreditReportUploadView(APIView):
                 record.extraction_status = "failed"
                 record.extraction_error = result["extraction_error"]
                 record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+                # ⚠️ `success` MUST be False here. The case-assessment-tool's
+                # CriteriaClient.upload_credit_report() treats `success` as the
+                # only signal that extraction failed — it previously read
+                # `True` on this branch and treated a failed extraction
+                # identically to "client has no debts": empty accounts, no
+                # error surfaced, and the case's existing Creditor rows got
+                # deleted and replaced with nothing. See case-assessment-tool
+                # docs/api-fixes.md and platform/criteria.py.
                 return Response({
-                    "success": True,
+                    "success": False,
                     "credit_report_id": record.id,
                     "aryza_reference": aryza_reference,
                     "agency": "",
@@ -2957,6 +2965,11 @@ class CreditReportUploadView(APIView):
                     "accounts_found": 0,
                     "client_name_on_report": "",
                     "unmatched_accounts": [],
+                    "accounts": [],
+                    "mortgage_accounts": [],
+                    "other_accounts": [],
+                    "public_information": {},
+                    "error": result["extraction_error"],
                     "message": "Credit report uploaded but extraction failed",
                 })
 
@@ -2996,8 +3009,10 @@ class CreditReportUploadView(APIView):
             record.extraction_status = "failed"
             record.extraction_error = str(exc)
             record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+            # `success: False` — see the matching branch above for why this
+            # flag has to reflect extraction failure, not just upload receipt.
             return Response({
-                "success": True,
+                "success": False,
                 "credit_report_id": record.id,
                 "aryza_reference": aryza_reference,
                 "agency": "",
@@ -3005,6 +3020,11 @@ class CreditReportUploadView(APIView):
                 "accounts_found": 0,
                 "client_name_on_report": "",
                 "unmatched_accounts": [],
+                "accounts": [],
+                "mortgage_accounts": [],
+                "other_accounts": [],
+                "public_information": {},
+                "error": str(exc),
                 "message": "Credit report uploaded but extraction failed",
             })
 
