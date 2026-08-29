@@ -9,11 +9,13 @@ RUN npm run build
 # Stage 2: Build the Python app
 FROM python:3.12-slim
 
-# Install system dependencies for building mysqlclient
+# Install system dependencies: build tools for mysqlclient, Tesseract OCR
+# for council-tax evidence extraction (debt_app/integrations/council_tax_evidence.py)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     default-libmysqlclient-dev \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
