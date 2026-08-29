@@ -2,6 +2,7 @@ from django.contrib import admin
 from .models import (
     CreditorCriteria, GlobalCriteria, Voter, Application, EvidenceLedger,
     CriteriaDecision, GuidelineCategory, ExpenditureGuideline, CreditReport,
+    CouncilTaxEvidence,
     Department, UserProfile,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, DepartmentFeatureAccess, DepartmentFeaturePermission,
@@ -115,6 +116,18 @@ class CreditReportAdmin(admin.ModelAdmin):
             return len(obj.extracted_data["accounts"])
         return 0
     accounts_found_display.short_description = "Accounts Found"
+
+
+@admin.register(CouncilTaxEvidence)
+class CouncilTaxEvidenceAdmin(admin.ModelAdmin):
+    list_display = [
+        'aryza_reference', 'extraction_status', 'account_reference',
+        'balance_pence', 'council_name', 'liability_order_date',
+        'uploaded_by', 'created_at',
+    ]
+    list_filter = ['extraction_status', 'council_name']
+    search_fields = ['aryza_reference', 'account_reference', 'council_name', 'client_salutation_name']
+    readonly_fields = ['raw_text', 'extraction_error', 'created_at', 'updated_at']
 
 
 @admin.register(Department)

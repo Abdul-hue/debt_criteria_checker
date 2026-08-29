@@ -4231,11 +4231,21 @@ def _check_ie_match(case: dict) -> list:
 
 def _check_debt_repayability(case: dict) -> list:
     """
-    Module 6: Per-creditor debt repayability threshold.
+    Module 6: Debt repayability threshold.
 
     If reject_if_debt_repayable_within_months is set for a creditor and the
-    creditor's balance divided by monthly DI is below that threshold (months),
-    emit DEBT-REPAYABILITY-REJECT (hard block).
+    client's TOTAL debt divided by monthly DI is below that threshold (months),
+    emit DEBT-REPAYABILITY-REJECT (flag — this is one creditor's expected
+    stance, not a case-wide blocker; matches the CCJ/AOE/asset pattern in
+    _check_creditor_individual and the sibling IE-MATCH-FAIL/GUARANTOR-NOT-
+    CALLED-UP checks in this module).
+
+    NOTE: this is evaluated against the client's total debt, not the individual
+    creditor's own balance — the Excel source ("IF CAN REPAY DEBTS IN LESS THAN
+    96 MONTHS REJECT") consistently refers to "debts" (plural, i.e. the whole
+    debt position), matching the underlying logic: if the client's overall debt
+    could be cleared quickly through normal repayment, an IVA isn't needed. The
+    threshold itself still belongs to whichever creditor sets it.
     Source: GENERAL CREDITOR sheet — reject_if_debt_repayable_within_months field.
     """
     from debt_app.helpers import get_creditor_by_trading_name
@@ -4245,6 +4255,12 @@ def _check_debt_repayability(case: dict) -> list:
     monthly_di = case.get("monthly_di", Decimal("0"))
     if not monthly_di or monthly_di <= 0:
         return results
+
+    total_debt = float(case.get("total_debt") or 0)
+    if total_debt <= 0:
+        return results
+
+    months_to_repay = total_debt / float(monthly_di)
 
     for cr in case.get("creditors", []):
         try:
@@ -4256,22 +4272,17 @@ def _check_debt_repayability(case: dict) -> list:
         if threshold is None:
             continue
 
-        balance = float(cr["crm_balance"])
-        if balance <= 0:
-            continue
-
-        months_to_repay = balance / float(monthly_di)
         if months_to_repay < threshold:
             results.append(RuleResult(
                 rule_id="DEBT-REPAYABILITY-REJECT",
-                severity="hard_block",
+                severity="flag",
                 triggered=True,
                 message=(
-                    f"The debt of £{balance:,.2f} owed to {cr['name']} could be repaid in "
-                    f"about {months_to_repay:.1f} months out of the client's available "
-                    f"income, which is faster than this creditor's {threshold}-month "
-                    "threshold for considering an IVA appropriate. Because the debt could "
-                    "be cleared quickly through other means, this creditor is expected to "
+                    f"The client's total debt of £{total_debt:,.2f} could be repaid in "
+                    f"about {months_to_repay:.1f} months out of their available income, "
+                    f"which is faster than {cr['name']}'s {threshold}-month threshold for "
+                    "considering an IVA appropriate. Because the overall debt could be "
+                    "cleared quickly through other means, this creditor is expected to "
                     "reject the IVA."
                 ),
                 threshold=float(threshold),

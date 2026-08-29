@@ -31,16 +31,18 @@ from debt_app.helpers import (
     GlobalCriteria, CreditorCriteria, CriteriaDecision, CouncilRule,
     Application, EvidenceLedger, Voter,
     get_user_department, filter_by_department,
+    DEBT_TYPE_COUNCIL_TAX,
 )
 from debt_app.permissions import HasFeatureAccess, HasWritePermission, HasReadPermission
 from debt_app.models import (
-    GuidelineCategory, ExpenditureGuideline, CreditReport,
+    GuidelineCategory, ExpenditureGuideline, CreditReport, CouncilTaxEvidence,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
     CountyCouncil, CreditorVoteSummary, CrmSyncRun, CreditorVoteChangeEvent,
     CreditorMocAlert, CreditorNonAcceptMilestone,
 )
 from debt_app.credit_report_extractor import extract_credit_report, normalise_start_date_iso
+from debt_app.integrations.council_tax_evidence import extract_council_tax_evidence
 from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally, get_last_5_tally
 import threading
 
@@ -192,6 +194,74 @@ def enrich_positions_with_tallies(creditor_positions):
             pos["latest_vote_outcome"] = None
             pos["latest_vote_date"] = None
             pos["last_5_tally"] = None
+
+
+def _council_name_match(evidence_council_name: str, creditor_name: str) -> bool:
+    """
+    Loose match between a council-tax evidence's best-effort council name
+    (e.g. "Flintshire", derived from a sender's @flintshire.gov.uk domain —
+    see integrations/council_tax_evidence.extract_council_name) and a
+    creditor position's actual name (e.g. "Flintshire County Council").
+    Substring match either direction, case-insensitive; guards a bare-word
+    minimum length so short names can't spuriously match everything.
+    """
+    a = (evidence_council_name or "").strip().lower()
+    b = (creditor_name or "").strip().lower()
+    if not a or not b or len(a) < 3:
+        return False
+    return a in b or b in a
+
+
+def attach_council_tax_evidence(creditor_positions: list, aryza_reference: str) -> list:
+    """
+    Fetches CouncilTaxEvidence rows uploaded for this case (see
+    CouncilTaxEvidenceUploadView) and:
+      1. Returns them as a plain list of dicts for the response's top-level
+         `council_tax_evidence` field — always populated regardless of
+         whether a matching creditor position exists, so nothing uploaded
+         is ever silently invisible.
+      2. Best-effort attaches the matching evidence directly onto whichever
+         council_tax creditor_positions entry its council name matches, so
+         the Creditor Positions table can show it inline without the
+         frontend having to cross-reference two separate lists itself.
+
+    Evidence with extraction_status="extracted_empty" (nothing readable was
+    found on the document — see CouncilTaxEvidenceUploadView) is excluded;
+    there's nothing meaningful to show or match on for those.
+    """
+    evidence_qs = CouncilTaxEvidence.objects.filter(
+        aryza_reference=aryza_reference, extraction_status="extracted",
+    ).order_by("-created_at")
+
+    evidence_list = [
+        {
+            "id": ev.id,
+            "account_reference": ev.account_reference or None,
+            "balance_pence": ev.balance_pence,
+            "council_name": ev.council_name or None,
+            "liability_order_court": ev.liability_order_court or None,
+            "liability_order_date": ev.liability_order_date.isoformat() if ev.liability_order_date else None,
+            "client_salutation_name": ev.client_salutation_name or None,
+            "created_at": ev.created_at.isoformat(),
+        }
+        for ev in evidence_qs
+    ]
+
+    if not evidence_list:
+        return evidence_list
+
+    for pos in creditor_positions:
+        if pos.get("debt_type_normalised") != DEBT_TYPE_COUNCIL_TAX:
+            continue
+        creditor_name = pos.get("creditor_name") or pos.get("original_aryza_name") or ""
+        match = next(
+            (ev for ev in evidence_list if _council_name_match(ev["council_name"], creditor_name)),
+            None,
+        )
+        if match:
+            pos["council_tax_evidence"] = match
+
+    return evidence_list
 
 
 def build_phase7_response_fields(result: dict) -> dict:
@@ -1163,8 +1233,9 @@ class AssessCaseView(APIView):
             )
 
         enrich_positions_with_tallies(all_creditor_positions)
+        council_tax_evidence_list = attach_council_tax_evidence(all_creditor_positions, aryza_reference)
         result["creditor_positions"] = all_creditor_positions
-        
+
         # Enrich rules with metadata from GlobalCriteria
         result['hard_blocks'] = enrich_rules_with_meta(result.get('hard_blocks', []))
         result['flags'] = enrich_rules_with_meta(result.get('flags', []))
@@ -1207,6 +1278,7 @@ class AssessCaseView(APIView):
         serialized["disposable_income"] = case_data.get("disposable_income")
         serialized["total_unsecured_debt"] = case_data.get("total_unsecured_debt")
         serialized["lead_gen_disposable_income"] = result.get("lead_gen_disposable_income")
+        serialized["council_tax_evidence"] = council_tax_evidence_list
 
         # Step 4 — Save to CriteriaDecision
         try:
@@ -2889,7 +2961,7 @@ class _InternalKeyOrAuthenticated(BasePermission):
 
 class CreditReportUploadView(APIView):
     """
-    POST /api/v1/criteria/credit-report/upload/
+    POST /api/v1/criteria/upload-credit-report/
     Open endpoint — no JWT required. The CA backend can upload credit
     report PDFs without a token, matching /api/v1/assess/ behaviour.
     """
@@ -2976,8 +3048,33 @@ class CreditReportUploadView(APIView):
             record.extracted_data = result
             record.agency = result.get("agency", "")
             record.client_name_on_report = result.get("client_name", "")
-            record.extraction_status = "extracted"
+
+            # A recognised bureau format (Experian / Aryza Advize) that
+            # nonetheless yields 0 accounts, 0 mortgages, and 0
+            # reconciliation-only rows is indistinguishable, on a plain
+            # "extracted" status, from a genuinely clean credit file — but
+            # in practice it usually means the PDF's internal layout is one
+            # this parser doesn't recognise (see the Valid8IP-format fix in
+            # integrations/credit_report.py). Flag it distinctly so it
+            # surfaces for manual review instead of silently reading as
+            # "client has no debts". `success` stays True — extraction did
+            # not raise — this only affects `extraction_status` and adds a
+            # `warning` key callers can choose to act on.
+            recognised_bureau = record.agency in ("Experian", "Aryza Advize")
+            found_nothing_at_all = not (
+                result.get("accounts") or result.get("mortgage_accounts") or result.get("other_accounts")
+            )
+            is_empty_recognised = recognised_bureau and found_nothing_at_all
+
+            record.extraction_status = "extracted_empty" if is_empty_recognised else "extracted"
             record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "extraction_status", "updated_at"])
+
+            if is_empty_recognised:
+                logger.warning(
+                    "[CREDIT REPORT EXTRACT] ref=%s agency=%s recognised format but 0 accounts/"
+                    "mortgages/other found — flagging extracted_empty for review",
+                    aryza_reference, record.agency,
+                )
 
             logger.info(
                 "[CREDIT REPORT EXTRACT] ref=%s agency=%s accounts=%d unmatched=%s matched=%s",
@@ -2988,12 +3085,12 @@ class CreditReportUploadView(APIView):
                 [a.get("matched_creditor") for a in result.get("accounts", [])],
             )
 
-            return Response({
+            response_payload = {
                 "success": True,
                 "credit_report_id": record.id,
                 "aryza_reference": aryza_reference,
                 "agency": record.agency,
-                "extraction_status": "extracted",
+                "extraction_status": record.extraction_status,
                 "accounts_found": len(result.get("accounts", [])),
                 "client_name_on_report": record.client_name_on_report,
                 "unmatched_accounts": result.get("unmatched_accounts", []),
@@ -3002,7 +3099,17 @@ class CreditReportUploadView(APIView):
                 "other_accounts": result.get("other_accounts", []),
                 "public_information": result.get("public_information", {}),
                 "message": "Credit report uploaded and extracted successfully",
-            })
+            }
+            if is_empty_recognised:
+                response_payload["warning"] = (
+                    f"Report agency was recognised as '{record.agency}' but 0 accounts, "
+                    "mortgages, or reconciliation-only rows were extracted — this usually "
+                    "means the PDF uses a layout this parser doesn't recognise yet, not that "
+                    "the client genuinely has no credit history. Needs manual review."
+                )
+                response_payload["message"] = "Credit report uploaded — extraction found no accounts, needs review"
+
+            return Response(response_payload)
 
         except Exception as exc:
             logger.error("Credit report extraction failed: %s", exc, exc_info=True)
@@ -3026,6 +3133,158 @@ class CreditReportUploadView(APIView):
                 "public_information": {},
                 "error": str(exc),
                 "message": "Credit report uploaded but extraction failed",
+            })
+
+
+# Recognised image signatures — a real council-tax bill/letter is often
+# supplied as a phone screenshot (see ctax1.png), not a text-layer PDF, so
+# this endpoint (unlike CreditReportUploadView above) has to accept images
+# too. PDF is also accepted: pdfplumber reads its text layer directly, no
+# OCR needed — see integrations/council_tax_evidence.py.
+_COUNCIL_TAX_EVIDENCE_SIGNATURES = {
+    b"%PDF": False,          # PDF -> is_image=False (text-layer read, not OCR)
+    b"\x89PNG\r\n\x1a\n": True,
+    b"\xff\xd8\xff": True,   # JPEG
+}
+
+
+class CouncilTaxEvidenceUploadView(APIView):
+    """
+    POST /api/v1/criteria/council-tax-evidence/upload/
+
+    Accepts a council-tax document (image or PDF) that doesn't fit the
+    formal-bill layout a structured parser could key off — a liability-
+    order letter, an email/portal notification, or a phone screenshot of
+    either (the ctax1.png case this endpoint was built for). OCRs images
+    with Tesseract; reads a PDF's text layer directly. Extracts account
+    reference, balance, liability-order court/date, the client's name from
+    the salutation, and a best-effort council name from the sender's
+    @...gov.uk domain — see integrations/council_tax_evidence.py for the
+    extraction logic and its ground-truth OCR reference text.
+
+    Open endpoint — no JWT required, matching CreditReportUploadView.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        aryza_reference = (request.data.get("aryza_reference") or "").strip()
+        if not aryza_reference:
+            return Response(
+                {"success": False, "error": "aryza_reference is required.", "code": "MISSING_REFERENCE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        uploaded_file = request.FILES.get("evidence")
+        if not uploaded_file:
+            return Response(
+                {"success": False, "error": "evidence file is required.", "code": "MISSING_FILE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        header = uploaded_file.read(8)
+        uploaded_file.seek(0)
+        is_image = None
+        for signature, sig_is_image in _COUNCIL_TAX_EVIDENCE_SIGNATURES.items():
+            if header.startswith(signature):
+                is_image = sig_is_image
+                break
+        if is_image is None:
+            return Response(
+                {"success": False, "error": "File must be a PNG, JPEG, or PDF.", "code": "INVALID_FILE_TYPE"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if uploaded_file.size == 0:
+            return Response(
+                {"success": False, "error": "Uploaded file is empty.", "code": "INVALID_FILE"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        uploader = request.user if (request.user and request.user.is_authenticated) else None
+        record = CouncilTaxEvidence.objects.create(
+            aryza_reference=aryza_reference,
+            uploaded_file=uploaded_file,
+            extraction_status="pending",
+            uploaded_by=uploader,
+        )
+
+        try:
+            result = extract_council_tax_evidence(record.uploaded_file.path, is_image=is_image)
+
+            if "extraction_error" in result:
+                record.extraction_status = "failed"
+                record.extraction_error = result["extraction_error"]
+                record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+                return Response({
+                    "success": False,
+                    "evidence_id": record.id,
+                    "aryza_reference": aryza_reference,
+                    "extraction_status": "failed",
+                    "error": result["extraction_error"],
+                    "message": "Council tax evidence uploaded but extraction failed",
+                })
+
+            liability_order = result.get("liability_order") or {}
+            found_nothing = not (
+                result.get("account_reference") or result.get("balance_pence")
+                or liability_order.get("court") or result.get("council_name")
+            )
+
+            record.raw_text = result.get("raw_text", "")
+            record.account_reference = result.get("account_reference") or ""
+            record.balance_pence = result.get("balance_pence")
+            record.council_name = result.get("council_name") or ""
+            record.liability_order_court = liability_order.get("court") or ""
+            record.liability_order_date = liability_order.get("date_iso") or None
+            record.client_salutation_name = result.get("client_salutation_name") or ""
+            record.extraction_status = "extracted_empty" if found_nothing else "extracted"
+            record.save(update_fields=[
+                "raw_text", "account_reference", "balance_pence", "council_name",
+                "liability_order_court", "liability_order_date", "client_salutation_name",
+                "extraction_status", "updated_at",
+            ])
+
+            logger.info(
+                "[COUNCIL TAX EVIDENCE] ref=%s status=%s account_ref=%s balance_pence=%s council=%s",
+                aryza_reference, record.extraction_status, record.account_reference,
+                record.balance_pence, record.council_name,
+            )
+
+            response_payload = {
+                "success": True,
+                "evidence_id": record.id,
+                "aryza_reference": aryza_reference,
+                "extraction_status": record.extraction_status,
+                "account_reference": result.get("account_reference"),
+                "balance_pence": result.get("balance_pence"),
+                "council_name": result.get("council_name"),
+                "liability_order": liability_order,
+                "client_salutation_name": result.get("client_salutation_name"),
+                "message": "Council tax evidence uploaded and extracted successfully",
+            }
+            if found_nothing:
+                response_payload["warning"] = (
+                    "No account reference, balance, liability-order court, or council name "
+                    "could be found on this document — needs manual review."
+                )
+                response_payload["message"] = "Council tax evidence uploaded — extraction found nothing, needs review"
+
+            return Response(response_payload)
+
+        except Exception as exc:
+            logger.error("Council tax evidence extraction failed: %s", exc, exc_info=True)
+            record.extraction_status = "failed"
+            record.extraction_error = str(exc)
+            record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+            return Response({
+                "success": False,
+                "evidence_id": record.id,
+                "aryza_reference": aryza_reference,
+                "extraction_status": "failed",
+                "error": str(exc),
+                "message": "Council tax evidence uploaded but extraction failed",
             })
 
 

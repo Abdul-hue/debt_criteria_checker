@@ -25,6 +25,7 @@ from debt_app.views.criteria_views import (
     ExpenditureGuidelineListView,
     ExpenditureGuidelineDetailView,
     CreditReportUploadView,
+    CouncilTaxEvidenceUploadView,
     MyDepartmentView,
     CreditorOutcomeListView,
     CreditorAuditLogView,
@@ -111,6 +112,7 @@ urlpatterns = [
     path("internal/sfs/categories/",                     InternalGuidelineCategoryListView.as_view(),   name="internal-sfs-category-list"),
     path("internal/sfs/categories/<int:pk>/",            InternalGuidelineCategoryDetailView.as_view(), name="internal-sfs-category-detail"),
     path("upload-credit-report/",         CreditReportUploadView.as_view(), name="upload-credit-report"),
+    path("council-tax-evidence/upload/",  CouncilTaxEvidenceUploadView.as_view(), name="council-tax-evidence-upload"),
     path("my-department/",               MyDepartmentView.as_view(), name="my-department"),
 
     # --- Department CRUD (admin only) ---

@@ -1120,6 +1120,14 @@ def compute_group_cap(category, adults, children_under_16, children_16_18):
 EXTRACTION_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("extracted", "Extracted"),
+    # Extraction ran without raising, and the agency was recognised
+    # (Experian / Aryza Advize), but 0 accounts, mortgages, or reconciliation
+    # rows were found at all. A plain "extracted" status looks identical to
+    # a genuinely clean report and to a report whose layout the parser
+    # doesn't understand — this distinguishes the latter so it surfaces for
+    # review instead of silently reading as "client has no debts". See
+    # CreditReportUploadView.post.
+    ("extracted_empty", "Extracted — No Accounts Found"),
     ("failed", "Failed"),
 ]
 
@@ -1168,6 +1176,51 @@ class CreditReport(models.Model):
 
     def __str__(self):
         return f"CreditReport({self.aryza_reference}, {self.extraction_status})"
+
+
+class CouncilTaxEvidence(models.Model):
+    """
+    Structured evidence extracted from an uploaded council-tax document —
+    built for correspondence (a liability-order letter, an email/portal
+    notification, a phone screenshot of either) rather than a formal
+    periodic bill, since that content doesn't fit a fixed-layout parser.
+    See integrations/council_tax_evidence.py for the extraction logic.
+    """
+    id = models.BigAutoField(primary_key=True)
+    aryza_reference = models.CharField(
+        max_length=255, db_index=True,
+        help_text="Aryza case reference this evidence belongs to"
+    )
+    uploaded_file = models.FileField(
+        upload_to="council_tax_evidence/%Y/%m/",
+        help_text="Raw image or PDF file"
+    )
+    extraction_status = models.CharField(
+        max_length=20,
+        choices=EXTRACTION_STATUS_CHOICES,
+        default="pending"
+    )
+    raw_text = models.TextField(blank=True, default="")
+    account_reference = models.CharField(max_length=100, blank=True, default="")
+    balance_pence = models.IntegerField(null=True, blank=True)
+    council_name = models.CharField(max_length=255, blank=True, default="")
+    liability_order_court = models.CharField(max_length=255, blank=True, default="")
+    liability_order_date = models.DateField(null=True, blank=True)
+    client_salutation_name = models.CharField(max_length=255, blank=True, default="")
+    extraction_error = models.TextField(blank=True, default="")
+    uploaded_by = models.ForeignKey(
+        "auth.User", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="uploaded_council_tax_evidence"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["aryza_reference"])]
+
+    def __str__(self):
+        return f"CouncilTaxEvidence({self.aryza_reference}, {self.extraction_status})"
 
 
 # ---------------------------------------------------------------------------

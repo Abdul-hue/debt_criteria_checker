@@ -242,11 +242,23 @@ def _parse_amount(text: str) -> int | None:
     Also handles inline fields like "£106098 Last Update: 2025-12-31" by
     taking only the first whitespace-delimited token.
     Returns None for "N/A", "-", empty, or unparseable.
+
+    Currency-symbol tolerant: some PDF font encodings render "£" as a
+    mojibake replacement glyph (e.g. the Valid8IP-format Experian search —
+    see _split_valid8_accounts) rather than the literal "£" character.
+    Stripping any leading non-numeric character (instead of only "£")
+    keeps this working regardless of which glyph a given exporter used —
+    the same tolerance _ccj_amount_to_pence already applies via regex.
     """
     if not text:
         return None
     first_token = text.strip().split()[0] if text.strip() else ""
-    t = first_token.replace(",", "").replace("£", "")
+    if first_token.upper() in ("N/A", "-", ""):
+        return None
+    # Strip a single leading currency-symbol-shaped character (anything
+    # that isn't a digit, minus sign, or comma) before the numeric parse —
+    # covers "£", "$", and mojibake replacements alike.
+    t = re.sub(r"^[^\d\-,]+", "", first_token).replace(",", "")
     if t.upper() in ("N/A", "-", ""):
         return None
     try:
@@ -643,6 +655,194 @@ _EXPERIAN_HEADER_RE = re.compile(
 _EXPERIAN_HEADER_FALLBACK_RE = re.compile(
     r"^([A-Z0-9][^:\n]{1,59}?)\s+-\s+([A-Z][A-Za-z0-9 /()\-]{1,39})$"
 )
+
+
+
+# ---------------------------------------------------------------------------
+# Experian "bureau search" format (e.g. a Valid8IP-branded consumer credit
+# report) — a second, structurally different Experian-sourced layout.
+#
+# Ground truth confirmed against a real report (pdfplumber text extraction):
+# each CAIS record's block opens with the APPLICANT's own name (not the
+# creditor), then an "Address:" line, then a bare status word on its own
+# line (Active / Settled / Default), then labelled fields including
+# "Company:" — which holds the actual creditor name several lines in.
+# _EXPERIAN_HEADER_RE only matches "{Creditor} - {Category}" headers, which
+# never occur in this layout at all, so _split_experian_accounts() returns
+# zero blocks and the whole report's accounts are silently dropped (the
+# extraction still reports "success" with accounts_found=0 — see
+# CreditReportUploadView). This splitter recognises the real anchor
+# instead: a status-word line immediately following an "Address:" line.
+#
+# The monthly grid in this format is also laid out differently to Aryza's:
+# for each year, a status-code row is printed, THEN the year label, THEN
+# the £-amount row (mojibake-encoded currency symbol) — status row and
+# year label are reversed relative to what the existing Aryza grid parsers
+# assume, so those are not reused here; balance is read directly off the
+# "Current Balance:"/"Balance:" fields when present, falling back to the
+# grid only for the handful of accounts (seen for Utility/Bank company
+# types) that carry no balance field at all.
+_VALID8_STATUS_WORDS = {"Active", "Settled", "Default"}
+
+_VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
+    "credit card/store card": "CC",
+    "current accounts": "CA",
+    "public utility": "UT",
+    "electricity": "UT",
+    "gas": "UT",
+    "water": "UT",
+    "multi communications": "UT",
+    "communications": "UT",
+    "unsecured loan (personal loans etc)": "UL",
+    "budget (revolving account)": "CC",
+}
+
+
+def _split_valid8_accounts(full_text: str) -> list[str]:
+    """
+    Split the report into per-account block texts for the Valid8-style
+    layout. A block starts at a bare status-word line that immediately
+    follows an "Address:" line, and runs until the next such line.
+    """
+    lines = full_text.split("\n")
+    blocks: list[str] = []
+    current: list[str] | None = None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        is_anchor = (
+            stripped in _VALID8_STATUS_WORDS
+            and i > 0
+            and lines[i - 1].strip().lower().startswith("address:")
+        )
+        if is_anchor:
+            if current is not None:
+                blocks.append("\n".join(current))
+            current = [stripped]
+        elif current is not None:
+            current.append(line)
+
+    if current is not None:
+        blocks.append("\n".join(current))
+
+    return blocks
+
+
+def _valid8_latest_grid_balance_pence(lines: list[str]) -> int | None:
+    """
+    Fallback balance source for accounts with no explicit "Current Balance:"
+    or "Balance:" field: take the last (most recent) token of the most
+    recent year's £-amount row.
+
+    Grid order in this format is [status-code row, year label, amount row]
+    — the amount row is the line immediately AFTER the year label.
+    """
+    year_re = re.compile(r"^\d{4}$")
+    best_year = -1
+    best_amount_line = ""
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if year_re.match(stripped):
+            year = int(stripped)
+            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if year > best_year and nxt:
+                best_year = year
+                best_amount_line = nxt
+
+    if not best_amount_line:
+        return None
+    tokens = best_amount_line.split()
+    return _parse_amount(tokens[-1]) if tokens else None
+
+
+def _parse_valid8_account(block_text: str) -> dict | None:
+    """
+    Parse one Valid8-style account block into the same structured dict
+    shape _parse_account_block()/_parse_experian_account() produce.
+    Returns None only when the block carries no "Company:" field — the
+    one field every real record in this format has (verified: 28/28 in
+    the reference report) — since without it there is no creditor name
+    to report against.
+    """
+    lines = block_text.split("\n")
+
+    raw_name = _extract_field(lines, "Company")
+    if not raw_name:
+        return None
+
+    # _split_valid8_accounts() anchors each block on the bare status word
+    # itself (Active/Settled/Default), so it is always line 0 — reading it
+    # straight from there is exact, unlike re-deriving it from other fields.
+    account_status = lines[0].strip() if lines else "Active"
+
+    account_type = _extract_field(lines, "Account Type")
+    type_code = _VALID8_CATEGORY_TO_TYPE.get(account_type.lower().strip(), "OT")
+
+    start_date_str = _extract_field(lines, "Start Date")
+    account_age_months = _months_since(start_date_str)
+
+    # Balance precedence: explicit "Current Balance:" (Default-status
+    # accounts always carry this) > explicit "Balance:" (either a £ amount
+    # or the literal word "Settled", which _parse_amount safely returns
+    # None for) > last grid value (the handful of accounts with no
+    # balance field printed at all).
+    current_balance = _parse_amount(_extract_field(lines, "Current Balance"))
+    if current_balance is None:
+        current_balance = _parse_amount(_extract_field(lines, "Balance"))
+    if current_balance is None:
+        current_balance = _valid8_latest_grid_balance_pence(lines)
+
+    default_balance = _parse_amount(_extract_field(lines, "Default Balance"))
+    credit_limit = _parse_amount(_extract_field(lines, "Credit Limit"))
+
+    worst_status_raw = _extract_field(lines, "Worst Status")
+    # e.g. "8 (Default)" / "2 (2 Month Delinquent)" / "0 (Satisfactory)" —
+    # the parenthesised wording is the same vocabulary the rest of this
+    # module already uses for worst_status, so keep only that part.
+    m = re.search(r"\(([^)]+)\)", worst_status_raw)
+    worst_status = m.group(1).strip() if m else (worst_status_raw or None)
+
+    account_number_raw = _extract_field(lines, "Account No")
+    account_number = account_number_raw if account_number_raw else None
+
+    cais_updated_raw = _extract_field(lines, "CAIS Last Updated")
+    cais_last_updated = cais_updated_raw if cais_updated_raw else None
+
+    normalised = raw_name.lower().strip()
+    matched = CREDITOR_ALIAS_MAP.get(normalised, raw_name)
+
+    reconciliation_only = type_code in RECONCILIATION_ONLY_TYPE_CODES
+
+    balance_display = round(current_balance / 100) if current_balance else 0
+    logger.debug(
+        f"[VALID8 INCLUDE] '{raw_name}' type={type_code} balance=£{balance_display} "
+        f"status='{account_status}'"
+    )
+
+    return {
+        "raw_name": raw_name,
+        "type_code": type_code,
+        "normalised_name": normalised,
+        "matched_creditor": matched,
+        "account_age_months": account_age_months,
+        "missed_payments_last_3_months": 0,
+        "recent_spending": False,
+        "current_balance": current_balance,
+        "default_balance": default_balance,
+        "start_balance": None,
+        "credit_limit": credit_limit,
+        "utilisation_pct": None,
+        "account_status": account_status,
+        "account_status_subjective": None,
+        "worst_status": worst_status,
+        "payment_history_months": 0,
+        "monthly_payment": None,
+        "account_number": account_number,
+        "start_date": normalise_start_date_iso(start_date_str),
+        "cais_last_updated": cais_last_updated,
+        "reconciliation_only": reconciliation_only,
+    }
 
 
 def _months_since_dmy(date_str: str) -> int | None:
@@ -1176,11 +1376,39 @@ def extract_credit_report(pdf_path: str) -> dict:
             # Date format: DD-MM-YYYY
             # ----------------------------------------------------------------
             report_date = _extract_experian_report_date(full_text)
-            blocks = _split_experian_accounts(full_text)
-            for header, block_text in blocks:
-                parsed = _parse_experian_account(header, block_text)
-                if parsed is None:
-                    continue
+
+            # Try the Valid8IP-style bureau-search layout FIRST. Its anchor
+            # (a status word right after "Address:", with a "Company:"
+            # field for the real creditor name) only ever matches genuine
+            # CAIS account records. The standard "{Creditor} - {Category}"
+            # header's fallback regex is looser and produces false
+            # positives on OTHER sections of this same report shape (e.g.
+            # the Voters Roll's "Main Applicant - Current Address" /
+            # "Undisclosed - Undisclosed Address" lines match its "{X} -
+            # {Y}" pattern) — so checking "did the standard path find
+            # anything" is not a safe gate for whether to try this one;
+            # a report is one layout or the other, never both, so Valid8
+            # blocks (when present) always take precedence.
+            parsed_accounts = []
+            valid8_blocks = _split_valid8_accounts(full_text)
+            for block_text in valid8_blocks:
+                parsed = _parse_valid8_account(block_text)
+                if parsed is not None:
+                    parsed_accounts.append(parsed)
+
+            if parsed_accounts:
+                logger.info(
+                    "[EXTRACTOR] Experian report matched via Valid8-style "
+                    "layout: %d accounts", len(parsed_accounts),
+                )
+            else:
+                blocks = _split_experian_accounts(full_text)
+                for header, block_text in blocks:
+                    parsed = _parse_experian_account(header, block_text)
+                    if parsed is not None:
+                        parsed_accounts.append(parsed)
+
+            for parsed in parsed_accounts:
                 if parsed.get("reconciliation_only"):
                     other_accounts.append(parsed)
                 elif parsed["type_code"] == "MG":

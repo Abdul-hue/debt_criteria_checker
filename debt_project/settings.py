@@ -31,6 +31,16 @@ USE_TZ = True
 # Set via DEBT_CRITERIA_INTERNAL_KEY in .env — must match the key in the main project.
 DEBT_CRITERIA_INTERNAL_KEY = os.environ.get('DEBT_CRITERIA_INTERNAL_KEY', '')
 
+# Path to the tesseract binary for pytesseract (OCR on council-tax evidence
+# images — see integrations/council_tax_evidence.py). Left unset by default
+# so pytesseract falls back to its own default of "tesseract" on PATH (the
+# case on Linux once the tesseract-ocr apt/yum package is installed). Set
+# explicitly via TESSERACT_CMD in .env on a machine (e.g. this Windows dev
+# box) where the binary isn't on PATH — confirmed working locally at
+# "C:\Program Files\Tesseract-OCR\tesseract.exe" after `winget install
+# UB-Mannheim.TesseractOCR`.
+TESSERACT_CMD = os.environ.get('TESSERACT_CMD', '')
+
 # Callers allowed to WRITE through the token-free /api/v1/criteria/internal/*
 # endpoints (reads are open). Defaults to this server only — the CA backend runs
 # here. Set INTERNAL_API_ALLOWED_IPS=* to allow writes from anywhere on the LAN.

@@ -18,6 +18,9 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
   const [uploadState, setUploadState] = useState('idle') // idle | uploading | success | error
   const [uploadResult, setUploadResult] = useState(null)
   const [uploadError, setUploadError] = useState(null)
+  const [ctaxUploadState, setCtaxUploadState] = useState('idle') // idle | uploading | success | error
+  const [ctaxUploadResult, setCtaxUploadResult] = useState(null)
+  const [ctaxUploadError, setCtaxUploadError] = useState(null)
   const { isAdmin } = useAuth()
   const toast = useToast()
   
@@ -127,6 +130,44 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
       const msg = err?.response?.data?.error || 'Upload failed. Please try again.'
       setUploadState('error')
       setUploadError(msg)
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  const handleCouncilTaxEvidenceChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const currentRef = reference.trim()
+    if (!currentRef) {
+      setCtaxUploadError('Enter a case reference before uploading')
+      setCtaxUploadState('error')
+      e.target.value = ''
+      return
+    }
+
+    setCtaxUploadState('uploading')
+    setCtaxUploadResult(null)
+    setCtaxUploadError(null)
+
+    const formData = new FormData()
+    formData.append('aryza_reference', currentRef)
+    // Field name "evidence" — matches CouncilTaxEvidenceUploadView, NOT
+    // "credit_report" (that field name belongs to the separate
+    // /upload-credit-report/ endpoint above and only accepts PDF).
+    formData.append('evidence', file)
+
+    try {
+      const { data } = await axiosInstance.post('/api/v1/criteria/council-tax-evidence/upload/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setCtaxUploadState('success')
+      setCtaxUploadResult(data)
+    } catch (err) {
+      const msg = err?.response?.data?.error || 'Upload failed. Please try again.'
+      setCtaxUploadState('error')
+      setCtaxUploadError(msg)
     } finally {
       e.target.value = ''
     }
@@ -286,6 +327,46 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
         {uploadState === 'error' && uploadError && (
           <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
             {uploadError}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <label className="block text-xs font-medium text-gray-500 mb-1">
+          Council Tax Evidence (optional — PDF, PNG, or JPEG)
+        </label>
+        <input
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg"
+          onChange={handleCouncilTaxEvidenceChange}
+          disabled={ctaxUploadState === 'uploading'}
+          className="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 disabled:opacity-50"
+        />
+        {ctaxUploadState === 'uploading' && (
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <LoadingSpinner size="sm" /> Uploading...
+          </span>
+        )}
+        {ctaxUploadState === 'success' && ctaxUploadResult && !ctaxUploadResult.warning && (
+          <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">
+            <span className="font-medium">Uploaded</span>
+            {ctaxUploadResult.council_name && <span> — {ctaxUploadResult.council_name}</span>}
+            {ctaxUploadResult.balance_pence != null && (
+              <span>, £{(ctaxUploadResult.balance_pence / 100).toFixed(2)}</span>
+            )}
+            {ctaxUploadResult.liability_order?.date_iso && (
+              <span>, Liability Order {ctaxUploadResult.liability_order.date_iso}</span>
+            )}
+          </div>
+        )}
+        {ctaxUploadState === 'success' && ctaxUploadResult?.warning && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            {ctaxUploadResult.warning}
+          </p>
+        )}
+        {ctaxUploadState === 'error' && ctaxUploadError && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+            {ctaxUploadError}
           </p>
         )}
       </div>

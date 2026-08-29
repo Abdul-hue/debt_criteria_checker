@@ -647,6 +647,31 @@ export default function CriteriaReport({
                             return null
                           })()}
                         </div>
+                        {/* Council tax evidence — attached server-side by
+                            attach_council_tax_evidence() when an uploaded
+                            document's best-effort council name matches this
+                            row's creditor name. */}
+                        {creditor.council_tax_evidence && (
+                          <div
+                            className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                            title={[
+                              creditor.council_tax_evidence.account_reference
+                                ? `Ref: ${creditor.council_tax_evidence.account_reference}`
+                                : null,
+                              creditor.council_tax_evidence.liability_order_court,
+                            ].filter(Boolean).join(' — ')}
+                          >
+                            Liability Order
+                            {creditor.council_tax_evidence.liability_order_date && (
+                              <span> ({creditor.council_tax_evidence.liability_order_date})</span>
+                            )}
+                            {creditor.council_tax_evidence.balance_pence != null && (
+                              <span>
+                                {' '}— £{(creditor.council_tax_evidence.balance_pence / 100).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       {/* Balance — Aryza */}
                       <td className="px-4 py-3 text-sm text-gray-700 text-right">
@@ -791,6 +816,46 @@ export default function CriteriaReport({
             </table>
           </div>
         </div>
+
+        {/* Council tax evidence that couldn't be matched to any creditor row
+            above (e.g. the council name extracted from the document — see
+            attach_council_tax_evidence() — didn't match any council_tax
+            creditor on this case, or none is listed yet). Surfaced here
+            rather than silently dropped, since an upload that extracted
+            successfully but never appears anywhere looks identical to one
+            that failed. */}
+        {(() => {
+          const allEvidence = result?.council_tax_evidence || []
+          const matchedIds = new Set(
+            (result?.creditor_positions || [])
+              .map(p => p.council_tax_evidence?.id)
+              .filter(id => id != null)
+          )
+          const unmatched = allEvidence.filter(ev => !matchedIds.has(ev.id))
+          if (unmatched.length === 0) return null
+
+          return (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 border-t-4 border-t-amber-400 p-6">
+              <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide mb-3">
+                Council Tax Evidence (uploaded, not matched to a creditor row)
+              </h2>
+              <div className="space-y-2">
+                {unmatched.map((ev) => (
+                  <div key={ev.id} className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded p-3">
+                    <span className="font-medium">{ev.council_name || 'Unknown council'}</span>
+                    {ev.account_reference && <span> — Ref: {ev.account_reference}</span>}
+                    {ev.balance_pence != null && <span> — £{(ev.balance_pence / 100).toFixed(2)}</span>}
+                    {ev.liability_order_date && (
+                      <span> — Liability Order granted {ev.liability_order_date}
+                        {ev.liability_order_court ? ` at ${ev.liability_order_court}` : ''}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* SECTION C — FILTER TAB BAR */}

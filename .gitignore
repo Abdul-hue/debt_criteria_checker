@@ -5,6 +5,7 @@ env/
 
 # Python
 __pycache__/
+debt_app/migrations/__pycache__/
 *.py[cod]
 *.pyo
 *.pyd

@@ -11,3 +11,5 @@ django-cors-headers
 whitenoise
 openpyxl
 pdfplumber
+pytesseract
+Pillow
