@@ -535,7 +535,7 @@ class Command(BaseCommand):
                 'severity': 'flag',
                 'is_active': True,
                 'threshold_value': Decimal('9000.00'),
-                'description': 'WATCH flags cases where the client owns a vehicle with a market value exceeding £9,000. Adviser must review and address in proposal.',
+                'description': "WATCH flags cases where the client's vehicle is worth more than £9,000, net of any hire purchase finance still owed on it, and WATCH holds the majority vote on the case. Adviser must review and address in proposal.",
             },
             {
                 'criteria_set': 'WATCH',
@@ -637,6 +637,15 @@ class Command(BaseCommand):
                 'is_active': True,
                 'threshold_value': None,
                 'description': 'TIX scheme requires vulnerability evidence to be documented and included in the proposal where the client is identified as vulnerable.',
+            },
+            {
+                'criteria_set': 'TIX',
+                'rule_key': 'TIX-07',
+                'rule_name': 'TIX vehicle value',
+                'severity': 'flag',
+                'is_active': True,
+                'threshold_value': Decimal('14000.00'),
+                'description': "TIX flags cases where the client's vehicle is worth more than £14,000, net of any hire purchase finance still owed on it, and TIX holds the majority vote on the case. Adviser must review and address in proposal.",
             },
 
             # ------------------------------------------------------------------ EVOLVE

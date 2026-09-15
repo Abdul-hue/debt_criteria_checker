@@ -1150,6 +1150,16 @@ class CreditReport(models.Model):
         max_length=255, blank=True, default="",
         help_text="Client name as it appears on the credit report"
     )
+    client_address_on_report = models.CharField(
+        max_length=500, blank=True, default="",
+        help_text=(
+            "Client's own address as it appears on the credit report, "
+            "cleaned (whitespace/comma/postcode normalised) by "
+            "integrations.credit_report._clean_address. This is the "
+            "applicant's address, not any creditor's — no supported report "
+            "format carries a creditor's own postal address."
+        )
+    )
     extraction_status = models.CharField(
         max_length=20,
         choices=EXTRACTION_STATUS_CHOICES,

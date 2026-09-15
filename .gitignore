@@ -17,6 +17,7 @@ build/
 *.sqlite3
 *.log
 staticfiles/
+static/
 media/
 
 # Environment variables

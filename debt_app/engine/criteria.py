@@ -589,9 +589,19 @@ def _parse_case(case_json: dict) -> dict:
     gambling_monthly = _gambling_monthly(gold_tx, reference=assessment_date_parsed)
     gambling_all_transactions = _gambling_all_transactions(gold_tx)
 
+    # --- Vehicle ---
+    # Read nested "vehicle" first, fall back to top-level key — mirrors the
+    # property pattern below. AssessCaseView._prepare_engine_payload (the
+    # app's own Aryza-fetch endpoint) nests it under "vehicle"; the
+    # case-assessment tool's own payload builder sends it top-level.
+    veh_data = case_json.get("vehicle") or {}
+    vehicle_value = veh_data.get("vehicle_value")
+    if vehicle_value is None:
+        vehicle_value = case_json.get("vehicle_value")
+
     # --- Mortgage / equity ---
     prop_data = case_json.get("property") or {}
-    
+
     # Read nested "property" first, fall back to top-level keys
     has_property = prop_data.get("owns_property")
     if has_property is None:
@@ -794,7 +804,7 @@ def _parse_case(case_json: dict) -> dict:
         "vehicle_hp_monthly": vehicle_hp_monthly,
         "car_finance_tx_3mo": car_finance_tx_3mo,
         # Optional payload fields — pass None/False when not supplied; rules skip gracefully
-        "vehicle_value": case_json.get("vehicle_value"),
+        "vehicle_value": vehicle_value,
         "children": case_json.get("children") or [],
         "antecedent_transactions": case_json.get("antecedent_transactions") or case_json.get("has_antecedent_transactions"),
         "seiss_debt_flag": case_json.get("seiss_debt_flag"),
@@ -2437,22 +2447,31 @@ def _watch_22_8(c: dict) -> RuleResult:
 
 
 def _watch_22_9(c: dict) -> RuleResult:
-    """WATCH-22.9: Vehicle value > £9,000 — flag."""
+    """WATCH-22.9: Vehicle value (net of any HP finance owed on it) > £9,000,
+    while WATCH holds the case's majority vote — flag."""
     threshold = 9000.0
-    vehicle_value = c["vehicle_value"]
-    if vehicle_value is None:
+    net_value = _net_vehicle_value(c)
+    if net_value is None:
         return _pass("WATCH-22.9", "Vehicle value not provided — rule not applicable.")
-    actual = _parse_amount(vehicle_value)
-    if actual > threshold:
-        return RuleResult(
-            rule_id="WATCH-22.9", severity="flag", triggered=True,
-            message=(
-                f"The customer's vehicle is worth £{actual:,.2f}, which is above WATCH's £{threshold:,.2f} guideline. "
-                "WATCH may ask for this to be reduced to a car worth no more than £4,500."
-            ),
-            threshold=threshold, actual_value=actual,
+    if net_value <= threshold:
+        return _pass("WATCH-22.9", f"Vehicle value (net of any hire purchase finance owed on it) £{net_value:,.2f} within threshold.")
+    if not c.get("watch_is_majority"):
+        return _pass(
+            "WATCH-22.9",
+            f"Vehicle value (net of any hire purchase finance owed on it) £{net_value:,.2f} is above WATCH's "
+            f"£{threshold:,.2f} guideline, but WATCH does not hold the majority vote on this case, so it does not "
+            "need to be flagged.",
         )
-    return _pass("WATCH-22.9", f"Vehicle value £{actual:,.2f} within threshold.")
+    return RuleResult(
+        rule_id="WATCH-22.9", severity="flag", triggered=True,
+        message=(
+            f"The customer's vehicle is worth £{net_value:,.2f}, after deducting any hire purchase finance still "
+            f"owed on it, which is above WATCH's £{threshold:,.2f} guideline. Because WATCH holds the majority vote "
+            "on this case, this could affect whether the proposal is accepted, so WATCH may ask for this to be "
+            "reduced to a car worth no more than £4,500."
+        ),
+        threshold=threshold, actual_value=net_value,
+    )
 
 
 def _watch_22_10(c: dict) -> RuleResult:
@@ -2557,6 +2576,36 @@ def _is_vehicle_hp_creditor(cr: dict) -> bool:
     if any(kw in raw for kw in ("car", "vehicle", "motor", "auto", "logbook", "log book")):
         return True
     return _contains_any(cr.get("name", ""), _VEHICLE_HP_LENDER_NAMES)
+
+
+def _net_vehicle_value(c: dict) -> Optional[float]:
+    """
+    Vehicle value used by the WATCH-22.9 / TIX-07 car-value threshold checks.
+
+    When the car is on hire purchase, the client doesn't truly own it outright
+    — the finance company does, until the balance is cleared. So the value
+    that matters for these rules is what's left after the outstanding HP
+    balance is deducted, not the gross vehicle value: value minus balance.
+    A car worth less than what's still owed on it (negative net value) is not
+    an asset the client is retaining, so it never trips either threshold.
+
+    Returns None when no vehicle value was supplied at all (rule then treated
+    as not applicable, same as before).
+    """
+    vehicle_value = c.get("vehicle_value")
+    if vehicle_value is None:
+        return None
+    value = _parse_amount(vehicle_value)
+
+    from debt_app.helpers import DEBT_TYPE_HP
+    hp_creditors = [
+        cr for cr in c["creditors"]
+        if cr.get("debt_type_normalised") == DEBT_TYPE_HP and _is_vehicle_hp_creditor(cr)
+    ]
+    if not hp_creditors:
+        return value
+    hp_balance = sum(cr.get("balance") or 0 for cr in hp_creditors)
+    return value - hp_balance
 
 
 def _tx_matches_creditor_name(tx: dict, creditor_name: str) -> bool:
@@ -2755,6 +2804,34 @@ def _tix_06(c: dict) -> RuleResult:
             ),
         )
     return _pass("TIX-06", "Vulnerability claimed and supporting evidence uploaded.")
+
+
+def _tix_07(c: dict) -> RuleResult:
+    """TIX-07: Vehicle value (net of any HP finance owed on it) > £14,000,
+    while TIX holds the case's majority vote — flag."""
+    threshold = 14000.0
+    net_value = _net_vehicle_value(c)
+    if net_value is None:
+        return _pass("TIX-07", "Vehicle value not provided — rule not applicable.")
+    if net_value <= threshold:
+        return _pass("TIX-07", f"Vehicle value (net of any hire purchase finance owed on it) £{net_value:,.2f} within threshold.")
+    if not c.get("tix_is_majority"):
+        return _pass(
+            "TIX-07",
+            f"Vehicle value (net of any hire purchase finance owed on it) £{net_value:,.2f} is above TIX's "
+            f"£{threshold:,.2f} guideline, but TIX does not hold the majority vote on this case, so it does not "
+            "need to be flagged.",
+        )
+    return RuleResult(
+        rule_id="TIX-07", severity="flag", triggered=True,
+        message=(
+            f"The customer's vehicle is worth £{net_value:,.2f}, after deducting any hire purchase finance still "
+            f"owed on it, which is above TIX's £{threshold:,.2f} guideline. Because TIX holds the majority vote on "
+            "this case, this could affect whether the proposal is accepted, so evidence supporting the car's value "
+            "must be provided."
+        ),
+        threshold=threshold, actual_value=net_value,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5241,6 +5318,46 @@ def detect_representatives(creditors: list, assessment_date: Optional[date] = No
     return reps
 
 
+def _representative_balance_majority(creditors: list, total_debt: float) -> dict:
+    """
+    Sums each creditor's balance under the representative body that votes on
+    its behalf, and marks a body as the case's *majority* voter when its
+    combined balance alone exceeds 50% of total_debt — i.e. the body controls
+    the vote outright, not merely a blocking minority (contrast
+    council_is_majority's >25% blocking-minority threshold, computed in
+    _parse_case above).
+
+    Used to gate the WATCH-22.9 / TIX-07 vehicle-value flags: per the business
+    rule, those only need to be raised when the body holding the car-value
+    opinion is actually the one deciding the case's outcome.
+
+    Requires Django ORM — called once in assess_case(), same as
+    detect_representatives().
+    """
+    from debt_app.helpers import get_creditor_by_trading_name
+    from debt_app.models import CreditorCriteria
+
+    body_balances: dict[str, float] = {}
+    for cr in creditors:
+        name = cr.get("name")
+        if not name:
+            continue
+        try:
+            criteria = get_creditor_by_trading_name(name)
+        except CreditorCriteria.DoesNotExist:
+            continue
+        rep = (criteria.representative or "NONE").upper().strip()
+        if rep in ("WATCH", "TIX"):
+            body_balances[rep] = body_balances.get(rep, 0.0) + float(cr.get("balance") or 0)
+
+    if not total_debt or total_debt <= 0:
+        return {"WATCH": False, "TIX": False}
+    return {
+        body: (body_balances.get(body, 0.0) / total_debt) > 0.5
+        for body in ("WATCH", "TIX")
+    }
+
+
 # ---------------------------------------------------------------------------
 # Credit report enrichment
 # ---------------------------------------------------------------------------
@@ -5824,6 +5941,13 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
     # Expose detected representatives to the always-run rules (e.g. TIG-16 scopes
     # itself to NON-WPM cases — WATCH/WPM equity is handled by WATCH-22.4).
     c["detected_representatives"] = detected_representatives
+
+    # Expose per-body majority-voter status (WATCH-22.9 / TIX-07 vehicle-value
+    # flags only apply when the body holding that opinion actually controls
+    # the case's vote outcome).
+    _rep_majority = _representative_balance_majority(c["creditors"], c["total_debt"])
+    c["watch_is_majority"] = _rep_majority["WATCH"]
+    c["tix_is_majority"] = _rep_majority["TIX"]
     # Sanitised here, not at the view layer alone — assess_case is also called
     # directly (tests, other services), so the parent/child VAT relationship is
     # enforced at the last point before _derive_recommended_solution reads it.
@@ -5944,7 +6068,7 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
 
     # --- TIX rules ---
     if "TIX" in detected_representatives:
-        tix_rules = [_tix_01, _tix_02, _tix_03, _tix_04, _tix_05, _tix_06]
+        tix_rules = [_tix_01, _tix_02, _tix_03, _tix_04, _tix_05, _tix_06, _tix_07]
         for fn in tix_rules:
             _run(fn)
 

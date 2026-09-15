@@ -331,6 +331,95 @@ def _extract_client_name(text: str) -> str:
     return ""
 
 
+
+# Matches a UK postcode whose two halves got glued together by PDF text
+# extraction (e.g. "DT102FW" instead of "DT10 2FW") at the end of an address
+# string. Deliberately requires the full contiguous run to sit at the very
+# end ($) so a postcode that already has its normal space is never touched —
+# the space breaks the contiguous match this pattern needs.
+_POSTCODE_GLUED_RE = re.compile(r"([A-Za-z]{1,2}\d[A-Za-z\d]?)(\d[A-Za-z]{2})$")
+
+# Matches a COMPLETE UK postcode (outward + inward code) at the end of a
+# string, with the space between them optional — so it recognises both the
+# normal "BN2 4EU" form and the glued "DT102FW" form _POSTCODE_GLUED_RE
+# fixes up. Used to tell "this line already has the whole address" apart
+# from "this line got cut off mid-postcode" — see _extract_client_address.
+_FULL_POSTCODE_END_RE = re.compile(r"[A-Za-z]{1,2}\d[A-Za-z\d]?\s?\d[A-Za-z]{2}$")
+
+
+def _clean_address(raw: str | None) -> str:
+    """
+    Normalise a raw address string pulled from a credit report PDF into the
+    single-line, comma-separated form callers (e.g. the case-assessment
+    tool) can display or store directly:
+      - collapses whitespace runs introduced by PDF text extraction
+      - normalises comma spacing and drops stray leading/trailing commas
+      - collapses an empty field between two commas (e.g. a blank county:
+        "LIVERPOOL, , L32 0RP" -> "LIVERPOOL, L32 0RP" — seen verbatim in a
+        real report, so this is source data, not a PDF-extraction artefact,
+        but it's still noise worth dropping from what callers display)
+      - splits a UK postcode PDF-extraction glued into one token
+        ("DT102FW" -> "DT10 2FW")
+    Does NOT change letter case — reports mix ALL CAPS (Experian) and Title
+    Case (Aryza) and title-casing risks mangling postcodes/initialisms.
+    Never raises; returns "" for falsy input.
+    """
+    if not raw:
+        return ""
+    addr = re.sub(r"\s+", " ", raw.strip())
+    addr = re.sub(r"\s*,\s*", ", ", addr)
+    addr = addr.strip(", ").strip()
+    addr = re.sub(r"(,\s*)+,", ",", addr)
+    addr = _POSTCODE_GLUED_RE.sub(lambda m: f"{m.group(1)} {m.group(2)}", addr)
+    return addr
+
+
+def _extract_client_address(text: str) -> str:
+    """
+    Extract the client's own current address from an Aryza Advize report.
+
+    Aryza prints this once, near the top of the report, as a
+    "Current Address: {address}" line (confirmed against real production
+    reports — see test_credit_report_address_extraction.py). It is the
+    client/debtor's address, not any creditor's — credit reports never carry
+    a creditor's own postal address, only the applicant's.
+
+    A long address routinely wraps onto a second (or third) line of the PDF
+    with no label of its own — verified against 3 real reports where the
+    trailing town/county and the ENTIRE postcode landed on the next line,
+    e.g.:
+        "Current Address: 42 Rowleys Green Lane, Longford, Coventry CV6"
+        "6AH"
+    A naive single-line regex silently drops that continuation, truncating
+    the postcode. Bare continuation lines (no ':' of their own — every real
+    field label has one) are pulled in until the next labelled field/section
+    or a blank line, capped at 2 lines so a parsing miss elsewhere can't run
+    away and swallow unrelated report content — but ONLY when the line
+    doesn't already end in a complete postcode: an address that's whole on
+    one line must never reach past it and swallow the next unrelated line
+    (e.g. a "Report generated ..." footer) just because that line also has
+    no ':' of its own.
+    """
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        low = line.lower()
+        idx = low.find("current address:")
+        if idx == -1:
+            continue
+        value = line[idx + len("current address:"):].strip()
+        appended = 0
+        j = i + 1
+        while j < len(lines) and appended < 2 and not _FULL_POSTCODE_END_RE.search(value):
+            nxt = lines[j].strip()
+            if not nxt or ":" in nxt:
+                break
+            value += " " + nxt
+            j += 1
+            appended += 1
+        return _clean_address(value)
+    return ""
+
+
 def _extract_report_date(text: str) -> str:
     """
     Extract the most recent "Last Update" date from the report.
@@ -698,15 +787,21 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
 }
 
 
-def _split_valid8_accounts(full_text: str) -> list[str]:
+def _split_valid8_accounts(full_text: str) -> list[tuple[str, str]]:
     """
-    Split the report into per-account block texts for the Valid8-style
+    Split the report into (address, block_text) pairs for the Valid8-style
     layout. A block starts at a bare status-word line that immediately
     follows an "Address:" line, and runs until the next such line.
+
+    The "Address:" line itself is captured (not just used as an anchor) —
+    it's the applicant's own address as recorded against that tradeline,
+    not the creditor's. Multiple accounts usually repeat the same current
+    address; a handful may differ if the client moved between accounts.
     """
     lines = full_text.split("\n")
-    blocks: list[str] = []
+    blocks: list[tuple[str, str]] = []
     current: list[str] | None = None
+    current_address = ""
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -717,13 +812,14 @@ def _split_valid8_accounts(full_text: str) -> list[str]:
         )
         if is_anchor:
             if current is not None:
-                blocks.append("\n".join(current))
+                blocks.append((current_address, "\n".join(current)))
             current = [stripped]
+            current_address = _clean_address(lines[i - 1].strip()[len("address:"):])
         elif current is not None:
             current.append(line)
 
     if current is not None:
-        blocks.append("\n".join(current))
+        blocks.append((current_address, "\n".join(current)))
 
     return blocks
 
@@ -756,7 +852,7 @@ def _valid8_latest_grid_balance_pence(lines: list[str]) -> int | None:
     return _parse_amount(tokens[-1]) if tokens else None
 
 
-def _parse_valid8_account(block_text: str) -> dict | None:
+def _parse_valid8_account(address: str, block_text: str) -> dict | None:
     """
     Parse one Valid8-style account block into the same structured dict
     shape _parse_account_block()/_parse_experian_account() produce.
@@ -764,6 +860,9 @@ def _parse_valid8_account(block_text: str) -> dict | None:
     one field every real record in this format has (verified: 28/28 in
     the reference report) — since without it there is no creditor name
     to report against.
+
+    `address` is the applicant's own address recorded against this
+    tradeline (see _split_valid8_accounts) — not the creditor's.
     """
     lines = block_text.split("\n")
 
@@ -842,6 +941,7 @@ def _parse_valid8_account(block_text: str) -> dict | None:
         "start_date": normalise_start_date_iso(start_date_str),
         "cais_last_updated": cais_last_updated,
         "reconciliation_only": reconciliation_only,
+        "address": address or None,
     }
 
 
@@ -1390,11 +1490,16 @@ def extract_credit_report(pdf_path: str) -> dict:
             # a report is one layout or the other, never both, so Valid8
             # blocks (when present) always take precedence.
             parsed_accounts = []
+            client_address = ""
             valid8_blocks = _split_valid8_accounts(full_text)
-            for block_text in valid8_blocks:
-                parsed = _parse_valid8_account(block_text)
+            for address, block_text in valid8_blocks:
+                parsed = _parse_valid8_account(address, block_text)
                 if parsed is not None:
                     parsed_accounts.append(parsed)
+                    if not client_address and parsed.get("address"):
+                        # Every account normally repeats the client's current
+                        # address; take the first non-empty one seen.
+                        client_address = parsed["address"]
 
             if parsed_accounts:
                 logger.info(
@@ -1417,6 +1522,21 @@ def extract_credit_report(pdf_path: str) -> dict:
                     accounts.append(parsed)
                     if parsed["matched_creditor"] == parsed["raw_name"]:
                         unmatched.append(parsed["raw_name"])
+
+            if not client_address:
+                # Neither Experian sub-layout above carries a per-record
+                # address to fall back on here (classic CAIS has none at
+                # all; Valid8 would already have set client_address if it
+                # matched). But a third, genuine-Experian "Consumer Credit
+                # Report" layout exists (verified against a real production
+                # report) that isn't anchored by either splitter — it uses
+                # the exact same bullet-prefixed "Current Address: {addr}"
+                # summary field as Aryza Advize (bullet: "Applicant:",
+                # "Current Address:", "Voters Roll:", ...). Reusing the
+                # Aryza extractor here (it already tolerates the bullet
+                # prefix and the line-wrap this format also exhibits) covers
+                # that layout without a fourth parser.
+                client_address = _extract_client_address(full_text)
         else:
             # ----------------------------------------------------------------
             # Aryza Advize format (original path — unchanged)
@@ -1424,6 +1544,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             # Date format: YYYY-MM-DD
             # ----------------------------------------------------------------
             report_date = _extract_report_date(full_text)
+            client_address = _extract_client_address(full_text)
             blocks = _split_into_account_blocks(full_text)
             for header, block_text in blocks:
                 parsed = _parse_account_block(header, block_text)
@@ -1448,6 +1569,7 @@ def extract_credit_report(pdf_path: str) -> dict:
         return {
             "agency": agency,
             "client_name": client_name,
+            "client_address": client_address,
             "report_date": report_date,
             "accounts": accounts,
             "mortgage_accounts": mortgage_accounts,

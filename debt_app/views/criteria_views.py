@@ -3036,6 +3036,7 @@ class CreditReportUploadView(APIView):
                     "extraction_status": "failed",
                     "accounts_found": 0,
                     "client_name_on_report": "",
+                    "client_address_on_report": "",
                     "unmatched_accounts": [],
                     "accounts": [],
                     "mortgage_accounts": [],
@@ -3048,6 +3049,7 @@ class CreditReportUploadView(APIView):
             record.extracted_data = result
             record.agency = result.get("agency", "")
             record.client_name_on_report = result.get("client_name", "")
+            record.client_address_on_report = result.get("client_address", "")
 
             # A recognised bureau format (Experian / Aryza Advize) that
             # nonetheless yields 0 accounts, 0 mortgages, and 0
@@ -3067,7 +3069,7 @@ class CreditReportUploadView(APIView):
             is_empty_recognised = recognised_bureau and found_nothing_at_all
 
             record.extraction_status = "extracted_empty" if is_empty_recognised else "extracted"
-            record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "extraction_status", "updated_at"])
+            record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "client_address_on_report", "extraction_status", "updated_at"])
 
             if is_empty_recognised:
                 logger.warning(
@@ -3093,6 +3095,7 @@ class CreditReportUploadView(APIView):
                 "extraction_status": record.extraction_status,
                 "accounts_found": len(result.get("accounts", [])),
                 "client_name_on_report": record.client_name_on_report,
+                "client_address_on_report": record.client_address_on_report,
                 "unmatched_accounts": result.get("unmatched_accounts", []),
                 "accounts": result.get("accounts", []),
                 "mortgage_accounts": result.get("mortgage_accounts", []),
@@ -3126,6 +3129,7 @@ class CreditReportUploadView(APIView):
                 "extraction_status": "failed",
                 "accounts_found": 0,
                 "client_name_on_report": "",
+                "client_address_on_report": "",
                 "unmatched_accounts": [],
                 "accounts": [],
                 "mortgage_accounts": [],
