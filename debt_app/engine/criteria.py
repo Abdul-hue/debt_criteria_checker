@@ -312,12 +312,31 @@ def _parse_amount(value) -> float:
         return 0.0
 
 
+def _is_gambling_tx(t: dict) -> bool:
+    """Return True if this transaction is a gambling payment.
+
+    category field is authoritative (both ways):
+      - "Gambling" (case-insensitive) -> True
+      - Any other non-empty category   -> False (suppress keyword scan)
+    Falls back to keyword scan of description ONLY when no category is set.
+    This prevents mis-categorised transactions (e.g. "bet restaurant", category="Food")
+    from being wrongly counted as gambling.
+    """
+    cat = (t.get("category") or "").strip().lower()
+    if cat == "gambling":
+        return True
+    if cat:
+        # Explicit non-gambling category — do not fall through to keywords
+        return False
+    desc = (t.get("description") or "").lower()
+    return any(kw in desc for kw in _GAMBLING_KEYWORDS)
+
+
 def _gambling_monthly(gold_transactions: list, reference: Optional[date] = None) -> float:
     """Sum absolute amounts of gambling transactions within the last 30 days."""
     total = 0.0
     for t in gold_transactions:
-        desc = (t.get("description") or "").lower()
-        if any(kw in desc for kw in _GAMBLING_KEYWORDS):
+        if _is_gambling_tx(t):
             tx_date = t.get("transaction_date") or t.get("date")
             if _is_within_days(tx_date, 30, reference):
                 total += abs(_parse_amount(t.get("amount", 0)))
@@ -325,12 +344,10 @@ def _gambling_monthly(gold_transactions: list, reference: Optional[date] = None)
 
 
 def _gambling_all_transactions(gold_transactions: list) -> list:
-    """Return all gambling transactions from bank statements 
-    regardless of date."""
+    """Return all gambling transactions from bank statements regardless of date."""
     results = []
     for t in gold_transactions:
-        desc = (t.get("description") or "").lower()
-        if any(kw in desc for kw in _GAMBLING_KEYWORDS):
+        if _is_gambling_tx(t):
             results.append(t)
     return results
 
@@ -587,6 +604,13 @@ def _parse_case(case_json: dict) -> dict:
 
     # --- Gambling ---
     gambling_monthly = _gambling_monthly(gold_tx, reference=assessment_date_parsed)
+    if not gold_tx and gambling_monthly == 0.0 and case_json.get("gambling_transactions_total") is not None:
+        try:
+            gt_total = float(case_json.get("gambling_transactions_total") or 0)
+            if gt_total > 0:
+                gambling_monthly = gt_total
+        except (ValueError, TypeError):
+            pass
     gambling_all_transactions = _gambling_all_transactions(gold_tx)
 
     # --- Vehicle ---
@@ -1053,8 +1077,18 @@ def _tig_05(c: dict) -> RuleResult:
 
 
 def _tig_06(c: dict) -> RuleResult:
-    """TIG-06: Benefit income requires award letter or current-year bank statement."""
-    if c["income_source"] not in ("benefits", "universal_credit", "uc"):
+    """TIG-06: Benefit income requires award letter or current-year bank statement.
+
+    Triggers when income_source indicates benefits OR when receives_any_benefits
+    is True OR when benefit_income_amount > 0 — covering dual-income cases where
+    the primary income_source label is "employed" but benefit income is also present.
+    """
+    has_benefit = (
+        c.get("receives_any_benefits")
+        or (c.get("benefit_income_amount") or 0) > 0
+        or c["income_source"] in ("benefits", "universal_credit", "uc")
+    )
+    if not has_benefit:
         return _pass("TIG-06", "The customer does not receive benefit income, so proof of benefits is not required.")
 
     if c["benefit_letter_docs"]:
@@ -1072,8 +1106,17 @@ def _tig_06(c: dict) -> RuleResult:
 
 
 def _tig_07(c: dict) -> RuleResult:
-    """TIG-07: UC income requires UC journal dated within 90 days."""
-    if c["income_source"] not in ("uc", "universal_credit", "benefits_only"):
+    """TIG-07: UC income requires UC journal dated within 90 days.
+
+    Triggers when income_source indicates UC, or when has_uc_journal is True
+    (document already uploaded), covering dual-income cases where primary
+    income_source is "employed" but UC is also received.
+    """
+    has_uc = (
+        c["income_source"] in ("uc", "universal_credit", "benefits_only")
+        or c.get("has_uc_journal")
+    )
+    if not has_uc:
         return _pass("TIG-07", "The customer does not receive Universal Credit, so a Universal Credit journal is not required.")
 
     if not c["has_uc_journal"]:
@@ -1939,7 +1982,7 @@ def _tig_17(c: dict) -> RuleResult:
 
 
 def _tig_18(c: dict) -> RuleResult:
-    """TIG-18: Total spend in last 2 months >= monthly income (excl. payday loans) — flag only."""
+    """TIG-18: Total spend in last 2 months >= 2x monthly income (excl. payday loans) — flag only."""
     if not c.get("has_open_banking"):
         return RuleResult(
             rule_id="TIG-18",
@@ -1951,13 +1994,14 @@ def _tig_18(c: dict) -> RuleResult:
     spend = c["total_spend_2mo"]
     if monthly_income <= 0:
         return _pass("TIG-18", "There is no income data available, so this check has been skipped.")
-    if spend >= monthly_income:
+    two_month_income = monthly_income * 2.0
+    if spend >= two_month_income:
         return RuleResult(
             rule_id="TIG-18", severity="flag", triggered=True,
-            message=f"The customer spent £{spend:,.2f} in the last two months. Their monthly income is £{monthly_income:,.2f}. The spending is at or above their income, so an assessor must review the case.",
-            threshold=monthly_income, actual_value=spend,
+            message=f"The customer spent £{spend:,.2f} in the last two months. Their 2-month income is £{two_month_income:,.2f} (monthly income £{monthly_income:,.2f}). Spending is at or above two months of income, so an assessor must review the case.",
+            threshold=two_month_income, actual_value=spend,
         )
-    return _pass("TIG-18", f"The customer's recent spend of £{spend:,.2f} is within their monthly income of £{monthly_income:,.2f}.")
+    return _pass("TIG-18", f"The customer's recent spend of £{spend:,.2f} over two months is within their 2-month income of £{two_month_income:,.2f}.")
 
 
 def _tig_19(c: dict) -> RuleResult:
@@ -2220,35 +2264,30 @@ def _watch_22_1(c: dict) -> RuleResult:
     return _pass("WATCH-22.1", "Vulnerability claimed and supporting evidence uploaded.")
 
 
+WATCH_22_2_DI_FACTOR = 0.83
+WATCH_22_2_THRESHOLD = 72.0
+
+
 def _watch_22_2(c: dict) -> RuleResult:
-    """WATCH-22.2: Debt repayable in <= 72 months from disposable income — hard block."""
-    threshold = 72.0
+    """WATCH-22.2: total_debt / (disposable_income * 0.83) — hard block if <= 72 months."""
     di = c["disposable_income"]
+    total_debt = c["total_debt"]
+    if total_debt <= 0:
+        return _pass("WATCH-22.2", "No total debt recorded — rule not applicable.")
     if di <= 0:
-        return RuleResult(
-            rule_id="WATCH-22.2",
-            severity="hard_block",
-            triggered=True,
-            message=(
-                "The customer has no disposable income (it is zero or negative), so their debt could never be repaid "
-                "within 72 months even outside an IVA. WATCH requires an IVA to run for at least 6 years, so this creditor "
-                "is expected to reject the IVA."
-            ),
-            threshold=72.0,
-            actual_value=None,
-        )
-    actual = c["total_debt"] / di
-    if actual <= threshold:
+        return _pass("WATCH-22.2", "Disposable income is zero or negative — cannot calculate payoff duration.")
+
+    actual = total_debt / (di * WATCH_22_2_DI_FACTOR)
+    if actual <= WATCH_22_2_THRESHOLD:
         return RuleResult(
             rule_id="WATCH-22.2", severity="hard_block", triggered=True,
             message=(
-                f"Based on the customer's disposable income, their debt could be repaid in {actual / 12:.1f} years, "
-                "which is within 6 years. WATCH rejects cases where the debt could be repaid without an IVA within "
-                "6 years, so this creditor is expected to reject the IVA."
+                f"WATCH-22.2 breached: total debt / (disposable income x {WATCH_22_2_DI_FACTOR}) = {actual:.1f} months, "
+                f"which is at or below the 6-year ({WATCH_22_2_THRESHOLD:.0f} months) payoff threshold. WATCH is expected to reject the IVA."
             ),
-            threshold=threshold, actual_value=actual,
+            threshold=WATCH_22_2_THRESHOLD, actual_value=actual,
         )
-    return _pass("WATCH-22.2", f"Debt repayable in {actual / 12:.1f} years — exceeds 6 years, WATCH-22.2 not triggered.")
+    return _pass("WATCH-22.2", f"Total debt / (DI x {WATCH_22_2_DI_FACTOR}) = {actual:.1f} months — exceeds 6-year threshold ({WATCH_22_2_THRESHOLD:.0f} months), WATCH-22.2 not triggered.")
 
 
 def _watch_22_3(c: dict) -> RuleResult:
@@ -2568,12 +2607,22 @@ _VEHICLE_HP_LENDER_NAMES = frozenset({
 
 
 def _is_vehicle_hp_creditor(cr: dict) -> bool:
-    """normalise_debt_type() buckets ALL hire-purchase debt (furniture,
-    appliances, logbook loans, cars) under the single DEBT_TYPE_HP value —
-    WATCH-22.14 is specifically about car finance, so a raw-type or lender-name
-    signal is needed to exclude non-vehicle HP from the credit-report check."""
-    raw = (cr.get("creditor_type") or "").lower()
-    if any(kw in raw for kw in ("car", "vehicle", "motor", "auto", "logbook", "log book")):
+    """Return True only for confirmed vehicle / car finance HP debts.
+
+    Checks (in priority order):
+      1. Explicit is_vehicle_hp flag set by the payload builder.
+      2. creditor_type / debt_type raw value contains a vehicle keyword.
+      3. Creditor name matches the _VEHICLE_HP_LENDER_NAMES set.
+
+    Deliberately does NOT treat is_secured=True as sufficient — that flag
+    also covers mortgages and second charges which are not vehicle HP.
+    """
+    if cr.get("is_vehicle_hp"):
+        return True
+    raw = (cr.get("creditor_type") or cr.get("debt_type") or "").lower()
+    _VEHICLE_KEYWORDS = ("car", "vehicle", "motor", "auto", "logbook", "log book",
+                         "car_hp", "vehicle_finance", "hire_purchase")
+    if any(kw in raw for kw in _VEHICLE_KEYWORDS):
         return True
     return _contains_any(cr.get("name", ""), _VEHICLE_HP_LENDER_NAMES)
 
@@ -4926,12 +4975,15 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         return [pos.get("creditor_name"), pos.get("original_aryza_name")]
 
     # Exclude DO_NOT_VOTE creditors from the denominator (total voting pool).  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
+    # POD_ONLY creditors submit proof of debt but do not vote, identical to
+    # DO_NOT_VOTE for majority-denominator purposes.  # EXCEL_CRITERIA_REFERENCE.md
+    _NON_VOTING = {"DO_NOT_VOTE", "POD_ONLY"}
     do_not_vote_idxs = {
         idx for idx, pos in position_by_idx.items()
-        if pos.get("effective_status") == "DO_NOT_VOTE"
+        if pos.get("effective_status") in _NON_VOTING
     }
     do_not_vote_names = {  # EXCEL_CRITERIA_REFERENCE.md — Council Majority / DO_NOT_VOTE denominator rule
-        n for pos in name_positions if pos.get("effective_status") == "DO_NOT_VOTE"
+        n for pos in name_positions if pos.get("effective_status") in _NON_VOTING
         for n in _names_from_position(pos) if n
     }
     # WATCH-22.8: client aged 80+ — WATCH creditors abstain, remove from denominator
