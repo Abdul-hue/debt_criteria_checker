@@ -234,3 +234,20 @@ class ReconciliationRoutingTests(SimpleTestCase):
                     parsed["reconciliation_only"],
                     f"{code} must count as unsecured debt",
                 )
+
+
+class DefaultBalanceReturnedTests(SimpleTestCase):
+    """`_parse_account_block` parsed "Default Balance" and then left it out of
+    the returned dict, so no Aryza report ever carried a default balance to
+    the case-assessment tool (whose `_is_arrears` reads it)."""
+
+    def test_default_balance_is_returned_in_pence(self):
+        text = _account("Lowell", "TM", "514").replace(
+            "Default Balance: N/A", "Default Balance: £55")
+        parsed = _parse_account_block(*_split_into_account_blocks(text)[0])
+        self.assertEqual(parsed["default_balance"], 5500)
+
+    def test_no_default_balance_is_none_not_zero(self):
+        parsed = _parse_account_block(
+            *_split_into_account_blocks(_account("Lowell", "TM", "514"))[0])
+        self.assertIsNone(parsed["default_balance"])

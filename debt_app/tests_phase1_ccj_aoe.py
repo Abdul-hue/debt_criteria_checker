@@ -80,6 +80,72 @@ class ExtractPublicInformationTests(TestCase):
     def test_empty_text(self):
         self.assertFalse(extract_public_information("")["has_ccj"])
 
+    def test_experian_court_fields_are_kept(self):
+        info = extract_public_information(EXPERIAN_WITH_CCJ + EXPERIAN_COURT_TAIL)
+        self.assertEqual(info["ccjs"][0]["case_number"], "3012197205")
+        self.assertEqual(info["ccjs"][0]["court_name"], "H6DL4P3N")
+
+    def test_aryza_detail_block_is_read(self):
+        """⚠️ Aryza DOES print each judgment. Reading only the summary count
+        left every Aryza CCJ with no amount, so it could never be evidence."""
+        info = extract_public_information(ARYZA_CCJ_DETAIL)
+        self.assertTrue(info["has_ccj"])
+        self.assertEqual(info["ccj_count"], 1)
+        self.assertEqual(info["ccj_total_pence"], 214600)
+        ccj = info["ccjs"][0]
+        self.assertEqual(ccj["amount_pence"], 214600)
+        self.assertIs(ccj["settled"], False)
+        self.assertEqual(ccj["date"], "2024-08-19")
+        self.assertEqual(ccj["case_number"], "L7KQ4M25")
+        self.assertEqual(ccj["court_name"], "Civil National Business Centre")
+
+    def test_aryza_two_judgments_one_satisfied(self):
+        info = extract_public_information(ARYZA_TWO_CCJS)
+        self.assertEqual(info["ccj_count"], 2)
+        self.assertEqual([c["amount_pence"] for c in info["ccjs"]], [214600, 55000])
+        self.assertEqual([c["settled"] for c in info["ccjs"]], [False, True])
+        # The first block's fields never leak into the second.
+        self.assertEqual([c["case_number"] for c in info["ccjs"]],
+                         ["L7KQ4M25", "K1AB2C3D"])
+
+    def test_no_claimant_name_is_invented(self):
+        """Neither format prints the claimant, so no record carries one."""
+        for text in (EXPERIAN_WITH_CCJ + EXPERIAN_COURT_TAIL, ARYZA_CCJ_DETAIL):
+            for ccj in extract_public_information(text)["ccjs"]:
+                self.assertNotIn("creditor_name", ccj)
+                self.assertNotIn("claimant", ccj)
+
+
+# Shaped from a production Experian report: the court fields follow "Source".
+EXPERIAN_COURT_TAIL = """• Court Name: H6DL4P3N
+• Court Plaintif Number: NCCMCC
+• Court Order Number: 3012197205
+• House Match: Exact Match
+"""
+
+# Shaped from a production Aryza Advize report (Price_368727): the block sits
+# after the last tradeline's payment grid.
+ARYZA_CCJ_DETAIL = """Mortgage Balance: 0 CCJs and Insolvencies: 1
+Lowell TM
+2024 -
+D D D D D D D D D D D
+CCJ County Court Judgment
+Court Details: Info:
+Case Number: L7KQ4M25 Satisfied Date: N/A
+Value: 2146
+Court Name: Civil National Business Centre
+Court Date: 2024-08-19 00:00:00
+"""
+
+ARYZA_TWO_CCJS = ARYZA_CCJ_DETAIL.replace(
+    "CCJs and Insolvencies: 1", "CCJs and Insolvencies: 2") + """CCJ County Court Judgment
+Court Details: Info:
+Case Number: K1AB2C3D Satisfied Date: 2025-01-10
+Value: 550
+Court Name: County Court at Leeds
+Court Date: 2023-03-02 00:00:00
+"""
+
 
 def _case(creditor_name, *, has_ccj=False, aoe=False):
     return {

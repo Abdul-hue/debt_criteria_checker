@@ -339,6 +339,10 @@ class DirectAssessView(APIView):
                 # ── majority analysis ─────────────────────────────────────
                 "majority_analysis": {
                     "total_debt":  float(maj.get("total_debt") or 0),
+                    # The base the 75% threshold is taken from (total less
+                    # abstainers) — without it the threshold looks wrong
+                    # against total_debt on any case with non-voters.
+                    "voting_pool": float(maj.get("voting_pool") or 0),
                     "threshold":   float(maj.get("threshold") or 0),
                     "voting_debt": float(maj.get("voting_debt") or 0),
                     "shortfall":   float(maj.get("shortfall") or 0),

@@ -1176,17 +1176,36 @@ def extract_public_information(full_text: str) -> dict:
 
       - Experian: a "Public Information" summary block plus per-record detail
         lines ("Type: Judgement - Judgement", "Amount: £…", "Settled: N",
-        "Date: DD-MM-YYYY"). The detail records are CCJ-specific and are the
-        primary signal.
-      - Aryza Advize: an inline "CCJs and Insolvencies: N" combined count
-        (no per-record breakdown is exposed in this format).
+        "Date: DD-MM-YYYY", then "Source:", "Court Name:", "Court Order
+        Number:"). The detail records are CCJ-specific and are the primary
+        signal.
+      - Aryza Advize: an inline "CCJs and Insolvencies: N" combined count in
+        the Debt Overview, AND a per-judgment block after the tradelines:
+
+            CCJ County Court Judgment
+            Court Details: Info:
+            Case Number: L7KQ4M25 Satisfied Date: N/A
+            Value: 2146
+            Court Name: Civil National Business Centre
+            Court Date: 2024-08-19 00:00:00
+
+        ⚠️ THIS DOCSTRING USED TO SAY ARYZA HAS NO PER-RECORD BREAKDOWN. It
+        does (verified against a production Aryza Advize report), and reading
+        only the count meant every Aryza CCJ reached the case-assessment tool
+        with no amount -- so it could never become evidence against a debt.
+
+    ⚠️ NEITHER FORMAT NAMES THE CLAIMANT. Experian's "Source" is the register
+    (Registry Trust), its "Court Name"/"Court Plaintif Number" are court
+    codes, and Aryza's "Court Name" is the court. None is the creditor, so
+    none is returned as one -- callers must not invent a creditor name.
 
     Returns:
         {
             "has_ccj": bool,
             "ccj_count": int,
             "ccj_total_pence": int | None,
-            "ccjs": [ {"amount_pence", "settled", "date"}, ... ],
+            "ccjs": [ {"amount_pence", "settled", "date",
+                       "case_number", "court_name"}, ... ],
             "iva_or_bankruptcy": bool,
             "debt_management": bool,
         }
@@ -1223,10 +1242,46 @@ def extract_public_information(full_text: str) -> dict:
         if re.search(r"type:\s*judg", ln, re.IGNORECASE):
             window = lines[max(0, i - 4): i + 6]
             settled_raw = _field_in(window, "Settled")
+            # The court fields sit AFTER the Type line (Source, Court Name,
+            # Plaintif Number, Order Number), past the end of `window`. Read
+            # forwards only, so a neighbouring record's fields are never taken.
+            after = lines[i + 1: i + 9]
             records.append({
                 "amount_pence": _ccj_amount_to_pence(_field_in(window, "Amount")),
                 "settled": settled_raw.upper().startswith("Y") if settled_raw else None,
                 "date": _field_in(window, "Date") or None,
+                "case_number": _field_in(after, "Court Order Number") or None,
+                "court_name": _field_in(after, "Court Name") or None,
+            })
+
+    # --- Aryza Advize: per-judgment "CCJ County Court Judgment" blocks ---
+    # Anchored on the block's own header line; its fields follow within a few
+    # lines, several sharing one line ("Case Number: X Satisfied Date: N/A"),
+    # so each is read with a pattern that stops at the next label.
+    if not records:
+        for i, ln in enumerate(lines):
+            if not re.match(r"^\s*CCJ\s+County\s+Court\s+Judg", ln, re.IGNORECASE):
+                continue
+            block = []
+            for nxt in lines[i + 1: i + 9]:
+                if re.match(r"^\s*CCJ\s+County\s+Court\s+Judg", nxt, re.IGNORECASE):
+                    break
+                block.append(nxt)
+            text = "\n".join(block)
+
+            def _grab(pattern):
+                m = re.search(pattern, text, re.IGNORECASE)
+                return m.group(1).strip() if m else ""
+
+            satisfied = _grab(r"Satisfied Date:\s*(\S+)")
+            records.append({
+                "amount_pence": _ccj_amount_to_pence(_grab(r"Value:\s*(\S+)")),
+                # "N/A" = not satisfied; a date = satisfied; absent = unknown.
+                "settled": (None if not satisfied
+                            else satisfied.upper() not in ("N/A", "-", "NONE")),
+                "date": _grab(r"Court Date:\s*(\d{4}-\d{2}-\d{2})") or None,
+                "case_number": _grab(r"Case Number:\s*(\S+)") or None,
+                "court_name": _grab(r"Court Name:\s*(.+)") or None,
             })
 
     # --- Aryza Advize: combined "CCJs and Insolvencies: N" summary ---
@@ -1424,6 +1479,9 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "missed_payments_last_3_months": missed_payments_last_3_months,
         "recent_spending": recent_spending,
         "current_balance": current_balance,
+        # Parsed above but never returned, so no caller could see a default
+        # balance on an Aryza report (the Valid8 layout already returns it).
+        "default_balance": default_balance,
         "credit_limit": credit_limit,
         "utilisation_pct": utilisation_pct,
         "account_status": account_status,
