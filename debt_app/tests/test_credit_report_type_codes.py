@@ -251,3 +251,42 @@ class DefaultBalanceReturnedTests(SimpleTestCase):
         parsed = _parse_account_block(
             *_split_into_account_blocks(_account("Lowell", "TM", "514"))[0])
         self.assertIsNone(parsed["default_balance"])
+
+
+class AgencyDetectionTests(SimpleTestCase):
+    """⚠️ Aryza Advize prints no "Aryza"/"Advize" branding. All 163 Aryza-layout
+    reports in media/credit_reports were detected "Unknown", so the upload
+    view's "recognised format but 0 accounts" warning never fired for them."""
+
+    # Page one of a production Aryza report, personal details removed.
+    ARYZA_PAGE_ONE = "\n".join([
+        "Credit Report",
+        "Client Details",
+        "Name: Mrs Test Client",
+        "Debt Overview",
+        "Debt Level: 38942 Active Accounts: 12",
+        "Creditors Owed: 13 Accounts in Default: 0",
+        "Mortgages: 0 Settled Accounts: 0",
+        "Mortgage Balance: 0 CCJs and Insolvencies: 0",
+        "Address History",
+        "Current Address: 1 Test Street, Testtown TT1 1TT",
+    ])
+
+    def test_unbranded_aryza_layout_is_aryza_advize(self):
+        from debt_app.integrations.credit_report import _detect_agency
+        self.assertEqual("Aryza Advize", _detect_agency(self.ARYZA_PAGE_ONE))
+
+    def test_branded_experian_is_still_experian(self):
+        from debt_app.integrations.credit_report import _detect_agency
+        self.assertEqual("Experian", _detect_agency(
+            "Experian Consumer Credit Report\nIssue Date and Time 01/09/2026\n"
+            "Public Information\n• Number: 0"))
+
+    def test_experian_wins_even_with_a_debt_overview_heading(self):
+        from debt_app.integrations.credit_report import _detect_agency
+        self.assertEqual("Experian", _detect_agency(
+            "Experian\nDebt Overview\nCCJs and Insolvencies: 0"))
+
+    def test_neither_layout_stays_unknown(self):
+        from debt_app.integrations.credit_report import _detect_agency
+        self.assertEqual("Unknown", _detect_agency("Some other document\nDebt Overview"))

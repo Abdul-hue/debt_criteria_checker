@@ -307,6 +307,14 @@ def _detect_agency(text: str) -> str:
         return "Aryza Advize"
     if "experian" in sample or "credit expert" in sample:
         return "Experian"
+    # ⚠️ ARYZA ADVIZE PRINTS NO BRANDING. Its page one opens "Credit Report /
+    # Client Details / ... / Debt Overview", with "CCJs and Insolvencies" in
+    # the overview -- all 163 Aryza-layout reports in media/credit_reports
+    # came back "Unknown" on the branding check above, so the view's
+    # "recognised format but 0 accounts" warning never fired for any of them.
+    # Checked AFTER Experian so a branded Experian report is never taken.
+    if "debt overview" in sample and "ccjs and insolvencies" in sample:
+        return "Aryza Advize"
     if "equifax" in sample or "clearscore" in sample:
         return "Equifax"
     if "transunion" in sample or "credit karma" in sample:
