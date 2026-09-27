@@ -184,7 +184,10 @@ CREDITOR_ALIAS_MAP = {
     "hsbc uk bank plc": "HSBC",
     "lloyds bank plc": "Lloyds Bank",
     "nationwide building society": "Nationwide",
-    "Yorkshire bank": "Yorkshire Bank",
+    # ⚠️ Key must be lowercase: `match_creditor` (and every inline
+    # `CREDITOR_ALIAS_MAP.get(...)` call) lowercases the NAME but not the
+    # key, so the old "Yorkshire bank" spelling could never match.
+    "yorkshire bank": "Yorkshire Bank",
 }
 
 # ---------------------------------------------------------------------------
