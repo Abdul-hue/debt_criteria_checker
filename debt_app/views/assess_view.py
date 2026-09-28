@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
 from debt_app.criteria_engine import assess_case, detect_representatives
+from debt_app.helpers import with_creditor_lookup_cache
 from debt_app.recommendation_engine import get_recommendation
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,10 @@ class DirectAssessView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    # One creditor-lookup cache for the whole request: representative
+    # detection, the assessment and the post-assessment stamping all resolve
+    # the same creditor names (see `helpers.creditor_lookup_cache`).
+    @with_creditor_lookup_cache
     def post(self, request):
         # 1 — Parse body
         try:
@@ -285,6 +290,12 @@ class DirectAssessView(APIView):
                         "criteria_id":            c.get("criteria_id"),
                         "creditor_name":          c.get("creditor_name", ""),
                         "display_name":           c.get("display_name"),
+                        # The caller sends secured creditors tagged so the HP
+                        # rules can see them; it needs the tag back to keep
+                        # them out of its own vote table and majority maths,
+                        # as this service's own report does.
+                        "is_secured":             bool(c.get("is_secured", False)),
+                        "debt_type_normalised":   c.get("debt_type_normalised"),
                         "original_aryza_name":    c.get("original_aryza_name"),
                         "resolved_canonical_name": c.get("resolved_canonical_name", ""),
                         "representative":         c.get("representative", "NONE"),

@@ -1,6 +1,9 @@
 """
 Helper functions and constants for criteria management.
 """
+import contextvars
+import functools
+from contextlib import contextmanager
 from decimal import Decimal
 from django.utils import timezone
 from .models import (
@@ -552,7 +555,64 @@ def _db_name_segments(creditor_name: str) -> list:
     return segments
 
 
+_creditor_lookup_cache: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar(
+    "creditor_lookup_cache", default=None
+)
+
+
+@contextmanager
+def creditor_lookup_cache():
+    """Memoise `get_creditor_by_trading_name` for the duration of one assessment.
+
+    ⚠️ WHY: profiling `/api/v1/assess/` on a 26-creditor case (409480) put
+    182 of its 32 seconds in this lookup -- every rule module resolves every
+    creditor again, and 17 of those creditors share one name. The lookup is a
+    pure function of (name, the creditor table), so within one request the
+    answer cannot change. The cache lives only inside this context (a
+    contextvar, so concurrent requests never share it) and is discarded on
+    exit; nothing is cached across requests.
+    """
+    token = _creditor_lookup_cache.set({})
+    try:
+        yield
+    finally:
+        _creditor_lookup_cache.reset(token)
+
+
+def with_creditor_lookup_cache(fn):
+    """Decorator form of `creditor_lookup_cache()` for a view method."""
+    @functools.wraps(fn)
+    def _wrapped(*args, **kwargs):
+        with creditor_lookup_cache():
+            return fn(*args, **kwargs)
+    return _wrapped
+
+
 def get_creditor_by_trading_name(name: str, all_names=None):
+    """`_get_creditor_by_trading_name_uncached`, memoised per assessment when
+    `creditor_lookup_cache()` is active (see there). A miss is remembered too,
+    as the DoesNotExist it raises."""
+    from debt_app.models import CreditorCriteria
+
+    cache = _creditor_lookup_cache.get()
+    key = (name or "").strip().lower()
+    if cache is not None and key in cache:
+        hit = cache[key]
+        if hit is None:
+            raise CreditorCriteria.DoesNotExist(f"No criteria row found for: {name!r}")
+        return hit
+    try:
+        row = _get_creditor_by_trading_name_uncached(name, all_names)
+    except CreditorCriteria.DoesNotExist:
+        if cache is not None:
+            cache[key] = None
+        raise
+    if cache is not None:
+        cache[key] = row
+    return row
+
+
+def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
     """
     Find CreditorCriteria row for a given creditor name.
 

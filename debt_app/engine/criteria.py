@@ -312,6 +312,28 @@ def _parse_amount(value) -> float:
         return 0.0
 
 
+def _optional_bool(value):
+    """bool(value), except that None (absent / unknown) stays None."""
+    return None if value is None else bool(value)
+
+
+# A creditor the caller could not identify. The case-assessment tool sends
+# Aryza's generic "CCJ" / "Unknown Creditor" placeholders as
+# "<placeholder> (creditor not yet identified)" so the label is informative;
+# TIG-10 must still treat that as an unverified debt.
+_UNIDENTIFIED_NAME_MARKERS = ("not yet identified", "unknown creditor")
+_UNIDENTIFIED_EXACT_NAMES = frozenset({"unknown", "unknown creditor", "ccj", "other"})
+
+
+def _is_unidentified_creditor_name(name: str) -> bool:
+    n = (name or "").strip().lower()
+    if not n:
+        return True
+    if n in _UNIDENTIFIED_EXACT_NAMES:
+        return True
+    return any(marker in n for marker in _UNIDENTIFIED_NAME_MARKERS)
+
+
 def _is_gambling_tx(t: dict) -> bool:
     """Return True if this transaction is a gambling payment.
 
@@ -370,12 +392,21 @@ def _recent_transactions_matching(
     return results
 
 
-def _hp_monthly_from_transactions(gold_transactions: list, reference: Optional[date] = None) -> float:
-    """Estimate HP monthly payment by scanning gold_transactions within the last 30 days."""
+def _hp_monthly_from_transactions(gold_transactions: list, reference: Optional[date] = None,
+                                  lender_names: Optional[list] = None) -> float:
+    """Estimate HP monthly payment by scanning gold_transactions within the last 30 days.
+
+    `lender_names` are the case's own vehicle-HP creditors: a Moneybarn or
+    Advantage Finance instalment matches none of the generic keywords, so
+    without them the scan reported £0.00 for every lender outside the list.
+    """
+    lender_norms = [_norm(n) for n in (lender_names or []) if _norm(n)]
     total = 0.0
     for t in gold_transactions:
         desc = (t.get("description") or "").lower()
-        if any(kw in desc for kw in _CAR_FINANCE_KEYWORDS):
+        if any(kw in desc for kw in _CAR_FINANCE_KEYWORDS) or any(
+            n in _norm(desc) for n in lender_norms
+        ):
             tx_date = t.get("transaction_date") or t.get("date")
             if _is_within_days(tx_date, 30, reference):
                 total += abs(_parse_amount(t.get("amount", 0)))
@@ -501,15 +532,24 @@ def _parse_case(case_json: dict) -> dict:
             # Phase 3 per-creditor fields
             "is_joint": bool(c.get("is_joint", False)),
             "last_payment_date": lpd_raw,
-            "first_payment_made": bool(c.get("first_payment_made", False)),
+            # ⚠️ None survives: it means "not known". `_check_creditor_individual`
+            # has a distinct branch for each of these being None (flag for the
+            # caseworker) versus False (the creditor's reject condition is met),
+            # but coercing with bool() collapsed None into False and made the
+            # None branches unreachable -- every caller that didn't know had to
+            # assert True to avoid a false reject.
+            "first_payment_made": _optional_bool(c.get("first_payment_made")),
             "vehicle_arrears_months": c.get("vehicle_arrears_months") or c.get("arrears_months"),
             "ie_matches_loan_application": c.get("ie_matches_loan_application"),
             "arrangement_confirmed_before_proposing": bool(c.get("arrangement_confirmed_before_proposing", False)),
-            "client_still_has_asset_in_possession": bool(c.get("client_still_has_asset_in_possession", False)),
+            "client_still_has_asset_in_possession": _optional_bool(c.get("client_still_has_asset_in_possession")),
             "is_grant_overpayment": bool(c.get("is_grant_overpayment", False)),
             "guarantee_called_up": c.get("guarantee_called_up"),
             "months_since_last_payment": months_since_lp,
             "linked_creditor": c.get("linked_creditor"),
+            # The declared monthly instalment (Aryza `monthly`), read for
+            # vehicle HP below.
+            "monthly_repayment": c.get("monthly_repayment"),
             # Credit-report cross-check fields (populated upstream by the
             # caller's CR-enrichment step, e.g. views/criteria/ matching
             # Aryza creditors to CreditReport accounts). These were being
@@ -746,8 +786,24 @@ def _parse_case(case_json: dict) -> dict:
         if tx_date_str and _days_since(tx_date_str, assessment_date_parsed) <= 60:
             total_spend_2mo += abs(_parse_amount(t.get("amount", 0)))
 
-    # --- Vehicle HP from transactions ---
-    vehicle_hp_monthly = _hp_monthly_from_transactions(gold_tx, reference=assessment_date_parsed)
+    # --- Vehicle HP monthly: bank scan, floored by the DECLARED instalment ---
+    # The caller sends secured vehicle-HP creditors with `monthly_repayment`
+    # (Aryza's own figure: Motonovo £315, Advantage £263, BMW £239 on live
+    # cases). The bank scan alone missed every lender outside the keyword
+    # list and reported £0.00, so WATCH-22.10 / TIX-04 never fired.
+    from debt_app.helpers import DEBT_TYPE_HP as _DEBT_TYPE_HP
+    _vehicle_hp_creditors = [
+        cr for cr in creditors
+        if cr.get("debt_type_normalised") == _DEBT_TYPE_HP and _is_vehicle_hp_creditor(cr)
+    ]
+    vehicle_hp_monthly_declared = sum(
+        _parse_amount(cr.get("monthly_repayment") or 0) for cr in _vehicle_hp_creditors
+    )
+    vehicle_hp_monthly_bank = _hp_monthly_from_transactions(
+        gold_tx, reference=assessment_date_parsed,
+        lender_names=[cr["name"] for cr in _vehicle_hp_creditors],
+    )
+    vehicle_hp_monthly = max(vehicle_hp_monthly_bank, vehicle_hp_monthly_declared)
 
     # --- Car finance recent transactions ---
     car_finance_tx_3mo = _recent_transactions_matching(
@@ -826,11 +882,19 @@ def _parse_case(case_json: dict) -> dict:
         "creation_tx_4mo": creation_tx_4mo,
         "total_spend_2mo": total_spend_2mo,
         "vehicle_hp_monthly": vehicle_hp_monthly,
+        "vehicle_hp_monthly_declared": vehicle_hp_monthly_declared,
         "car_finance_tx_3mo": car_finance_tx_3mo,
         # Optional payload fields — pass None/False when not supplied; rules skip gracefully
         "vehicle_value": vehicle_value,
         "children": case_json.get("children") or [],
-        "antecedent_transactions": case_json.get("antecedent_transactions") or case_json.get("has_antecedent_transactions"),
+        # Tri-state. `a or b` turned an explicit False into None ("could not
+        # be checked") -- a caller that scanned the bank data and found
+        # nothing was reported as never having looked.
+        "antecedent_transactions": (
+            case_json.get("antecedent_transactions")
+            if case_json.get("antecedent_transactions") is not None
+            else case_json.get("has_antecedent_transactions")
+        ),
         "seiss_debt_flag": case_json.get("seiss_debt_flag"),
         "full_and_final_from_savings": case_json.get("full_and_final_from_savings"),
         "gambling_main_cause": bool(case_json.get("gambling_main_cause") or case_json.get("gambling_primary_cause") or crm.get("gambling_main_cause", False)),
@@ -1198,9 +1262,6 @@ def _tig_10(c: dict) -> RuleResult:
     total_debt = float(c.get("total_debt") or 0)
     MIN_DEBT = 6000.0  # mirrors TIG-01's minimum unsecured debt threshold
 
-    # Names that indicate the creditor could not be identified from Aryza
-    _UNKNOWN_NAMES = frozenset({"unknown", "unknown creditor"})
-
     hard_block_unverified = []  # >= £1,000, unidentified — always hard_block
     sub_1k_unverified = []      # < £1,000, unidentified — flag, unless load-bearing
 
@@ -1208,11 +1269,16 @@ def _tig_10(c: dict) -> RuleResult:
         balance = creditor.get("balance", 0)
         if balance <= 0:
             continue
+        # Secured debts sit outside the unsecured book TIG-10 verifies.
+        if creditor.get("is_secured"):
+            continue
 
         name = creditor.get("name", "Unknown Creditor")
 
-        # Any creditor with a real name (not an UNKNOWN fallback) is Aryza-sourced → verified
-        is_aryza_sourced = name.strip().lower() not in _UNKNOWN_NAMES
+        # Any creditor with a real name is Aryza-sourced → verified. A
+        # placeholder ("Unknown Creditor", "CCJ", or the case-assessment
+        # tool's "CCJ (creditor not yet identified)") is not a name.
+        is_aryza_sourced = not _is_unidentified_creditor_name(name)
 
         # Verified if the debt came from the credit report
         has_credit_report = bool(creditor.get("from_credit_report"))
@@ -2357,6 +2423,17 @@ def _count_qualifying_lenders(creditors: list, threshold: float) -> int:
     totals: dict[str, float] = {}
     display_names: dict[str, str] = {}
     for cr in creditors:
+        # A mortgage or HP lender is not a lender of the UNSECURED debt the
+        # IVA is proposed over -- counting one would satisfy the "two lenders"
+        # test on a single-creditor case.
+        if cr.get("is_secured"):
+            continue
+        # An unidentified placeholder ("CCJ (creditor not yet identified)",
+        # "OTHER") is neither a named lender nor a second lender that can be
+        # relied on -- see `_unidentified_lender_balance` for how the rules
+        # treat it.
+        if _is_unidentified_creditor_name(cr.get("name") or ""):
+            continue
         key = (cr.get("parent_group") or "").strip().lower() \
             or (cr.get("name") or "").strip().lower()
         if not key:
@@ -2375,25 +2452,56 @@ def _count_qualifying_lenders(creditors: list, threshold: float) -> int:
     return qualifying_names
 
 
-def _watch_22_5(c: dict) -> RuleResult:
-    """WATCH-22.5: Only 1 qualifying lender (balance > £500) — hard block.
-    Banking-group brands count as a single lender (see _count_qualifying_lenders)."""
+def _unidentified_lender_balance(creditors: list) -> float:
+    """Unsecured debt owed to creditors nobody has identified yet."""
+    return sum(
+        float(cr.get("balance") or 0) for cr in creditors
+        if not cr.get("is_secured") and _is_unidentified_creditor_name(cr.get("name") or "")
+    )
+
+
+def _single_lender_rule(c: dict, rule_id: str, body: str) -> RuleResult:
+    """Shared body of WATCH-22.5 and EVOLVE-02: at least two lenders above £500.
+
+    Unidentified creditors are left out of the count. When the named lenders
+    alone fail the test but an unidentified creditor holds more than the
+    threshold, the answer is "cannot tell until it is identified" -- a flag --
+    not a hard block: the missing name may well be the second lender.
+    """
     threshold = 500.0
     qualifying_names = _count_qualifying_lenders(c["creditors"], threshold)
     count = len(qualifying_names)
     names_str = ", ".join(qualifying_names) if qualifying_names else "none"
     if count <= 1:
+        unidentified = _unidentified_lender_balance(c["creditors"])
+        if unidentified > threshold:
+            return RuleResult(
+                rule_id=rule_id, severity="flag", triggered=True,
+                message=(
+                    f"The customer has {count} identified lender ({names_str}) with a balance above "
+                    f"£{threshold:,.2f}, and £{unidentified:,.2f} owed to creditor(s) not yet identified. "
+                    f"{body} requires at least two separate lenders above this amount; the caseworker must "
+                    "identify the remaining creditor(s) before this can be assessed."
+                ),
+                threshold=threshold, actual_value=float(count),
+            )
         return RuleResult(
-            rule_id="WATCH-22.5", severity="hard_block", triggered=True,
+            rule_id=rule_id, severity="hard_block", triggered=True,
             message=(
-                f"The customer only has {count} lender ({names_str}) with a balance above £{threshold:,.2f}. WATCH "
+                f"The customer only has {count} lender ({names_str}) with a balance above £{threshold:,.2f}. {body} "
                 "requires at least two separate lenders above this amount, so this creditor is expected to reject "
                 "the IVA."
             ),
             threshold=threshold, actual_value=float(count),
         )
-    return _pass("WATCH-22.5", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
+    return _pass(rule_id, f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
                  threshold=threshold, actual_value=float(count))
+
+
+def _watch_22_5(c: dict) -> RuleResult:
+    """WATCH-22.5: Only 1 qualifying lender (balance > £500) — hard block.
+    Banking-group brands count as a single lender (see _count_qualifying_lenders)."""
+    return _single_lender_rule(c, "WATCH-22.5", "WATCH")
 
 
 def _watch_22_6(c: dict) -> RuleResult:
@@ -2445,6 +2553,13 @@ def _watch_22_7(c: dict) -> RuleResult:
     sustainability paragraph (Drafter) → Reject". Boundary is strictly > 13 per
     "over 13".
 
+    ⚠️ The repository's own summaries disagree with that wording:
+    `docs/EXCEL_CRITERIA_REFERENCE.md` says "aged 13+" (a flag) and
+    `docs/debt_checker.md` says "13 or above → flag". Neither the threshold
+    (13 vs over 13) nor the severity has been changed here; the source
+    spreadsheet must settle it. Ages arrive from the caller as whole years
+    at the assessment (case-assessment: Aryza `client_dependant.dob`).
+
     NOTE: this rule is currently is_active=False in GlobalCriteria, so the engine
     discards its result (disabled). The code is kept Excel-correct so enabling the
     rule (is_active=True) makes it hard-block immediately. (Decision 2026-06-21:
@@ -2453,7 +2568,21 @@ def _watch_22_7(c: dict) -> RuleResult:
     children = c["children"]
     if not children:
         return _pass("WATCH-22.7", "No children on record — rule not applicable.")
-    has_teen = any(_parse_amount(child.get("age", 0)) > 13 for child in children)
+    # ⚠️ Tri-state ages. The caller sends `age: null` for a child it knows
+    # exists (household counts) but cannot date (no date of birth on the
+    # Aryza dependant table). An unknown age is not "under 13".
+    ages = [child.get("age") for child in children if isinstance(child, dict)]
+    known = [_parse_amount(a) for a in ages if a is not None]
+    has_teen = any(a > 13 for a in known)
+    if not has_teen and len(known) < len(ages):
+        return RuleResult(
+            rule_id="WATCH-22.7", severity="flag", triggered=True,
+            message=(
+                f"{len(ages) - len(known)} of the customer's {len(ages)} children have no date of birth on record, "
+                "so it cannot be confirmed whether any is aged over 13. The caseworker must confirm the "
+                "children's ages (and, if any is over 13, that the proposal carries a sustainability paragraph)."
+            ),
+        )
     if not has_teen:
         return _pass("WATCH-22.7", "No children aged over 13.")
     if not c["sustainability_paragraph_present"]:
@@ -2513,27 +2642,38 @@ def _watch_22_9(c: dict) -> RuleResult:
     )
 
 
-def _watch_22_10(c: dict) -> RuleResult:
-    """WATCH-22.10: Car HP payment > £400/month — flag."""
-    threshold = float(WATCH_HP_MONTHLY_CAP)
+def _hp_monthly_rule(c: dict, rule_id: str, body: str, threshold: float) -> RuleResult:
+    """Shared body of WATCH-22.10 (£400) and TIX-04 (£250).
+
+    The figure is the larger of the bank-statement scan and the DECLARED
+    instalment on the case's vehicle-HP creditors. Without bank data the
+    declared figure alone is still an evaluable fact; only when neither
+    exists is the check handed to the caseworker.
+    """
     actual = c["vehicle_hp_monthly"]
-    if not c.get("has_open_banking"):
+    declared = c.get("vehicle_hp_monthly_declared") or 0.0
+    if not c.get("has_open_banking") and not declared:
         return RuleResult(
-            rule_id="WATCH-22.10",
-            severity="flag",
-            triggered=True,
+            rule_id=rule_id, severity="flag", triggered=True,
             message="Open banking data was not available, so the customer's car finance (HP) monthly payment could not be checked. Please confirm the payment amount manually.",
         )
+    source = "" if c.get("has_open_banking") else " (from the declared instalment; no bank data was available)"
     if actual > threshold:
         return RuleResult(
-            rule_id="WATCH-22.10", severity="flag", triggered=True,
+            rule_id=rule_id, severity="flag", triggered=True,
             message=(
-                f"The customer pays £{actual:,.2f} a month towards car finance, which is above WATCH's £{threshold:,.2f} "
-                "monthly guideline. Evidence supporting this payment must be provided."
+                f"The customer pays £{actual:,.2f} a month towards car finance{source}, which is above {body}'s "
+                f"£{threshold:,.2f} monthly guideline. Evidence supporting this payment must be provided."
             ),
             threshold=threshold, actual_value=actual,
         )
-    return _pass("WATCH-22.10", f"HP payment £{actual:,.2f}/month within threshold.")
+    return _pass(rule_id, f"HP payment £{actual:,.2f}/month{source} within {body} threshold.",
+                 threshold=threshold, actual_value=actual)
+
+
+def _watch_22_10(c: dict) -> RuleResult:
+    """WATCH-22.10: Car HP payment > £400/month — flag."""
+    return _hp_monthly_rule(c, "WATCH-22.10", "WATCH", float(WATCH_HP_MONTHLY_CAP))
 
 
 def _watch_22_11(c: dict) -> RuleResult:
@@ -2808,25 +2948,7 @@ def _tix_03(c: dict) -> RuleResult:
 
 def _tix_04(c: dict) -> RuleResult:
     """TIX-04: Car HP payment > £250/month — flag. NOTE: TIX threshold is £250, WATCH is £400."""
-    threshold = 250.0
-    actual = c["vehicle_hp_monthly"]
-    if not c.get("has_open_banking"):
-        return RuleResult(
-            rule_id="TIX-04",
-            severity="flag",
-            triggered=True,
-            message="Open banking data was not available, so the customer's car finance (HP) monthly payment could not be checked. Please confirm the payment amount manually.",
-        )
-    if actual > threshold:
-        return RuleResult(
-            rule_id="TIX-04", severity="flag", triggered=True,
-            message=(
-                f"The customer pays £{actual:,.2f} a month towards car finance, which is above TIX's £{threshold:,.2f} "
-                "monthly guideline. Evidence supporting this payment must be provided."
-            ),
-            threshold=threshold, actual_value=actual,
-        )
-    return _pass("TIX-04", f"HP payment £{actual:,.2f}/month within TIX threshold.")
+    return _hp_monthly_rule(c, "TIX-04", "TIX", 250.0)
 
 
 def _tix_05(c: dict) -> RuleResult:
@@ -2919,22 +3041,7 @@ def _evolve_01(c: dict) -> RuleResult:
 def _evolve_02(c: dict) -> RuleResult:
     """EVOLVE-02: Single lender (NatWest group counts as one lender) — hard block.
     Banking-group brands are grouped via parent_group (see _count_qualifying_lenders)."""
-    threshold = 500.0
-    qualifying_names = _count_qualifying_lenders(c["creditors"], threshold)
-    count = len(qualifying_names)
-    names_str = ", ".join(qualifying_names) if qualifying_names else "none"
-    if count <= 1:
-        return RuleResult(
-            rule_id="EVOLVE-02", severity="hard_block", triggered=True,
-            message=(
-                f"The customer only has {count} lender ({names_str}) with a balance above £{threshold:,.2f}. EVOLVE "
-                "requires at least two separate lenders above this amount, so this creditor is expected to reject "
-                "the IVA."
-            ),
-            threshold=threshold, actual_value=float(count),
-        )
-    return _pass("EVOLVE-02", f"{count} qualifying lenders with balance > £{threshold:,.2f}: {names_str}.",
-                 threshold=threshold, actual_value=float(count))
+    return _single_lender_rule(c, "EVOLVE-02", "EVOLVE")
 
 
 def _evolve_03(c: dict) -> RuleResult:
@@ -4226,6 +4333,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
                 "debt_type_normalised": c.get("debt_type_normalised"),
+                "is_secured": bool(c.get("is_secured", False)),
             })
         else:
             backfilled.append({
@@ -4248,6 +4356,7 @@ def reconcile_creditor_positions(result: dict, prepared_creditors: list) -> list
                 "cr_account_age_months": c.get("cr_account_age_months"),
                 "cr_missed_payments_3m": c.get("cr_missed_payments_3m"),
                 "debt_type_normalised": c.get("debt_type_normalised"),
+                "is_secured": bool(c.get("is_secured", False)),
             })
 
     return engine_positions + backfilled
@@ -4476,8 +4585,10 @@ def _check_conditional_voters(case: dict, positions: list) -> list:
     if not cv_positions:
         return results
 
-    balance_by_name = {cr["name"]: cr["crm_balance"] for cr in case.get("creditors", [])}
-    total = sum(cr["crm_balance"] for cr in case.get("creditors", []))
+    # Unsecured only -- the same base every other majority figure uses.
+    _unsecured = [cr for cr in case.get("creditors", []) if not cr.get("is_secured")]
+    balance_by_name = {cr["name"]: cr["crm_balance"] for cr in _unsecured}
+    total = sum(cr["crm_balance"] for cr in _unsecured)
     if total <= 0:
         return results
 
@@ -4637,7 +4748,8 @@ def _derive_recommended_solution(
     if hard_blocks:
         return "IVA_NOT_VIABLE"
     for pos in creditor_positions:
-        if pos.get("effective_status") == "DO_NOT_VOTE":
+        # A secured lender's abstention is the norm, not a review trigger.
+        if pos.get("effective_status") == "DO_NOT_VOTE" and not pos.get("is_secured"):
             return "REVIEW_REQUIRED"
     if flags:
         return "IVA_WITH_CONDITIONS"
@@ -5112,6 +5224,11 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         unknown_debt = Decimal("0")
         unknown_creditors = []
         for c in creditors:
+            # `total_debt` (and so `threshold`) is unsecured-only; a secured
+            # creditor's ACCEPT must not be added to a numerator measured
+            # against it, nor its balance reported as "unidentified".
+            if c.get("is_secured"):
+                continue
             if _is_do_not_vote(c):
                 continue
             idx = c.get("_idx")
@@ -5144,6 +5261,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                 "balance": float(c.get("crm_balance") or 0),
             }
             for c in creditors
+            if not c.get("is_secured")
         ]
 
     voting_debt_optimistic = voting_debt + unknown_debt
@@ -5214,7 +5332,9 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
 
     _COUNCIL_TYPES = frozenset({DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT})
 
-    creditors = case.get("creditors", [])
+    # Dividend minimums are an unsecured creditor's condition for voting
+    # yes; a secured lender is paid outside the arrangement.
+    creditors = [c for c in case.get("creditors", []) if not c.get("is_secured")]
     estimated_pence = calculate_estimated_dividend_pence(case)
     below_min = []
     max_min_required = 0
@@ -5323,12 +5443,18 @@ def detect_representatives(creditors: list, assessment_date: Optional[date] = No
         assessment_date = date.today()
 
     rep_triggers: dict[str, set[str]] = {}
-    
+
     for cr in creditors:
         name = cr.get("creditor_name") or cr.get("name")
         if not name:
             continue
-            
+        # A secured lender is paid outside the arrangement and casts no vote
+        # on the unsecured book, so it cannot bring its representative body's
+        # rule set into play on its own. (A lender with BOTH a secured and an
+        # unsecured debt still triggers via the unsecured row.)
+        if cr.get("is_secured"):
+            continue
+
         try:
             criteria = get_creditor_by_trading_name(name)
             rep = (criteria.representative or "NONE").upper().strip()
@@ -5392,7 +5518,7 @@ def _representative_balance_majority(creditors: list, total_debt: float) -> dict
     body_balances: dict[str, float] = {}
     for cr in creditors:
         name = cr.get("name")
-        if not name:
+        if not name or cr.get("is_secured"):  # total_debt is unsecured-only
             continue
         try:
             criteria = get_creditor_by_trading_name(name)
@@ -5943,6 +6069,15 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def assess_case(case_json: dict, detected_representatives: Optional[set] = None) -> dict:
+    """`_assess_case_impl` under a per-assessment creditor-lookup cache
+    (`helpers.creditor_lookup_cache`): every rule module resolves every
+    creditor, and the same name resolves the same way for the whole run."""
+    from debt_app.helpers import creditor_lookup_cache
+    with creditor_lookup_cache():
+        return _assess_case_impl(case_json, detected_representatives)
+
+
+def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] = None) -> dict:
     """
     Assess a case JSON payload against all active rules.
 
@@ -6032,6 +6167,13 @@ def assess_case(case_json: dict, detected_representatives: Optional[set] = None)
                 triggered=True,
                 message=f"This check could not be completed due to a system error ({exc}). A caseworker must review this case manually.",
             )
+        # ⚠️ The id a rule EMITS is what GlobalCriteria is keyed by, and for
+        # several rules it is not the function-derived one checked above
+        # (`_tig_11_gambling` -> TIG-11-GAMBLING, `_tig_hmrc_03` ->
+        # TIG-HMRC-VAT-TRADING, `_tig_19_review` -> TIG-SHOP-DIRECT-4MO-REVIEW).
+        # Disabling those in the admin had no effect.
+        if r.rule_id in _disabled_rules:
+            return
         if r.severity == "hard_block" and r.triggered:
             hard_blocks.append(r)
         elif r.severity == "flag" and r.triggered:

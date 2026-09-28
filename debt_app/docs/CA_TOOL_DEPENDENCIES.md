@@ -9,6 +9,29 @@ Source of truth: `criteria_engine.py` (`_parse_case` return dict and per-credito
 loop). Rule consumption verified by searching `criteria_engine.py` for reads of each
 parsed key (May 2026).
 
+**Contract notes from the September 2026 integration audit** (the Case Assessment
+tool now sends exactly this):
+
+* Dates are ISO `YYYY-MM-DD`. `_days_since` parses nothing else.
+* `gold_transactions: null` means "no bank data" (`has_open_banking` False, every
+  transaction rule flags for a manual check); `[]` means "scanned, nothing found".
+* `creditors[].first_payment_made` and `creditors[].client_still_has_asset_in_possession`
+  are tri-state: `true` / `false` / absent-or-`null` = not known. `_parse_case` keeps
+  `null` (it used to coerce it to `false`, which is the REJECT value).
+* Secured creditors are sent WITH `is_secured: true`. `total_debt`, the 75% majority,
+  `_count_qualifying_lenders`, `_representative_balance_majority`, dividend minimums
+  and `detect_representatives` all exclude them; every returned position carries
+  `is_secured` so the caller can keep them out of its vote table.
+* `uc_journal_date` is sent (ISO) so TIG-07 can apply its 90-day test.
+* TIG-10 treats `"<placeholder> (creditor not yet identified)"`, `"OTHER"`, `"CCJ"` and
+  `"Unknown Creditor"` as unidentified debts. WATCH-22.5 / EVOLVE-02 leave such rows out of
+  the lender count and FLAG (not block) when an unidentified creditor over £500 could be the
+  missing second lender.
+* `creditors[].monthly_repayment` (the declared instalment) is read for vehicle-HP creditors:
+  `vehicle_hp_monthly` is the larger of the bank scan and the declared figure, and
+  WATCH-22.10 / TIX-04 evaluate the declared figure when there is no bank data. The bank scan
+  also matches the case's own vehicle-HP lender names, not only the generic keyword list.
+
 ---
 
 ## Client-level fields (on parsed case dict `c`)
