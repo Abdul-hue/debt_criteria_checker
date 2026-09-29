@@ -995,6 +995,40 @@ def normalise_start_date_iso(date_str: str | None) -> str | None:
     return None
 
 
+#: The labels a report PRINTS its own date under, each with its dd/mm/yyyy
+#: capture. ⚠️ ONLY PRINTED LABELS. `report_date` falls back to the latest
+#: tradeline update ("Last Update" / "CAIS Last Updated"), which is when a
+#: LENDER last reported, not when the search was run -- an Aryza Advize report
+#: prints no date of its own at all (all 161 in media/credit_reports, checked
+#: 2026-09-30). That derived value must never be passed off as the search date.
+_PRINTED_REPORT_DATE_RES = (
+    # Experian "Consumer Credit Report": "Issue Date and Time 04/03/2026 17:26:04"
+    re.compile(r"Issue Date and Time\s+(\d{2}/\d{2}/\d{4})"),
+    # Experian Valid8IP bureau search: "Search Date: 23/08/2026"
+    re.compile(r"Search Date:\s*(\d{2}/\d{2}/\d{4})"),
+)
+
+
+def _extract_printed_report_date(page_one_text: str) -> str:
+    """
+    The date the report prints as its own issue / search date, ISO, or "".
+
+    ⚠️ PAGE ONE ONLY. Both labels sit in the report header; a Valid8 report's
+    CAPS section lists OTHER lenders' searches further in, and one of those
+    must never be read as this report's date. Both bureaus print UK
+    dd/mm/yyyy, so the format is fixed rather than guessed; an impossible
+    date ("31/02/2026") returns "" rather than a coerced one.
+    """
+    for pattern in _PRINTED_REPORT_DATE_RES:
+        m = pattern.search(page_one_text or "")
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+            except ValueError:
+                return ""
+    return ""
+
+
 def _extract_experian_report_date(text: str) -> str:
     """
     Extract the report date from an Experian consumer credit report.
@@ -1517,6 +1551,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             "agency": str,
             "client_name": str,
             "report_date": str,
+            "printed_report_date": str,   # ISO; "" when none is printed
             "accounts": [list of parsed account dicts],
             "unmatched_accounts": [raw names with no alias map hit]
         }
@@ -1525,10 +1560,10 @@ def extract_credit_report(pdf_path: str) -> dict:
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            full_text = "\n".join(
-                page.extract_text() or "" for page in pdf.pages
-            )
+            page_texts = [page.extract_text() or "" for page in pdf.pages]
+            full_text = "\n".join(page_texts)
 
+        printed_report_date = _extract_printed_report_date(page_texts[0] if page_texts else "")
         agency = _detect_agency(full_text)
         client_name = _extract_client_name(full_text)
         public_info = extract_public_information(full_text)
@@ -1544,7 +1579,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             # Headers: "{CREDITOR NAME} - {Category}"
             # Date format: DD-MM-YYYY
             # ----------------------------------------------------------------
-            report_date = _extract_experian_report_date(full_text)
+            report_date = printed_report_date or _extract_experian_report_date(full_text)
 
             # Try the Valid8IP-style bureau-search layout FIRST. Its anchor
             # (a status word right after "Address:", with a "Company:"
@@ -1640,6 +1675,9 @@ def extract_credit_report(pdf_path: str) -> dict:
             "client_name": client_name,
             "client_address": client_address,
             "report_date": report_date,
+            # The printed issue / search date only, "" when the report
+            # prints none -- see `_PRINTED_REPORT_DATE_RES`.
+            "printed_report_date": printed_report_date,
             "accounts": accounts,
             "mortgage_accounts": mortgage_accounts,
             "other_accounts": other_accounts,
@@ -1655,6 +1693,7 @@ def extract_credit_report(pdf_path: str) -> dict:
             "agency": "Unknown",
             "client_name": "",
             "report_date": "",
+            "printed_report_date": "",
             "accounts": [],
             "unmatched_accounts": [],
             "extraction_error": str(e),

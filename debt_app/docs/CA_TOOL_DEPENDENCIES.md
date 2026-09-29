@@ -27,6 +27,15 @@ tool now sends exactly this):
   `"Unknown Creditor"` as unidentified debts. WATCH-22.5 / EVOLVE-02 leave such rows out of
   the lender count and FLAG (not block) when an unidentified creditor over £500 could be the
   missing second lender.
+* `children[]` is `[{"age": years | null, "dob": ISO | null}]`; `age: null` is a child the
+  household counts know about but whose date of birth is not on record, and WATCH-22.7 FLAGS
+  it rather than treating it as under 13. Threshold stays "over 13" (see the rule's docstring
+  for the wording conflict in this repo's own docs).
+* `GlobalCriteria.is_active=False` now disables a rule by the id it EMITS as well as the
+  function-derived id (TIG-11-GAMBLING, the TIG-HMRC-* rules and TIG-SHOP-DIRECT-4MO-REVIEW
+  could not be disabled before).
+* `get_creditor_by_trading_name` is memoised per request (`helpers.creditor_lookup_cache`):
+  a 26-creditor case went from 28 s to 2 s on `/api/v1/assess/`.
 * `creditors[].monthly_repayment` (the declared instalment) is read for vehicle-HP creditors:
   `vehicle_hp_monthly` is the larger of the bank scan and the declared figure, and
   WATCH-22.10 / TIX-04 evaluate the declared figure when there is no bank data. The bank scan

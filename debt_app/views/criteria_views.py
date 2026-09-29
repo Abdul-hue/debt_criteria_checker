@@ -3037,6 +3037,7 @@ class CreditReportUploadView(APIView):
                     "accounts_found": 0,
                     "client_name_on_report": "",
                     "client_address_on_report": "",
+                    "printed_report_date": "",
                     "unmatched_accounts": [],
                     "accounts": [],
                     "mortgage_accounts": [],
@@ -3096,6 +3097,11 @@ class CreditReportUploadView(APIView):
                 "accounts_found": len(result.get("accounts", [])),
                 "client_name_on_report": record.client_name_on_report,
                 "client_address_on_report": record.client_address_on_report,
+                # ⚠️ The PRINTED issue / search date, "" when the report prints
+                # none. Deliberately not `report_date`, whose fallback is the
+                # latest tradeline update -- see `_PRINTED_REPORT_DATE_RES`.
+                # The case-assessment-tool shows it as the credit-search date.
+                "printed_report_date": result.get("printed_report_date", ""),
                 "unmatched_accounts": result.get("unmatched_accounts", []),
                 "accounts": result.get("accounts", []),
                 "mortgage_accounts": result.get("mortgage_accounts", []),
