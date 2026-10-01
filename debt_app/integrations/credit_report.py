@@ -188,6 +188,15 @@ CREDITOR_ALIAS_MAP = {
     # `CREDITOR_ALIAS_MAP.get(...)` call) lowercases the NAME but not the
     # key, so the old "Yorkshire bank" spelling could never match.
     "yorkshire bank": "Yorkshire Bank",
+    # Government -- the Department for Work and Pensions, whose
+    # CreditorCriteria row is "DWP" (migration 0030, trading name "Department
+    # for Work and Pensions"; `helpers.py` already maps "department for work &
+    # pensions (dwp)" to it). "of" is Aryza's own spelling of the same
+    # department. Mirrored by CAT's `common/creditor_identity.py`. "dwp" itself
+    # is keyed the way "ee" / "bt" / "o2" are, so any casing lands on "DWP".
+    "dwp": "DWP",
+    "department for work and pensions": "DWP",
+    "department of work and pensions": "DWP",
 }
 
 # ---------------------------------------------------------------------------
