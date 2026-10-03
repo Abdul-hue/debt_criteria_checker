@@ -250,6 +250,13 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'tesco mobile': 'Tesco Mobile',
     'american express': 'American Express Service',
     'american express services europe ltd': 'American Express Service',
+    # Aryza's own spelling (case 416326: three cards, £13,800). It normalises
+    # to "american express services", which neither key above reaches, so all
+    # three counted as UNKNOWN instead of WILL_CONSIDER support.
+    'american express services ltd': 'American Express Service',
+    # E.ON's energy supply business, as Aryza names it (case 416326, £1,729;
+    # the report prints the same account as "Eon Next"). Confirmed 2026-10-03.
+    'eon energy limited': 'E.ON',
     'amex': 'American Express Service',
     'vanquis': 'Vanquis Bank',
     'vanquis bank': 'Vanquis Bank',

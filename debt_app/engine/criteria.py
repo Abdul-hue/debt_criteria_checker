@@ -527,6 +527,14 @@ def _parse_case(case_json: dict) -> dict:
             "creditor_type": raw_type,
             "debt_type_normalised": debt_type,
             "is_secured": is_secured,
+            # ⚠️ CARRIED, NOT DROPPED. TIG-10 treats a placeholder-named debt
+            # ("CCJ (creditor not yet identified)", "Other") as verified when
+            # the credit report carries it -- but this field was never copied
+            # from the case JSON, so TIG-10 judged on the name alone and a
+            # report-verified CCJ could never pass (case 416326: £2,181,
+            # £6,165, £5,984, all on the report). The case-assessment tool
+            # sets it per debt from its ledger; `aryza_client` sets it too.
+            "from_credit_report": bool(c.get("from_credit_report")),
             "account_age_months": c.get("account_age_months"),
             "last_transaction_date": c.get("last_transaction_date"),
             # Phase 3 per-creditor fields
