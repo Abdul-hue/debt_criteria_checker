@@ -719,10 +719,17 @@ _EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
     "mail order": "MO",
     "student loans": "UL",
     "student loan": "UL",
-    "motor insurance": "OT",
-    "insurance": "OT",
+    # ⚠️ MI, NOT "OT": insurance is reconciliation only, never debt
+    # (`RECONCILIATION_ONLY_TYPE_CODES`) -- as it already was on an Aryza
+    # Advize report, where it prints "MI". As "OT" it was counted as unsecured
+    # IVA debt on an Experian report only. Generic "insurance" takes MI too:
+    # a premium is not borrowing, whatever it insures.
+    "motor insurance": "MI",
+    "insurance": "MI",
     "credit card / store card": "CC",
-    "car insurance": "OT",
+    "car insurance": "MI",
+    # Multi-comms is MU on an Aryza Advize report -- reconciliation only.
+    "multi communications": "MU",
     "public utility": "UT",
     "utility": "UT",
 }
@@ -800,9 +807,15 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
     "electricity": "UT",
     "gas": "UT",
     "water": "UT",
-    "multi communications": "UT",
+    # ⚠️ MU / MI, reconciliation only -- the same codes the Aryza Advize
+    # format prints (see `_EXPERIAN_CATEGORY_TO_TYPE`). Unlisted categories
+    # fall to "OT", which is debt.
+    "multi communications": "MU",
     "communications": "UT",
     "unsecured loan (personal loans etc)": "UL",
+    "motor insurance": "MI",
+    "car insurance": "MI",
+    "insurance": "MI",
     "budget (revolving account)": "CC",
 }
 

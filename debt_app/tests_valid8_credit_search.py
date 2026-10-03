@@ -29,7 +29,12 @@ class TestValid8CreditSearchFormat:
         assert "extraction_error" not in result
         assert result["agency"] == "Experian"
         # The report's own Summary section states "Number: 28" CAIS records.
-        assert len(result["accounts"]) == 28
+        # Every one is extracted: 27 debts, plus VODAFONE's multi-comms
+        # account, which is reconciliation only (MU), as on an Aryza report.
+        assert len(result["accounts"]) + len(result["other_accounts"]) == 28
+        assert len(result["accounts"]) == 27
+        assert [(a["raw_name"], a["type_code"]) for a in result["other_accounts"]] == [
+            ("VODAFONE", "MU")]
 
     def test_total_balance_matches_report_summary(self):
         # The report's own Summary section states "Total Balance: £5,020.00" —
