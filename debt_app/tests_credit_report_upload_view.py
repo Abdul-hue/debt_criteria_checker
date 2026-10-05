@@ -12,6 +12,8 @@ debt_app/tests/test_credit_report_type_codes.py.
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
+from debt_app.engine.criteria import _enrich_from_credit_report
+from debt_app.models import CreditReport
 from debt_app.views import criteria_views
 
 
@@ -73,10 +75,12 @@ class CreditReportUploadEmptyFlagTests(TestCase):
         self.assertNotIn("warning", body)
         self.assertEqual(body["accounts_found"], 1)
 
-    def test_unrecognised_agency_with_no_accounts_is_not_flagged(self):
-        # An "Unknown" agency with 0 accounts is not a format the parser
-        # claims to understand in the first place — nothing distinctive to
-        # flag beyond the ordinary "extracted" status.
+    def test_unrecognised_agency_with_no_accounts_fails(self):
+        # An "Unknown" agency with 0 accounts is not a credit report the
+        # parser can read (ref 411322: saved as "extracted", it read as
+        # "client has no debts"). It must fail -- `success: False` is what
+        # stops the case-assessment-tool replacing the case's creditors with
+        # nothing -- and nothing it extracted may be saved as a report.
         resp = self._post({
             "agency": "Unknown",
             "client_name": "",
@@ -91,8 +95,31 @@ class CreditReportUploadEmptyFlagTests(TestCase):
         })
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
+        self.assertFalse(body["success"])
+        self.assertEqual(body["extraction_status"], "failed")
+        self.assertEqual(body["code"], "NOT_A_CREDIT_REPORT")
+        self.assertIn("not recognised as a credit report", body["error"])
+        record = CreditReport.objects.get(id=body["credit_report_id"])
+        self.assertEqual(record.extraction_status, "failed")
+        self.assertFalse(record.extracted_data)
+
+    def test_unrecognised_agency_with_accounts_is_extracted(self):
+        resp = self._post({
+            "agency": "Unknown",
+            "client_name": "",
+            "report_date": "",
+            "accounts": [{"raw_name": "HALIFAX", "matched_creditor": "Halifax", "type_code": "CC", "current_balance": 100}],
+            "mortgage_accounts": [],
+            "other_accounts": [],
+            "unmatched_accounts": [],
+            "public_information": {},
+            "has_ccj": False,
+            "aoe_in_place": False,
+        })
+        body = resp.json()
+        self.assertTrue(body["success"])
         self.assertEqual(body["extraction_status"], "extracted")
-        self.assertNotIn("warning", body)
+        self.assertEqual(body["accounts_found"], 1)
 
     def test_recognised_bureau_with_only_mortgage_accounts_is_not_flagged(self):
         # Mortgage-only extraction is a legitimate non-empty outcome (e.g. a
@@ -113,3 +140,46 @@ class CreditReportUploadEmptyFlagTests(TestCase):
         body = resp.json()
         self.assertEqual(body["extraction_status"], "extracted")
         self.assertNotIn("warning", body)
+
+
+class EnrichSkipsEmptyReportTests(TestCase):
+    """`_enrich_from_credit_report` uses the newest extracted report that HAS
+    accounts -- an empty "extracted" upload made after a real report must not
+    hide it (ref 411322, report 218)."""
+
+    REF = "TEST-REF-EMPTY-AFTER-REAL"
+
+    def _report(self, extracted_data, created_at):
+        r = CreditReport.objects.create(
+            aryza_reference=self.REF, uploaded_file="x.pdf",
+            extraction_status="extracted", extracted_data=extracted_data,
+        )
+        CreditReport.objects.filter(id=r.id).update(created_at=created_at)
+        return r
+
+    def test_newer_empty_report_does_not_hide_the_real_one(self):
+        from datetime import datetime, timezone
+        from debt_app.engine.criteria import _parse_case
+        self._report({
+            "accounts": [{"raw_name": "HALIFAX", "matched_creditor": "Halifax",
+                          "type_code": "CC", "current_balance": 10000}],
+            "mortgage_accounts": [], "has_ccj": True,
+            "public_information": {"has_ccj": True},
+        }, datetime(2026, 9, 1, tzinfo=timezone.utc))
+        self._report({
+            "accounts": [], "mortgage_accounts": [], "has_ccj": False,
+            "public_information": {"has_ccj": False},
+        }, datetime(2026, 10, 5, tzinfo=timezone.utc))
+
+        c = _parse_case({"aryza_reference": self.REF,
+                         "creditors": [{"creditor_name": "Halifax", "balance": 100}]})
+        self.assertEqual("present", _enrich_from_credit_report(c))
+        self.assertTrue(c["has_ccj"])
+
+    def test_only_empty_reports_is_still_extraction_failed(self):
+        from datetime import datetime, timezone
+        from debt_app.engine.criteria import _parse_case
+        self._report({"accounts": [], "mortgage_accounts": []},
+                     datetime(2026, 10, 5, tzinfo=timezone.utc))
+        c = _parse_case({"aryza_reference": self.REF, "creditors": []})
+        self.assertEqual("extraction_failed", _enrich_from_credit_report(c))

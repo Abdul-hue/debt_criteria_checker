@@ -124,6 +124,14 @@ export default function CaseSearch({ onResult, onError, dmpChecklist, onDmpCheck
       const { data } = await axiosInstance.post('/api/v1/criteria/upload-credit-report/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
+      // A 200 can still be a failed extraction (`success: false`, e.g. a file
+      // that is not a credit report). Show it as an error, and keep
+      // uploadResult null so onSubmit never pins the run to that report.
+      if (data?.success === false) {
+        setUploadState('error')
+        setUploadError(data.error || data.message || 'No accounts could be read from this credit report.')
+        return
+      }
       setUploadState('success')
       setUploadResult(data)
     } catch (err) {

@@ -123,6 +123,21 @@ _SHOP_DIRECT_NAMES = frozenset({
     "jd williams", "simply be", "jacamo", "fashion world", "marisota",
 })
 
+# The two retail groups inside _SHOP_DIRECT_NAMES. A bank payment to one of
+# these brands can be the client paying off an account they already hold --
+# not new spend -- so TIG-19 / TIX-01 only hard-block a payment that no
+# existing account in the SAME group explains (see _split_shop_direct_tx).
+# "n brown" is here, not in _SHOP_DIRECT_NAMES: it identifies the group of an
+# account already on the case ("JD Williams (N Brown Group Plc)").
+_VERY_GROUP_NAMES = frozenset({"shop direct", "very", "littlewoods", "littlewoods.com"})
+_N_BROWN_GROUP_NAMES = frozenset({
+    "jd williams", "simply be", "jacamo", "fashion world", "marisota", "n brown",
+})
+
+# An account must be at least this old for a payment to it inside the
+# 3-month window to be read as a likely repayment rather than new spend.
+_SHOP_DIRECT_REPAYMENT_MIN_AGE_MONTHS = 3
+
 _CREATION_NAMES = frozenset({
     "creation", "sygma", "laser", "creation consumer finance",
 })
@@ -380,11 +395,19 @@ def _recent_transactions_matching(
     within_days: int,
     reference: Optional[date] = None,
 ) -> list:
-    """Return transactions whose description matches any keyword and are within N days of reference."""
+    """Return transactions whose description matches any keyword and are within N days of reference.
+
+    'very' is matched as a whole word, as `_contains_any` does for creditor
+    names: a substring match read "DELIVERY", "EVERYDAY LOANS" and
+    "LOWELL RECOVERY" as Shop Direct (Very) spend.
+    """
     results = []
     for t in gold_transactions:
         desc = (t.get("description") or "").lower()
-        if not any(kw.lower() in desc for kw in keywords):
+        if not any(
+            re.search(r"\bvery\b", desc) if kw.lower() == "very" else kw.lower() in desc
+            for kw in keywords
+        ):
             continue
         tx_date = t.get("transaction_date") or t.get("date")
         if _is_within_days(tx_date, within_days, reference):
@@ -2078,8 +2101,90 @@ def _tig_18(c: dict) -> RuleResult:
     return _pass("TIG-18", f"The customer's recent spend of £{spend:,.2f} over two months is within their 2-month income of £{two_month_income:,.2f}.")
 
 
+def _creditor_age_months(cr: dict, reference: date) -> Optional[int]:
+    """Whole months between an account's opening and `reference`, or None.
+
+    The credit report's own start date is preferred (it is measured against
+    the assessment date); then account_age_months / cr_account_age_months.
+    """
+    start = cr.get("cr_start_date")
+    if start:
+        try:
+            d = date.fromisoformat(str(start).split("T")[0])
+            months = (reference.year - d.year) * 12 + (reference.month - d.month)
+            if reference.day < d.day:
+                months -= 1
+            if months >= 0:
+                return months
+        except (ValueError, AttributeError):
+            pass
+    for key in ("account_age_months", "cr_account_age_months"):
+        age = cr.get(key)
+        if age is not None:
+            try:
+                return int(age)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _split_shop_direct_tx(c: dict) -> tuple[list, list]:
+    """Split the 3-month Shop Direct matches into (unexplained, likely_repayments).
+
+    The creditor rule rejects new SPEND, but a bank statement cannot tell a
+    purchase from the client paying off an account they already owe on --
+    both read "VERY BOOTLE £50.00". Case 411322: a £50 Very and a £6.72
+    Fashion World payment, to accounts opened in 2023 with £864 and £165
+    owing, hard-blocked TIG-19 and TIX-01 as "recent spend".
+
+    A match is a likely repayment when it is money coming IN (a refund is not
+    spend), or when the case already holds an account in the SAME group
+    (Very Group / N Brown) at least _SHOP_DIRECT_REPAYMENT_MIN_AGE_MONTHS old.
+    Anything else -- no such account, or its age unknown -- stays unexplained
+    and keeps the hard block.
+
+    Computed at rule time, not in `_parse_case`: `_enrich_from_credit_report`
+    fills account ages after parsing.
+    """
+    reference = c.get("assessment_date") or date.today()
+    group_has_old_account = {}
+    for group in (_VERY_GROUP_NAMES, _N_BROWN_GROUP_NAMES):
+        group_has_old_account[group] = any(
+            any(
+                _contains_any(cr.get(key) or "", group)
+                for key in ("name", "original_name", "cr_raw_name")
+            )
+            and (_creditor_age_months(cr, reference) or 0) >= _SHOP_DIRECT_REPAYMENT_MIN_AGE_MONTHS
+            for cr in c.get("creditors") or []
+        )
+
+    unexplained, repayments = [], []
+    for t in c.get("shop_direct_tx_3mo") or []:
+        desc = t.get("description") or ""
+        explained = t.get("transaction_type") == "money_in" or any(
+            has_old and _contains_any(desc, group)
+            for group, has_old in group_has_old_account.items()
+        )
+        (repayments if explained else unexplained).append(t)
+    return unexplained, repayments
+
+
+def _shop_direct_repayment_message(repayments: list) -> str:
+    """The flag sentence for matches read as repayments to existing accounts."""
+    return (
+        f"The customer's bank statements show {len(repayments)} payment(s) to Shop Direct, Very, Littlewoods "
+        "or an N Brown brand in the last three months. The customer already has an account with that "
+        "retailer that is more than three months old, so these look like repayments rather than new spending. "
+        "The caseworker must confirm they are repayments before the case is proposed."
+    )
+
+
 def _tig_19(c: dict) -> RuleResult:
-    """TIG-19: Shop Direct purchases within 3 months of statement date — hard block."""
+    """TIG-19: Shop Direct purchases within 3 months of statement date — hard block.
+
+    Payments that look like repayments to an existing account are a flag,
+    not a block -- see `_split_shop_direct_tx`.
+    """
     if not c.get("has_open_banking"):
         return RuleResult(
             rule_id="TIG-19",
@@ -2087,11 +2192,17 @@ def _tig_19(c: dict) -> RuleResult:
             triggered=True,
             message="There is no open banking data loaded, so the check for recent Shop Direct spending could not be completed. The caseworker must verify this manually.",
         )
-    if c["shop_direct_tx_3mo"]:
+    unexplained, repayments = _split_shop_direct_tx(c)
+    if unexplained:
         return RuleResult(
             rule_id="TIG-19", severity="hard_block", triggered=True,
             # EXCEL_CRITERIA_REFERENCE.md — TIG Shop Direct: 3-month spend = hard reject
-            message=f"The customer's bank statements show {len(c['shop_direct_tx_3mo'])} transaction(s) with Shop Direct, Very, or Littlewoods in the last three months. Recent spending with these creditors within three months is not allowed, so this case cannot proceed.",
+            message=f"The customer's bank statements show {len(unexplained)} transaction(s) with Shop Direct, Very, or Littlewoods in the last three months. Recent spending with these creditors within three months is not allowed, so this case cannot proceed.",
+        )
+    if repayments:
+        return RuleResult(
+            rule_id="TIG-19", severity="flag", triggered=True,
+            message=_shop_direct_repayment_message(repayments),
         )
     return _pass(
         "TIG-19",
@@ -2879,7 +2990,11 @@ def _watch_22_14(c: dict) -> RuleResult:
 # ---------------------------------------------------------------------------
 
 def _tix_01(c: dict) -> RuleResult:
-    """TIX-01: Shop Direct / Very / Littlewoods spend in last 3 months — hard block."""
+    """TIX-01: Shop Direct / Very / Littlewoods spend in last 3 months — hard block.
+
+    Same scan as TIG-19: likely repayments to an existing account are a flag
+    (TIX body WILL_CONSIDER), not a block -- see `_split_shop_direct_tx`.
+    """
     shop_direct_is_creditor = any(_contains_any(cr["name"], _SHOP_DIRECT_NAMES) for cr in c["creditors"])
     if not shop_direct_is_creditor:
         return _pass("TIX-01", "No Shop Direct / Very / Littlewoods creditor in case — TIX-01 not applicable.")
@@ -2890,14 +3005,20 @@ def _tix_01(c: dict) -> RuleResult:
             triggered=True,
             message="Open banking data was not available, so recent spending with Shop Direct, Very or Littlewoods could not be checked. Please verify manually.",
         )
-    if c["shop_direct_tx_3mo"]:
-        count = len(c["shop_direct_tx_3mo"])
+    unexplained, repayments = _split_shop_direct_tx(c)
+    if unexplained:
+        count = len(unexplained)
         return RuleResult(
             rule_id="TIX-01", severity="hard_block", triggered=True,
             message=(
                 f"The customer has made {count} transaction(s) with Shop Direct, Very or Littlewoods in the last "
                 "3 months. TIX does not allow this, so this creditor is expected to reject the IVA."
             ),
+        )
+    if repayments:
+        return RuleResult(
+            rule_id="TIX-01", severity="flag", triggered=True,
+            message=_shop_direct_repayment_message(repayments),
         )
     return _pass("TIX-01", "No recent Shop Direct transactions.")
 
@@ -5703,10 +5824,20 @@ def _enrich_from_credit_report(case_data: dict) -> str:
 
         # Determine status — check for record existence separately from extraction
         any_report = CreditReport.objects.filter(aryza_reference=ref).order_by("-created_at").first()
-        report = CreditReport.objects.filter(
+        # The newest extracted report that HAS accounts, as DirectAssessView
+        # chooses -- an empty upload after a real one (ref 411322: an
+        # unreadable file, saved as "extracted" with 0 accounts) made this
+        # status "extraction_failed", skipped all per-creditor enrichment, and
+        # its has_ccj False overrode the case. Falls back to the newest
+        # extracted report so a case with only empty ones is unchanged.
+        _extracted = list(CreditReport.objects.filter(
             aryza_reference=ref,
             extraction_status="extracted",
-        ).order_by("-created_at").first()
+        ).order_by("-created_at"))
+        report = next(
+            (r for r in _extracted if (r.extracted_data or {}).get("accounts")),
+            _extracted[0] if _extracted else None,
+        )
 
         logger.info("[CREDIT REPORT] ref=%s report=%s", ref, "found" if report else "NOT FOUND")
 

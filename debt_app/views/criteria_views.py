@@ -3069,6 +3069,49 @@ class CreditReportUploadView(APIView):
             )
             is_empty_recognised = recognised_bureau and found_nothing_at_all
 
+            # ⚠️ An UNRECOGNISED file that yields nothing at all is a failure,
+            # not a clean credit file: it is almost always another document (a
+            # bank statement) or a layout this parser cannot read. Saved as
+            # "extracted" (ref 411322, report 218: agency "Unknown", 0 accounts,
+            # `success: True`) it read as "client has no debts" -- the
+            # case-assessment-tool replaces the case's Creditor rows with the
+            # empty list on `success: True`, and `_enrich_from_credit_report` took
+            # it as the case's report, its `has_ccj: False` overriding the payload.
+            # `extracted_data` is deliberately NOT saved, as on the failure
+            # branch above, so nothing downstream can read it as a report.
+            if record.agency == "Unknown" and found_nothing_at_all:
+                not_a_report_error = (
+                    "This file was not recognised as a credit report and no accounts could be "
+                    "read from it. Check it is the client's Experian or Aryza credit report."
+                )
+                record.extraction_status = "failed"
+                record.extraction_error = not_a_report_error
+                record.save(update_fields=["agency", "extraction_status", "extraction_error", "updated_at"])
+                logger.warning(
+                    "[CREDIT REPORT EXTRACT] ref=%s agency Unknown and 0 accounts/mortgages/other "
+                    "-- not a readable credit report, marked failed",
+                    aryza_reference,
+                )
+                return Response({
+                    "success": False,
+                    "credit_report_id": record.id,
+                    "aryza_reference": aryza_reference,
+                    "agency": record.agency,
+                    "extraction_status": "failed",
+                    "accounts_found": 0,
+                    "client_name_on_report": "",
+                    "client_address_on_report": "",
+                    "printed_report_date": "",
+                    "unmatched_accounts": [],
+                    "accounts": [],
+                    "mortgage_accounts": [],
+                    "other_accounts": [],
+                    "public_information": {},
+                    "code": "NOT_A_CREDIT_REPORT",
+                    "error": not_a_report_error,
+                    "message": "Credit report uploaded but no accounts could be read",
+                })
+
             record.extraction_status = "extracted_empty" if is_empty_recognised else "extracted"
             record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "client_address_on_report", "extraction_status", "updated_at"])
 
