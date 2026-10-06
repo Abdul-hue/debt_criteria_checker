@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ArrowUpRight, ClipboardCheck, ExternalLink, LogOut, PictureInPicture2 } from 'lucide-react'
+import { ArrowUpRight, ClipboardCheck, ExternalLink, LogOut, PictureInPicture2 } from 'lucide-react'
 import LeadGenCheckPanel from '../components/leadgen/LeadGenCheckPanel.jsx'
 import { Button, Card, Hint, HintProvider, PageHeader } from '../components/leadgen/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -173,8 +173,6 @@ export default function LeadGenPage() {
   }
 
   const canPip = supportsDocumentPip()
-  // Browsers only offer the always-on-top window on HTTPS (or localhost).
-  const insecure = typeof window !== 'undefined' && window.isSecureContext === false
 
   // "On by default": browsers refuse to open the always-on-top window without a
   // user gesture, so open it on the first click / key press anywhere on the page.
@@ -260,15 +258,6 @@ export default function LeadGenPage() {
                   ? 'A small Lead Gen check that stays on top of your other tabs and apps. It opens as soon as you click anywhere on this page.'
                   : 'A small Lead Gen check in its own window, next to your other apps.'}
               </p>
-              {!canPip && insecure && (
-                <div className="mt-4 flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-left">
-                  <AlertTriangle size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-600" />
-                  <p className="text-sm text-amber-900">
-                    This page isn&apos;t on a secure (HTTPS) address, so your browser won&apos;t keep the Lead Gen
-                    window on top — it can go behind other windows. Ask IT to serve Lead Gen over HTTPS.
-                  </p>
-                </div>
-              )}
               <Button variant="primary" size="lg" className="mt-6 w-full sm:w-auto sm:min-w-[16rem]" onClick={openPopOut}>
                 <PictureInPicture2 size={16} aria-hidden="true" /> Open Lead Gen check
               </Button>
