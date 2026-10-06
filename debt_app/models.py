@@ -1388,6 +1388,10 @@ class DepartmentFeatureAccess(models.Model):
         ('decisions', 'Decisions'),
         ('evidence', 'Evidence'),
         ('user_management', 'User Management'),
+        ('lead_gen_check', 'Lead Gen Check'),
+        ('lead_gen_reporting', 'Lead Gen Reporting'),
+        ('criteria_changes', 'Criteria Changes (propose / trial)'),
+        ('criteria_approval', 'Criteria Approval (sign-off / go live)'),
     ]
 
     department = models.ForeignKey(
@@ -1467,3 +1471,255 @@ class DepartmentFeaturePermission(models.Model):
     def has_read_permission(self):
         """Check if this department has read access for this feature."""
         return self.permission_level in ['READ', 'WRITE']
+
+
+# ---------------------------------------------------------------------------
+# Lead Generation pre-screen activity log
+# ---------------------------------------------------------------------------
+
+class AppendOnlyError(Exception):
+    """Raised on an attempt to modify or delete an append-only record."""
+
+
+class AppendOnlyQuerySet(models.QuerySet):
+    """Blocks the bulk paths (queryset.update/delete) that bypass Model.save/delete."""
+
+    def update(self, **kwargs):
+        raise AppendOnlyError(f"{self.model.__name__} rows are append-only and cannot be modified.")
+
+    def delete(self):
+        raise AppendOnlyError(f"{self.model.__name__} rows are append-only and cannot be deleted.")
+
+
+class LeadGenCheck(models.Model):
+    """One Lead Gen pre-screen attempt. APPEND-ONLY.
+
+    Deliberately separate from CriteriaDecision, which the CAT assessment
+    deletes and recreates on every run. A row is written for every attempt
+    (successful or failed) and is never updated or deleted, so manager
+    reporting ("cases checked per Lead Gen user per day") is reproducible.
+
+    "Case checked" = one distinct (user, aryza_reference, Europe/London
+    calendar day) with status OK — see debt_app.services.lead_gen.
+    """
+
+    STATUS_OK = 'OK'
+    STATUS_CHOICES = [
+        ('OK', 'Checked'),
+        ('CASE_NOT_FOUND', 'Case not found'),
+        ('ARYZA_TIMEOUT', 'Aryza timed out'),
+        ('ARYZA_UNAVAILABLE', 'Aryza unavailable'),
+        ('ARYZA_DATA_ERROR', 'Aryza data error'),
+        ('CREDIT_REPORT_INVALID', 'Credit report file rejected'),
+        ('CREDIT_REPORT_FAILED', 'Credit report could not be read'),
+        ('ENGINE_ERROR', 'Assessment error'),
+    ]
+
+    IVA_OUTCOME_CHOICES = [
+        ('POTENTIALLY_SUITABLE', 'IVA potentially suitable'),
+        ('NEEDS_REVIEW', 'IVA potentially suitable, needs review'),
+        ('NOT_SUITABLE', 'IVA not currently suitable'),
+    ]
+    DMP_OUTCOME_CHOICES = [
+        ('POTENTIALLY_SUITABLE', 'DMP potentially suitable'),
+        ('NOT_SUITABLE', 'DMP not currently suitable'),
+        ('NOT_ASSESSED', 'DMP not assessed'),
+    ]
+    OVERALL_OUTCOME_CHOICES = [
+        ('POTENTIALLY_SUITABLE', 'Potentially suitable'),
+        ('DRO_REFER', 'DRO potentially suitable / refer for review'),
+        ('DOES_NOT_MEET_CRITERIA', 'Does not currently meet criteria'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='lead_gen_checks',
+    )
+    username = models.CharField(max_length=150, help_text="Snapshot of the user's username at check time.")
+    department_name = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Snapshot of the user's department at check time.",
+    )
+    aryza_reference = models.CharField(max_length=255, db_index=True)
+    checked_at = models.DateTimeField(default=timezone.now, db_index=True)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES)
+    error_code = models.CharField(max_length=50, blank=True, default='')
+
+    iva_outcome = models.CharField(max_length=30, choices=IVA_OUTCOME_CHOICES, blank=True, default='')
+    dmp_outcome = models.CharField(max_length=30, choices=DMP_OUTCOME_CHOICES, blank=True, default='')
+    dro_referral = models.BooleanField(default=False)
+    overall_outcome = models.CharField(max_length=30, choices=OVERALL_OUTCOME_CHOICES, blank=True, default='')
+    engine_recommended_solution = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text="assess_case()'s own solution code for this run (e.g. IVA_VIABLE, FORCED_DRO_LG).",
+    )
+    reason_codes = models.JSONField(default=list, blank=True)
+    evidence_required = models.JSONField(default=list, blank=True)
+
+    credit_report_id = models.IntegerField(
+        null=True, blank=True,
+        help_text="CreditReport used (or uploaded) for this check. Plain id — reports are never cascaded.",
+    )
+    credit_report_status = models.CharField(max_length=30, blank=True, default='')
+
+    criteria_version = models.CharField(max_length=50, blank=True, default='')
+    criteria_fingerprint = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="SHA-256 of the engine-relevant criteria configuration at check time.",
+    )
+    code_version = models.CharField(max_length=64, blank=True, default='')
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['-checked_at']
+        indexes = [models.Index(fields=['user', 'checked_at'])]
+
+    def __str__(self):
+        return f"{self.username} {self.aryza_reference} {self.status} @ {self.checked_at:%Y-%m-%d %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and LeadGenCheck.objects.filter(pk=self.pk).exists():
+            raise AppendOnlyError("LeadGenCheck rows are append-only and cannot be modified.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AppendOnlyError("LeadGenCheck rows are append-only and cannot be deleted.")
+
+
+# ---------------------------------------------------------------------------
+# Controlled criteria changes: Draft -> Trial -> Sign-off -> Live (+ rollback)
+# ---------------------------------------------------------------------------
+
+class CriteriaVersion(models.Model):
+    """A numbered, immutable snapshot of the DB-held (manager-configurable)
+    criteria. The highest number is the live version. Python rule logic and
+    hard-coded thresholds are NOT versioned here — they change via code
+    review/deploy, recorded separately as `code_version`."""
+
+    id = models.BigAutoField(primary_key=True)
+    number = models.PositiveIntegerField(unique=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+        help_text="The approver who made this version live (None for the automatic baseline).",
+    )
+    change_request = models.ForeignKey(
+        'CriteriaChangeRequest', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    note = models.CharField(max_length=255, blank=True, default='')
+    snapshot = models.JSONField(help_text="Managed criteria fields for every managed row.")
+    fingerprint = models.CharField(max_length=64, db_index=True)
+    code_version = models.CharField(max_length=64, blank=True, default='')
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['-number']
+
+    def __str__(self):
+        return f"Criteria v{self.number}"
+
+    @property
+    def label(self):
+        return f"v{self.number}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and CriteriaVersion.objects.filter(pk=self.pk).exists():
+            raise AppendOnlyError("CriteriaVersion rows are immutable.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AppendOnlyError("CriteriaVersion rows are immutable.")
+
+
+class CriteriaChangeRequest(models.Model):
+    """A proposed change to live criteria. Never alters live criteria until a
+    second authorised manager approves it after a trial."""
+
+    STATUS_DRAFT = 'DRAFT'
+    STATUS_TRIALLED = 'TRIALLED'
+    STATUS_LIVE = 'LIVE'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CANCELLED = 'CANCELLED'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_TRIALLED, 'Trialled — awaiting sign-off'),
+        (STATUS_LIVE, 'Approved and live'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=255)
+    reason = models.TextField(help_text="Why the change is needed (required).")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    items = models.JSONField(
+        help_text='[{"model", "object_id", "object_label", "field", "old_value", "new_value"}]',
+    )
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='criteria_changes_created')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    is_rollback = models.BooleanField(default=False)
+    rollback_to_version = models.ForeignKey(
+        CriteriaVersion, on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+
+    trial_run_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    trial_run_at = models.DateTimeField(null=True, blank=True)
+    trial_live_fingerprint = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="Live criteria fingerprint the trial ran against; sign-off requires it to be unchanged.",
+    )
+    trial_summary = models.JSONField(null=True, blank=True)
+
+    decided_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+        help_text="Second manager who approved or rejected the change.",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.TextField(blank=True, default='')
+    applied_version = models.ForeignKey(
+        CriteriaVersion, on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"#{self.pk} {self.title} [{self.status}]"
+
+
+class CriteriaChangeAudit(models.Model):
+    """Append-only field-level audit of every criteria change made live
+    through the controlled workflow."""
+
+    id = models.BigAutoField(primary_key=True)
+    version = models.ForeignKey(CriteriaVersion, on_delete=models.PROTECT, related_name='audit_entries')
+    change_request = models.ForeignKey(CriteriaChangeRequest, on_delete=models.PROTECT, related_name='audit_entries')
+    model = models.CharField(max_length=50)
+    object_id = models.BigIntegerField()
+    object_label = models.CharField(max_length=255)
+    field = models.CharField(max_length=100)
+    old_value = models.JSONField(null=True)
+    new_value = models.JSONField(null=True)
+    proposed_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
+    applied_at = models.DateTimeField(default=timezone.now)
+    code_version = models.CharField(max_length=64, blank=True, default='')
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['-applied_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and CriteriaChangeAudit.objects.filter(pk=self.pk).exists():
+            raise AppendOnlyError("CriteriaChangeAudit rows are append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AppendOnlyError("CriteriaChangeAudit rows are append-only.")

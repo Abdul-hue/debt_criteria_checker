@@ -90,6 +90,10 @@ const FEATURE_DEFS = [
   { key: 'decisions', label: 'Decisions', description: 'View assessment history', icon: ClipboardList },
   { key: 'evidence', label: 'Evidence', description: 'Evidence ledger', icon: FileText },
   { key: 'user_management', label: 'User Management', description: 'Manage system users', icon: UserCog },
+  { key: 'lead_gen_check', label: 'Lead Gen Check', description: 'Pre-screen cases (simplified result)', icon: Play },
+  { key: 'lead_gen_reporting', label: 'Lead Gen Reporting', description: 'Cases checked per Lead Gen user', icon: ClipboardList },
+  { key: 'criteria_changes', label: 'Criteria Changes', description: 'Propose and trial criteria changes', icon: Shield },
+  { key: 'criteria_approval', label: 'Criteria Approval', description: 'Sign off changes to live criteria', icon: Shield },
 ]
 
 const FEATURE_SECTIONS = [
@@ -100,6 +104,10 @@ const FEATURE_SECTIONS = [
   {
     label: 'Operations',
     keys: ['run_assessment', 'decisions', 'evidence', 'user_management'],
+  },
+  {
+    label: 'Lead Gen & Criteria Control',
+    keys: ['lead_gen_check', 'lead_gen_reporting', 'criteria_changes', 'criteria_approval'],
   },
 ]
 

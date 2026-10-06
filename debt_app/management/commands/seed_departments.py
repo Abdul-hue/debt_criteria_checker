@@ -14,7 +14,21 @@ ALL_FEATURES = [
     'decisions',
     'evidence',
     'user_management',
+    'lead_gen_check',
+    'lead_gen_reporting',
+    'criteria_changes',
+    'criteria_approval',
 ]
+
+# Opt-in features: seeded DISABLED for the Default department (an admin enables
+# them per department). They grant manager reporting / live-criteria change
+# rights, so they must never be switched on wholesale by a reseed.
+DEFAULT_DISABLED = {
+    'lead_gen_check',
+    'lead_gen_reporting',
+    'criteria_changes',
+    'criteria_approval',
+}
 
 LEAD_GEN_ENABLED = {
     'general_creditors',
@@ -22,6 +36,7 @@ LEAD_GEN_ENABLED = {
     'global_rules',
     'councils',
     'dividends',
+    'lead_gen_check',
 }
 
 
@@ -55,15 +70,16 @@ class Command(BaseCommand):
         else:
             self.stdout.write("Department already exists: Lead Generation")
 
-        # Seed DepartmentFeatureAccess for Default (all enabled)
+        # Seed DepartmentFeatureAccess for Default (all enabled except opt-in features)
         for key in ALL_FEATURES:
+            is_enabled = key not in DEFAULT_DISABLED
             obj, created = DepartmentFeatureAccess.objects.get_or_create(
                 department=default_dept,
                 feature_key=key,
-                defaults={'is_enabled': True},
+                defaults={'is_enabled': is_enabled},
             )
             if created:
-                self.stdout.write(f"  Created feature access: Default → {key} = True")
+                self.stdout.write(f"  Created feature access: Default → {key} = {is_enabled}")
 
         # Seed DepartmentFeatureAccess for Lead Generation
         for key in ALL_FEATURES:

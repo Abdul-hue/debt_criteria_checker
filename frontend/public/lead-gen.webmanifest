@@ -1,0 +1,13 @@
+{
+  "name": "Lead Gen Criteria Check",
+  "short_name": "Lead Gen Check",
+  "description": "Pre-screen a case against the current approved debt criteria.",
+  "start_url": "/lead-gen",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#0F172A",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

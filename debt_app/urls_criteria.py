@@ -37,6 +37,24 @@ from debt_app.views.criteria_views import (
     CrmSyncTodayView,
 )
 from debt_app.views.evaluate_view import EvaluateCaseView
+from debt_app.views.lead_gen_views import (
+    LeadGenActivityView,
+    LeadGenCheckView,
+    LeadGenCreditReportStatusView,
+)
+from debt_app.views.criteria_change_views import (
+    CriteriaChangeApproveView,
+    CriteriaChangeCancelView,
+    CriteriaChangeDetailView,
+    CriteriaChangeListView,
+    CriteriaChangeRejectView,
+    CriteriaChangeTrialView,
+    CriteriaManagedFieldsView,
+    CriteriaChangeTargetsView,
+    CriteriaVersionDetailView,
+    CriteriaVersionListView,
+    CriteriaVersionRollbackView,
+)
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
 from debt_app.views.internal_sfs_views import (
     InternalGuidelineListView,
@@ -147,4 +165,22 @@ urlpatterns = [
     # --- Feature permissions (admin only) ---
     path("departments/<int:pk>/permissions/",         DepartmentPermissionsView.as_view(),      name="department-permissions"),
     path("departments/<int:pk>/permissions/set/",     DepartmentPermissionSetView.as_view(),    name="department-permission-set"),
+
+    # --- Lead Generation pre-screen (authenticated; feature lead_gen_check / lead_gen_reporting) ---
+    path("lead-gen/check/",                           LeadGenCheckView.as_view(),               name="lead-gen-check"),
+    path("lead-gen/credit-report-status/",            LeadGenCreditReportStatusView.as_view(),  name="lead-gen-credit-report-status"),
+    path("lead-gen/activity/",                        LeadGenActivityView.as_view(),            name="lead-gen-activity"),
+
+    # --- Controlled criteria changes (Draft -> Trial -> Sign-off -> Live) ---
+    path("criteria-changes/",                         CriteriaChangeListView.as_view(),         name="criteria-change-list"),
+    path("criteria-changes/targets/",                 CriteriaChangeTargetsView.as_view(),      name="criteria-change-targets"),
+    path("criteria-changes/managed-fields/",          CriteriaManagedFieldsView.as_view(),      name="criteria-change-managed-fields"),
+    path("criteria-changes/<int:pk>/",                CriteriaChangeDetailView.as_view(),       name="criteria-change-detail"),
+    path("criteria-changes/<int:pk>/trial/",          CriteriaChangeTrialView.as_view(),        name="criteria-change-trial"),
+    path("criteria-changes/<int:pk>/approve/",        CriteriaChangeApproveView.as_view(),      name="criteria-change-approve"),
+    path("criteria-changes/<int:pk>/reject/",         CriteriaChangeRejectView.as_view(),       name="criteria-change-reject"),
+    path("criteria-changes/<int:pk>/cancel/",         CriteriaChangeCancelView.as_view(),       name="criteria-change-cancel"),
+    path("criteria-versions/",                        CriteriaVersionListView.as_view(),        name="criteria-version-list"),
+    path("criteria-versions/<int:number>/",           CriteriaVersionDetailView.as_view(),      name="criteria-version-detail"),
+    path("criteria-versions/<int:number>/rollback/",  CriteriaVersionRollbackView.as_view(),    name="criteria-version-rollback"),
 ]

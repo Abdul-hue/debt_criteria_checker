@@ -1,0 +1,166 @@
+{
+  "bad_header": {
+    "body": {
+      "code": "INVALID_PDF",
+      "error": "File does not appear to be a valid PDF.",
+      "success": false
+    },
+    "record": null,
+    "status_code": 422
+  },
+  "extracted_empty": {
+    "body": {
+      "accounts": [],
+      "accounts_found": 0,
+      "agency": "Experian",
+      "aryza_reference": "UP-7",
+      "client_address_on_report": "1 Test Street",
+      "client_name_on_report": "Jane Doe",
+      "extraction_status": "extracted_empty",
+      "message": "Credit report uploaded \u2014 extraction found no accounts, needs review",
+      "mortgage_accounts": [],
+      "other_accounts": [],
+      "printed_report_date": "2026-09-01",
+      "public_information": {
+        "ccjs": 0
+      },
+      "success": true,
+      "unmatched_accounts": [],
+      "warning": "Report agency was recognised as 'Experian' but 0 accounts, mortgages, or reconciliation-only rows were extracted \u2014 this usually means the PDF uses a layout this parser doesn't recognise yet, not that the client genuinely has no credit history. Needs manual review."
+    },
+    "record": {
+      "agency": "Experian",
+      "aryza_reference": "UP-7",
+      "client_address_on_report": "1 Test Street",
+      "client_name_on_report": "Jane Doe",
+      "extraction_error": "",
+      "extraction_status": "extracted_empty",
+      "has_extracted_data": true,
+      "uploaded_by": null
+    },
+    "status_code": 200
+  },
+  "extraction_error_key": {
+    "body": {
+      "accounts": [],
+      "accounts_found": 0,
+      "agency": "",
+      "aryza_reference": "UP-4",
+      "client_address_on_report": "",
+      "client_name_on_report": "",
+      "error": "Unrecognised layout",
+      "extraction_status": "failed",
+      "message": "Credit report uploaded but extraction failed",
+      "mortgage_accounts": [],
+      "other_accounts": [],
+      "printed_report_date": "",
+      "public_information": {},
+      "success": false,
+      "unmatched_accounts": []
+    },
+    "record": {
+      "agency": "",
+      "aryza_reference": "UP-4",
+      "client_address_on_report": "",
+      "client_name_on_report": "",
+      "extraction_error": "Unrecognised layout",
+      "extraction_status": "failed",
+      "has_extracted_data": false,
+      "uploaded_by": null
+    },
+    "status_code": 200
+  },
+  "extraction_exception": {
+    "body": {
+      "accounts": [],
+      "accounts_found": 0,
+      "agency": "",
+      "aryza_reference": "UP-5",
+      "client_address_on_report": "",
+      "client_name_on_report": "",
+      "error": "parser exploded",
+      "extraction_status": "failed",
+      "message": "Credit report uploaded but extraction failed",
+      "mortgage_accounts": [],
+      "other_accounts": [],
+      "public_information": {},
+      "success": false,
+      "unmatched_accounts": []
+    },
+    "record": {
+      "agency": "",
+      "aryza_reference": "UP-5",
+      "client_address_on_report": "",
+      "client_name_on_report": "",
+      "extraction_error": "parser exploded",
+      "extraction_status": "failed",
+      "has_extracted_data": false,
+      "uploaded_by": null
+    },
+    "status_code": 200
+  },
+  "missing_file": {
+    "body": {
+      "code": "MISSING_FILE",
+      "error": "credit_report file is required.",
+      "success": false
+    },
+    "record": null,
+    "status_code": 400
+  },
+  "missing_reference": {
+    "body": {
+      "code": "MISSING_REFERENCE",
+      "error": "aryza_reference is required.",
+      "success": false
+    },
+    "record": null,
+    "status_code": 400
+  },
+  "success": {
+    "body": {
+      "accounts": [
+        {
+          "current_balance": 100000,
+          "matched_creditor": "Alpha Bank",
+          "raw_name": "ALPHA BANK"
+        }
+      ],
+      "accounts_found": 1,
+      "agency": "Experian",
+      "aryza_reference": "UP-6",
+      "client_address_on_report": "1 Test Street",
+      "client_name_on_report": "Jane Doe",
+      "extraction_status": "extracted",
+      "message": "Credit report uploaded and extracted successfully",
+      "mortgage_accounts": [],
+      "other_accounts": [],
+      "printed_report_date": "2026-09-01",
+      "public_information": {
+        "ccjs": 0
+      },
+      "success": true,
+      "unmatched_accounts": []
+    },
+    "record": {
+      "agency": "Experian",
+      "aryza_reference": "UP-6",
+      "client_address_on_report": "1 Test Street",
+      "client_name_on_report": "Jane Doe",
+      "extraction_error": "",
+      "extraction_status": "extracted",
+      "has_extracted_data": true,
+      "uploaded_by": null
+    },
+    "status_code": 200
+  },
+  "wrong_extension": {
+    "body": {
+      "code": "INVALID_FILE_TYPE",
+      "error": "File must be a PDF (.pdf extension required).",
+      "success": false
+    },
+    "record": null,
+    "status_code": 422
+  }
+}

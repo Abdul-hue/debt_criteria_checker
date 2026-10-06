@@ -123,6 +123,22 @@ DATABASES = {
     },
 }
 
+# Inert unless a criteria trial is running (debt_app/db_router.py): routes only
+# that trial's queries to an isolated copy of the database.
+DATABASE_ROUTERS = ['debt_app.db_router.CriteriaTrialRouter']
+
+# When True, the existing direct-edit endpoints for creditors / rules /
+# councils / county councils refuse writes, so live criteria change only via
+# the controlled Draft -> Trial -> Sign-off workflow. Off by default so the
+# current Rules screens keep working until the business switches it on.
+CRITERIA_CHANGE_CONTROL_ENFORCED = os.environ.get(
+    'CRITERIA_CHANGE_CONTROL_ENFORCED', 'False'
+).lower() in ('1', 'true', 'yes')
+
+# Deployed code identifier recorded against Lead Gen checks and criteria
+# versions. Set at deploy time (the Docker image has no .git directory).
+APP_CODE_VERSION = os.environ.get('APP_CODE_VERSION', '')
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 STATIC_URL = '/static/'

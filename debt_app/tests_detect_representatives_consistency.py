@@ -119,7 +119,11 @@ class AssessCaseViewExplicitCallTest(TestCase):
         from debt_app.views import criteria_views, assess_view
 
         assess_src = inspect.getsource(assess_view.DirectAssessView.post)
-        criteria_src = inspect.getsource(criteria_views.AssessCaseView.post)
+        # AssessCaseView.post delegates its orchestration to the shared
+        # run_standalone_assessment() (also used by the Lead Gen check), so the
+        # explicit-reps pattern is asserted where that code now lives.
+        self.assertIn("run_standalone_assessment(", inspect.getsource(criteria_views.AssessCaseView.post))
+        criteria_src = inspect.getsource(criteria_views.run_standalone_assessment)
 
         # Both should call detect_representatives explicitly before assess_case.
         self.assertIn("detect_representatives", assess_src,

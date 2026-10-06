@@ -192,6 +192,19 @@ export default function DepartmentDashboard() {
         </div>
       </div>
 
+      {!featuresLoading && hasFeature('lead_gen_check') && (
+        <Link
+          to="/lead-gen"
+          className="mb-8 flex items-center justify-between gap-4 rounded-xl border border-brand-gold/40 bg-white px-6 py-4 shadow-sm hover:border-brand-gold"
+        >
+          <div>
+            <p className="font-semibold text-slate-900">Lead Gen Criteria Check</p>
+            <p className="text-sm text-slate-600">Pre-screen a case: IVA, DMP or does not currently work.</p>
+          </div>
+          <span className="text-sm font-semibold text-brand-navy whitespace-nowrap">Open &rarr;</span>
+        </Link>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
 
         {/* Feature access cards */}

@@ -430,7 +430,14 @@ ALL_FEATURE_KEYS = [
     'decisions',
     'evidence',
     'user_management',
+    'lead_gen_check',
+    'lead_gen_reporting',
+    'criteria_changes',
+    'criteria_approval',
 ]
+
+# Opt-in features enforced by permissions.HasEnabledFeature (no permissive default).
+STRICT_FEATURE_KEYS = {'lead_gen_check', 'lead_gen_reporting', 'criteria_changes', 'criteria_approval'}
 
 
 class DepartmentFeaturesView(APIView):
@@ -448,7 +455,9 @@ class DepartmentFeaturesView(APIView):
             for a in DepartmentFeatureAccess.objects.filter(department=dept)
         }
         result = [
-            {'feature_key': key, 'is_enabled': access_map.get(key, True)}
+            # Strict (opt-in) features show as off unless explicitly enabled,
+            # matching what HasEnabledFeature actually enforces.
+            {'feature_key': key, 'is_enabled': access_map.get(key, key not in STRICT_FEATURE_KEYS)}
             for key in ALL_FEATURE_KEYS
         ]
         return Response(result)
@@ -518,12 +527,20 @@ class MyFeaturesView(APIView):
 
         dept = get_user_department(user)
         if dept is None:
-            return Response([{'feature_key': k, 'is_enabled': True} for k in ALL_FEATURE_KEYS])
+            return Response([
+                {'feature_key': k, 'is_enabled': k not in STRICT_FEATURE_KEYS} for k in ALL_FEATURE_KEYS
+            ])
 
         access_records = list(DepartmentFeatureAccess.objects.filter(department=dept))
         access_map = {a.feature_key: a.is_enabled for a in access_records}
         return Response([
-            {'feature_key': key, 'is_enabled': access_map.get(key, True)}
+            {
+                'feature_key': key,
+                # Strict (opt-in) features mirror HasEnabledFeature: only an
+                # explicit enabled row grants them. Others keep the existing
+                # "missing record = enabled" behaviour.
+                'is_enabled': access_map.get(key, key not in STRICT_FEATURE_KEYS),
+            }
             for key in ALL_FEATURE_KEYS
         ])
 

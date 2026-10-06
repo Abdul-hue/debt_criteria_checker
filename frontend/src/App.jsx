@@ -23,6 +23,9 @@ const CreditorRepPage = React.lazy(() => import('./pages/CreditorRepPage.jsx'))
 const CouncilsPage = React.lazy(() => import('./pages/CouncilsPage.jsx'))
 const DividendsPage = React.lazy(() => import('./pages/DividendsPage.jsx'))
 const EvidencePage = React.lazy(() => import('./pages/EvidencePage.jsx'))
+const LeadGenPage = React.lazy(() => import('./pages/LeadGenPage.jsx'))
+const LeadGenActivityPage = React.lazy(() => import('./pages/LeadGenActivityPage.jsx'))
+const CriteriaChangesPage = React.lazy(() => import('./pages/CriteriaChangesPage.jsx'))
 
 /**
  * FeatureRoute — redirects to /no-access if the user's department
@@ -34,6 +37,16 @@ function FeatureRoute({ featureKey, children }) {
   if (isAdmin) return children
   if (isLoading) return <LoadingSpinner fullScreen />
   if (!hasFeature(featureKey)) return <Navigate to="/no-access" replace />
+  return children
+}
+
+/** Like FeatureRoute, but any one of several features is enough. */
+function AnyFeatureRoute({ featureKeys, children }) {
+  const { hasFeature, isLoading } = useFeatureAccess()
+  const { isAdmin } = useAuth()
+  if (isAdmin) return children
+  if (isLoading) return <LoadingSpinner fullScreen />
+  if (!featureKeys.some((k) => hasFeature(k))) return <Navigate to="/no-access" replace />
   return children
 }
 
@@ -75,7 +88,44 @@ function App() {
 
       {/* Private routes */}
       <Route element={<PrivateRoute />}>
+
+        {/* Lead Gen pre-screen — compact, deliberately outside the CAT layout */}
+        <Route
+          path="/lead-gen"
+          element={
+            <FeatureRoute featureKey="lead_gen_check">
+              <Suspense fallback={<LoadingSpinner fullScreen />}>
+                <LeadGenPage />
+              </Suspense>
+            </FeatureRoute>
+          }
+        />
+
         <Route element={<LayoutWrapper />}>
+
+          {/* Lead Gen activity — manager reporting */}
+          <Route
+            path="/lead-gen/activity"
+            element={
+              <FeatureRoute featureKey="lead_gen_reporting">
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <LeadGenActivityPage />
+                </Suspense>
+              </FeatureRoute>
+            }
+          />
+
+          {/* Controlled criteria changes — propose / trial / sign-off */}
+          <Route
+            path="/criteria-changes"
+            element={
+              <AnyFeatureRoute featureKeys={['criteria_changes', 'criteria_approval']}>
+                <Suspense fallback={<LoadingSpinner fullScreen />}>
+                  <CriteriaChangesPage />
+                </Suspense>
+              </AnyFeatureRoute>
+            }
+          />
 
           {/* Assess page — gated by run_assessment feature */}
           <Route

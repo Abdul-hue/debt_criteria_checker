@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import queryClient from '../lib/queryClient.js'
 import { jwtDecode } from 'jwt-decode'
 import axiosInstance, { STORAGE_KEY, REFRESH_KEY } from '../lib/axios.js'
 
@@ -54,6 +55,7 @@ export function AuthProvider({ children }) {
   // Listen for auth:logout DOM event (fired by Axios interceptor on refresh failure)
   useEffect(() => {
     const handleLogout = () => {
+      queryClient.clear()
       setState({
         user: null,
         token: null,
@@ -78,6 +80,7 @@ export function AuthProvider({ children }) {
         localStorage.setItem(REFRESH_KEY, refresh)
       }
       const decoded = jwtDecode(access)
+      queryClient.clear()  // never reuse another user's cached data/permissions
       setState({
         user: decoded,
         token: access,
@@ -92,6 +95,9 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(() => {
+    // Drop every cached query (features, decisions, ...) so the next user on
+    // this browser never sees the previous user's data or permissions.
+    queryClient.clear()
     localStorage.removeItem(STORAGE_KEY)
     localStorage.removeItem(REFRESH_KEY)
     setState({

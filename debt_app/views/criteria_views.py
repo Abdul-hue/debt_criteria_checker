@@ -1,8 +1,9 @@
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth.models import User
-from django.db.models import Q, Count
+from django.db.models import Q, Count, ProtectedError
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -33,7 +34,9 @@ from debt_app.helpers import (
     get_user_department, filter_by_department,
     DEBT_TYPE_COUNCIL_TAX,
 )
-from debt_app.permissions import HasFeatureAccess, HasWritePermission, HasReadPermission
+from debt_app.permissions import (
+    DirectCriteriaEditAllowed, HasFeatureAccess, HasWritePermission, HasReadPermission,
+)
 from debt_app.models import (
     GuidelineCategory, ExpenditureGuideline, CreditReport, CouncilTaxEvidence,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
@@ -508,6 +511,422 @@ def build_uploaded_docs(aryza_reference: str) -> dict:
     }
 
 
+@dataclass
+class StandaloneAssessmentResult:
+    """Outcome of run_standalone_assessment().
+
+    response_body is EXACTLY what /api/v1/criteria/assess/ returns. The other
+    fields expose engine outputs that the response flattens or overwrites, for
+    presentation layers (Lead Gen) that must read the engine's own signals:
+      - engine_recommended_solution: assess_case()'s solution code
+        (IVA_VIABLE / IVA_WITH_CONDITIONS / REVIEW_REQUIRED / IVA_NOT_VIABLE /
+        FORCED_DMP_VAT / FORCED_DRO_LG) — the response replaces it with
+        get_recommendation()'s dict.
+      - engine_creditor_positions: the positions assess_case() derived its
+        solution from (before CR-only / reconciliation backfill).
+    """
+    response_body: dict
+    engine_recommended_solution: object
+    engine_creditor_positions: list
+    hard_blocks: list
+    flags: list
+    dmp_eligibility: object
+    case_data: dict
+    decision_id: object = None
+
+
+def run_standalone_assessment(
+    aryza_reference,
+    *,
+    user=None,
+    credit_report_id=None,
+    creditor_rows=None,
+    dmp_checklist_raw=None,
+    case_data_obj=None,
+    source_department_override=None,
+    persist_source_department=True,
+    save_decision=True,
+):
+    """Run the standalone (Aryza-sourced) criteria assessment for one case.
+
+    Shared by the CAT assessment endpoint (AssessCaseView) and the Lead Gen
+    pre-screen check so both use one orchestration around the same engine.
+    The defaults reproduce AssessCaseView's behaviour exactly.
+
+    Raises the aryza_client exceptions (AryzaCaseNotFoundError,
+    AryaTimeoutError, AryzaConnectionError, AryzaDataError) from the case
+    fetch / payload preparation; callers map them to HTTP responses.
+
+    case_data_obj: an already-fetched CaseData, to avoid a second Aryza fetch.
+    source_department_override: department name used for THIS run only.
+    persist_source_department: False never writes Application.source_department.
+    save_decision: False skips the CriteriaDecision delete-and-save.
+    """
+    # DMP Eligibility Checklist — combines per-row dropdown selections
+    # (council tax current/previous, water included, parking
+    # government/private, mobile) with the remaining case-level
+    # checkboxes that have no reliable per-creditor signal (Part 4/5 of
+    # the Aryza-only DMP redesign). See build_dmp_checklist().
+    _creditor_rows = creditor_rows or []
+    _dmp_checklist_raw = dmp_checklist_raw or {}
+    dmp_checklist = build_dmp_checklist(_creditor_rows, _dmp_checklist_raw)
+    logger.warning(f"[DMP DEBUG] received creditor_rows={_creditor_rows!r} "
+                   f"dmp_checklist_raw={_dmp_checklist_raw!r} -> built={dmp_checklist!r}")
+
+    # Step 2 — Fetch from Aryza
+    if case_data_obj is None:
+        case_data_obj = fetch_case_by_reference(aryza_reference)
+    case_data, prepared_creditors, _cr_unmatched = AssessCaseView()._prepare_engine_payload(
+        case_data_obj, credit_report_id,
+    )
+    # Phase A: attach as a new top-level payload key only — not read
+    # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).
+    case_data["dmp_checklist"] = dmp_checklist
+
+    # Step 3 — Run assessment engine
+    # Fetch local evidence and flags to enrich the Aryza data
+    try:
+        from debt_app.models import Application, EvidenceLedger
+        app_obj = Application.objects.filter(aryza_reference=aryza_reference).first()
+        if app_obj:
+            # First-assessment department tagging. Permanent snapshot of the
+            # submitting user's department — set once, never overwritten by
+            # later runs/users. This view allows anonymous access (AllowAny),
+            # so we don't assume request.user is authenticated; if there's no
+            # profile, get_user_department() falls back to "Default", which we
+            # store as a real signal ("not Lead Gen") rather than leaving null.
+            # We never create the Application row here — creation is admin-only
+            # via ApplicationListView.post elsewhere.
+            # persist_source_department=False (Lead Gen pre-screen checks)
+            # must never write this snapshot — it feeds the £399 forced-DRO
+            # rule, so a pre-screen would otherwise change later CAT runs.
+            if persist_source_department and not app_obj.source_department:
+                dept = get_user_department(user)
+                app_obj.source_department = dept.name if dept else None
+                app_obj.save(update_fields=['source_department'])
+
+            # Feed into the engine payload so assess_case() can gate the
+            # Lead Gen disposable-income formula / £399 auto-DRO rule on it.
+            case_data["source_department"] = app_obj.source_department
+
+            # Map EvidenceLedger to the format engine expects
+            # Engine expects: [{"ref": "...", "is_verified": True, "category": "..."}]
+            local_evidence = list(app_obj.evidence.all().values('entry_type', 'created_at'))
+            # Since EvidenceLedger in models.py is minimal, we'll map entry_type to category
+            # and assume created_at means it exists. We might need more fields in models.py later.
+            case_data["evidence_ledger"] = [
+                {"category": e["entry_type"], "is_verified": True, "ref": e["entry_type"]} 
+                for e in local_evidence
+            ]
+            
+            # Check for ClientFlags
+            if hasattr(app_obj, 'client_flags'):
+                flags = app_obj.client_flags
+                case_data["is_currently_in_dmp"] = flags.is_currently_in_dmp
+                case_data["is_royal_mail_employee"] = flags.is_royal_mail_employee
+                case_data["is_police_officer"] = flags.is_police_officer
+                case_data["previous_iva_failed"] = flags.previous_iva_failed
+    except Exception as e:
+        logger.error(f"Failed to fetch local evidence/flags: {e}")
+
+    # Per-run department context (Lead Gen passes "Lead Generation"). Only
+    # the in-memory engine payload is affected — nothing is persisted.
+    if source_department_override is not None:
+        case_data["source_department"] = source_department_override
+
+    # Normalise evidence_ledger — engine expects a list of 
+    # {"category": str, "is_verified": bool, "ref": str} 
+    # Guard against dict format from external callers 
+    _ev = case_data.get("evidence_ledger", []) 
+    if isinstance(_ev, dict): 
+        case_data["evidence_ledger"] = [ 
+            {"category": k, "is_verified": bool(v), "ref": k} 
+            for k, v in _ev.items() 
+        ] 
+    elif not isinstance(_ev, list): 
+        case_data["evidence_ledger"] = [] 
+
+    case_creditors = case_data.get("creditors") or []
+    detected_reps = detect_representatives(case_creditors)
+    result = assess_case(case_data, detected_reps)
+
+    # STEP 7 — Reconcile creditors the engine routed elsewhere (councils) or
+    # could not assess. Uses the shared helper so the displayed status is always
+    # the engine's CALCULATED value — councils reuse their real council_positions
+    # status (e.g. Rother District Council = REJECT), and genuinely unidentified
+    # creditors become UNKNOWN. NEVER a hardcoded ACCEPT.
+    from debt_app.criteria_engine import reconcile_creditor_positions
+    engine_positions = result.get("creditor_positions", [])
+    all_creditor_positions = reconcile_creditor_positions(result, prepared_creditors)
+
+    # STEP 7b — stamp CR fields onto engine position dicts, balance-aware dedup
+    _pc_enriched = [
+        pc for pc in prepared_creditors
+        if pc.get('type_code') or pc.get('cr_raw_name')
+    ]
+    _used_pc = set()
+
+    for pos in all_creditor_positions:
+        pos_name = (pos.get('original_aryza_name') or pos.get('creditor_name') or '').lower().strip()
+        pos_bal_pence = int(round((pos.get('balance') or 0) * 100))
+
+        best_idx = None
+        best_diff = None
+        for i, pc in enumerate(_pc_enriched):
+            if i in _used_pc:
+                continue
+            pc_name = (pc.get('creditor_name') or '').lower().strip()
+            pos_canonical = (pos.get('creditor_name') or '').lower().strip()
+            name_match = (
+                pc_name == pos_name or
+                pc_name == pos_canonical or
+                (len(pc_name) >= 5 and (pc_name in pos_name or pos_name in pc_name)) or
+                (len(pc_name) >= 5 and (pc_name in pos_canonical or pos_canonical in pc_name))
+            )
+            if not name_match:
+                continue
+            pc_bal_pence = int(round((pc.get('balance') or 0) * 100))
+            diff = abs(pc_bal_pence - pos_bal_pence)
+            if best_diff is None or diff < best_diff:
+                best_diff = diff
+                best_idx = i
+
+        if best_idx is not None:
+            _used_pc.add(best_idx)
+            pc = _pc_enriched[best_idx]
+            pos['type_code']             = pc.get('type_code') or ''
+            pos['cr_raw_name']           = pc.get('cr_raw_name') or ''
+            pos['cr_balance']            = pc.get('cr_balance')
+            pos['cr_account_status']            = pc.get('cr_account_status') or ''
+            pos['cr_account_status_subjective'] = pc.get('cr_account_status_subjective') or ''
+            pos['cr_credit_limit']       = pc.get('cr_credit_limit')
+            pos['cr_start_date']         = pc.get('cr_start_date')
+            pos['cr_account_age_months'] = pc.get('cr_account_age_months')
+            pos['cr_missed_payments_3m'] = pc.get('cr_missed_payments_3m')
+
+    # Re-apply representative-body vote mapping over the combined list so any
+    # backfilled (engine-missed) WATCH/TIX/EVOLVE creditor reflects its body's
+    # outcome. Idempotent for engine positions already mapped in assess_case().
+    from debt_app.criteria_engine import _apply_representative_outcomes
+    _apply_representative_outcomes(
+        all_creditor_positions,
+        result.get("representative_outcomes") or {},
+    )
+
+    restored_count = len(all_creditor_positions) - len(engine_positions)
+    logger.warning(
+        f"[POSITIONS TOTAL] {len(engine_positions)} engine + "
+        f"{restored_count} restored = "
+        f"{len(all_creditor_positions)} total"
+    )
+
+    # STEP 7c — Backfill credit-report-only accounts.
+    # Any CR account that was NOT matched to a case creditor is appended as
+    # an informational "CREDITOR-CR-ONLY" row so caseworkers see the full
+    # picture of the client's credit file, including undeclared accounts.
+    if _cr_unmatched:
+        # Build a set of cr_raw_names already stamped onto engine positions
+        # (from Step 7b enrichment) so we never double-append.
+        _already_stamped = {
+            (pos.get('cr_raw_name') or '').lower().strip()
+            for pos in all_creditor_positions
+            if pos.get('cr_raw_name')
+        }
+        from debt_app.helpers import get_creditor_by_trading_name, normalise_creditor_name
+        from debt_app.models import CreditorResolutionMiss
+
+        for _acc in _cr_unmatched:
+            _raw = ((_acc.get('raw_name') or '')).strip()
+            if not _raw:
+                continue
+            if _raw.lower() in _already_stamped:
+                continue
+            _cr_bal_pence = _acc.get('current_balance')
+            _cr_name = _acc.get('matched_creditor') or _raw
+
+            # Resolve against the SAME CreditorCriteria table/alias map used
+            # for declared creditors — a CR-only (undeclared) account is not
+            # exempt from representative-body voting just because it never
+            # reached _check_creditor_individual(). Previously this branch
+            # hardcoded representative='NONE' unconditionally, which meant a
+            # genuinely WATCH/TIX/EVOLVE creditor that only showed up as an
+            # undeclared credit-report account silently lost its badge.
+            try:
+                _cr_criteria = get_creditor_by_trading_name(_cr_name)
+                _cr_representative = _cr_criteria.representative
+            except CreditorCriteria.DoesNotExist:
+                _cr_representative = 'NONE'
+                try:
+                    CreditorResolutionMiss.objects.create(
+                        raw_name=_raw,
+                        normalised_name=normalise_creditor_name(_raw) or _raw,
+                        case_reference=aryza_reference,
+                        client_name=case_data.get('client_name', ''),
+                        balance=(_cr_bal_pence or 0) / 100.0,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log CreditorResolutionMiss for CR-only account {_raw!r}: {e}")
+
+            _cr_only_pos = {
+                'criteria_id': None,
+                'creditor_name': _cr_name,
+                'display_name': None,
+                'original_aryza_name': _raw if _raw != _cr_name else None,
+                'resolved_canonical_name': _cr_name,
+                'representative': _cr_representative,
+                'effective_status': 'UNKNOWN',
+                'findings': [{
+                    'code': 'CREDITOR-CR-ONLY',
+                    'reason': (
+                        'This account appears on the customer\'s credit report but '
+                        'was not declared as a debt on this case. The caseworker '
+                        'should confirm with the customer whether this debt exists '
+                        'and should be added.'
+                    ),
+                    'severity': 'info',
+                }],
+                'reason': (
+                    'This account appears on the customer\'s credit report but '
+                    'was not declared as a debt on this case. The caseworker '
+                    'should confirm with the customer whether this debt exists '
+                    'and should be added.'
+                ),
+                'rule_ids': ['CREDITOR-CR-ONLY'],
+                'balance': 0.0,  # £0 — not declared in case
+                'criteria_notes': '',
+                'dividend_notes': '',
+                'is_secured': False,
+                'debt_type_normalised': None,
+                '_creditor_idx': None,
+                'cr_raw_name': _raw,
+                'type_code': _acc.get('type_code') or '',
+                'cr_balance': _cr_bal_pence,
+                'cr_account_status': _acc.get('account_status') or '',
+                'cr_account_status_subjective': _acc.get('account_status_subjective') or '',
+                'cr_credit_limit': _acc.get('credit_limit'),
+                'cr_start_date': normalise_start_date_iso(_acc.get('start_date')),
+                'cr_account_age_months': _acc.get('account_age_months'),
+                'cr_missed_payments_3m': _acc.get('missed_payments_last_3_months'),
+            }
+            all_creditor_positions.append(_cr_only_pos)
+            logger.info(
+                f"[CR-ONLY] Backfilled undeclared account: {_raw!r} "
+                f"(CR balance: {_cr_bal_pence}p, status: {_acc.get('account_status')!r})"
+            )
+
+        # Re-apply the representative-body outcome mapping now that CR-only
+        # accounts have been appended. The first call (above, before this
+        # block) ran before these positions existed, so a CR-only account
+        # correctly resolved to e.g. TIX would otherwise show the TIX badge
+        # but stay stuck at effective_status='UNKNOWN' — the outcome was
+        # never applied because the position didn't exist yet when that
+        # call ran. Documented as idempotent, so re-running it over
+        # everything (not just the new positions) is safe.
+        _apply_representative_outcomes(
+            all_creditor_positions,
+            result.get("representative_outcomes") or {},
+        )
+
+    enrich_positions_with_tallies(all_creditor_positions)
+    council_tax_evidence_list = attach_council_tax_evidence(all_creditor_positions, aryza_reference)
+    result["creditor_positions"] = all_creditor_positions
+
+    # Enrich rules with metadata from GlobalCriteria
+    result['hard_blocks'] = enrich_rules_with_meta(result.get('hard_blocks', []))
+    result['flags'] = enrich_rules_with_meta(result.get('flags', []))
+    result['passed'] = enrich_rules_with_meta(result.get('passed', []))
+    result['info'] = enrich_rules_with_meta(result.get('info', []))
+
+    # Determine decision and get recommendation
+    hard_blocks = result.get("hard_blocks", [])
+    flags = result.get("flags", [])
+    
+    if hard_blocks:
+        decision = "INELIGIBLE"
+    elif flags:
+        decision = "REFERRED"
+    else:
+        decision = "ELIGIBLE"
+        
+    # Captured BEFORE the overwrite two lines down — assess_case's own
+    # _derive_recommended_solution already computed "FORCED_DMP_VAT" as the
+    # single source of truth for the VAT-override precedence; get_recommendation
+    # must honour it rather than silently recompute a different decision from
+    # hard_blocks/flags alone (that was the bug: this view used to discard it).
+    vat_forced = result.get("recommended_solution") == "FORCED_DMP_VAT"
+    # Same capture pattern as vat_forced, for the Lead Gen £399 auto-DRO rule.
+    # Mutually exclusive with vat_forced by construction — assess_case routes
+    # a case where both conditions fire to "REVIEW_REQUIRED" instead, so at
+    # most one of vat_forced/dro_forced is ever True here.
+    dro_forced = result.get("recommended_solution") == "FORCED_DRO_LG"
+    engine_recommended_solution = result.get("recommended_solution")
+    recommendations = get_recommendation(
+        decision, result, case_data, vat_forced=vat_forced, dro_forced=dro_forced,
+    )
+    result["recommended_solution"] = recommendations.get("recommended_solution")
+    result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
+
+    serialized = build_phase7_response_fields(result)
+
+    # Attach financial summary fields that are NOT produced by build_phase7_response_fields
+    # but are required for correct display when the saved result is later reloaded.
+    # Without this, reloading from history always shows disposable_income = 0.
+    serialized["disposable_income"] = case_data.get("disposable_income")
+    serialized["total_unsecured_debt"] = case_data.get("total_unsecured_debt")
+    serialized["lead_gen_disposable_income"] = result.get("lead_gen_disposable_income")
+    serialized["council_tax_evidence"] = council_tax_evidence_list
+
+    # Step 4 — Save to CriteriaDecision
+    # save_decision=False (Lead Gen) skips this entirely: the delete below
+    # would otherwise wipe the case's saved CAT result.
+    decision_id = None
+    if save_decision:
+        try:
+            # Clear previous history for this reference to satisfy "no history" requirement
+            CriteriaDecision.objects.filter(application_id=aryza_reference).delete()
+
+            # recommended_solution field in DB expects a string (the code)
+            db_recommended_solution = result["recommended_solution"].get("code", "UNCLEAR") if isinstance(result["recommended_solution"], dict) else (result["recommended_solution"] or "UNCLEAR")
+
+            decision_obj = CriteriaDecision.objects.create(
+                application_id=aryza_reference,
+                client_name=case_data.get("client_name", "Unknown"),
+                input_snapshot=case_data,
+                decision_output=serialized,
+                recommended_solution=db_recommended_solution,
+                passes_all_hard_blocks=serialized.get("passes_all_hard_blocks", False),
+                triggered_by=user if getattr(user, 'is_authenticated', False) else None,
+                source="STANDALONE"
+            )
+            decision_id = str(decision_obj.id)
+        except Exception as e:
+            logger.error("Failed to save CriteriaDecision: %s", e)
+            decision_id = None
+
+    logger.info("Assessment completed for %s: %s", aryza_reference, serialized.get("recommended_solution"))
+    response_body = {
+        "success": True,
+        "decision_id": decision_id,
+        "client_name": case_data_obj.client_name,
+        "aryza_reference": aryza_reference,
+        "evaluated_at": timezone.now().isoformat(),
+        "disposable_income": case_data.get("disposable_income"),
+        "total_unsecured_debt": case_data.get("total_unsecured_debt"),
+        **serialized,
+    }
+    return StandaloneAssessmentResult(
+        response_body=response_body,
+        engine_recommended_solution=engine_recommended_solution,
+        engine_creditor_positions=engine_positions,
+        hard_blocks=result.get("hard_blocks", []),
+        flags=result.get("flags", []),
+        dmp_eligibility=result.get("dmp_eligibility"),
+        case_data=case_data,
+        decision_id=decision_id,
+    )
+
+
+
 class AssessCaseView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -693,51 +1112,7 @@ class AssessCaseView(APIView):
         _cr_unmatched = []  # accounts in CR not matched to any declared creditor
         try:
             from debt_app.models import CreditReport
-            cr_obj = None
-            if credit_report_id:
-                # Caller (e.g. the frontend, right after upload-credit-report)
-                # knows exactly which extraction to use — pin to that row
-                # instead of re-deriving "best" from history. Scoped to this
-                # aryza_reference so a stray/mistyped id can't pull another
-                # case's report.
-                cr_obj = CreditReport.objects.filter(
-                    id=credit_report_id,
-                    aryza_reference=case_data_obj.aryza_reference,
-                ).first()
-                if not cr_obj:
-                    logger.warning(
-                        "[CR ENRICH] credit_report_id=%s not found for reference=%s — "
-                        "falling back to most-recent extraction",
-                        credit_report_id, case_data_obj.aryza_reference,
-                    )
-            if cr_obj is None:
-                # No explicit id given (or it didn't resolve) — fall back to the
-                # most recent extraction for this reference. Previously this
-                # picked the extraction with the MOST accounts across ALL
-                # history, which can silently resurrect a stale report: case
-                # 349223 had four old extractions with 29 accounts each, then a
-                # fresh, correct re-upload with only 26 — "most accounts wins"
-                # kept serving the six-day-old 29-account report instead of the
-                # one just uploaded. Recency is the right default; passing
-                # credit_report_id explicitly is the reliable fix.
-                recent_reports = CreditReport.objects.filter(
-                    aryza_reference=case_data_obj.aryza_reference,
-                    extraction_status="extracted",
-                ).order_by('-created_at')
-                cr_obj = next(
-                    (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
-                    None,
-                )
-            if cr_obj is None:
-                # Nothing to enrich from — every creditor's CR columns (cr_balance,
-                # cr_account_status, cr_missed_payments_3m, Match) will be left blank.
-                # This is not an exception, so without an explicit log line it looks
-                # to a caseworker like the feature was never implemented.
-                logger.warning(
-                    "[CR ENRICH] no extracted CreditReport found for reference=%s "
-                    "(credit_report_id=%s) — creditor CR columns will be blank",
-                    case_data_obj.aryza_reference, credit_report_id,
-                )
+            cr_obj = select_credit_report(case_data_obj.aryza_reference, credit_report_id)
             if cr_obj and cr_obj.extracted_data:
                 # Mortgages are extracted into a SEPARATE list from unsecured/HP
                 # accounts (mortgage_accounts vs accounts) — folding both in here
@@ -949,27 +1324,15 @@ class AssessCaseView(APIView):
                 "MISSING_REFERENCE",
                 status.HTTP_422_UNPROCESSABLE_ENTITY
             )
-        credit_report_id = request.data.get("credit_report_id")
-        # DMP Eligibility Checklist — combines per-row dropdown selections
-        # (council tax current/previous, water included, parking
-        # government/private, mobile) with the remaining case-level
-        # checkboxes that have no reliable per-creditor signal (Part 4/5 of
-        # the Aryza-only DMP redesign). See build_dmp_checklist().
-        _creditor_rows = request.data.get("creditor_rows") or []
-        _dmp_checklist_raw = request.data.get("dmp_checklist") or {}
-        dmp_checklist = build_dmp_checklist(_creditor_rows, _dmp_checklist_raw)
-        logger.warning(f"[DMP DEBUG] received creditor_rows={_creditor_rows!r} "
-                       f"dmp_checklist_raw={_dmp_checklist_raw!r} -> built={dmp_checklist!r}")
 
-        # Step 2 — Fetch from Aryza
         try:
-            case_data_obj = fetch_case_by_reference(aryza_reference)
-            case_data, prepared_creditors, _cr_unmatched = self._prepare_engine_payload(
-                case_data_obj, credit_report_id,
+            outcome = run_standalone_assessment(
+                aryza_reference,
+                user=request.user,
+                credit_report_id=request.data.get("credit_report_id"),
+                creditor_rows=request.data.get("creditor_rows") or [],
+                dmp_checklist_raw=request.data.get("dmp_checklist") or {},
             )
-            # Phase A: attach as a new top-level payload key only — not read
-            # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).
-            case_data["dmp_checklist"] = dmp_checklist
         except AryzaCaseNotFoundError:
             return error_response(
                 f"Case {aryza_reference} not found in Aryza",
@@ -996,324 +1359,7 @@ class AssessCaseView(APIView):
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # Step 3 — Run assessment engine
-        # Fetch local evidence and flags to enrich the Aryza data
-        try:
-            from debt_app.models import Application, EvidenceLedger
-            app_obj = Application.objects.filter(aryza_reference=aryza_reference).first()
-            if app_obj:
-                # First-assessment department tagging. Permanent snapshot of the
-                # submitting user's department — set once, never overwritten by
-                # later runs/users. This view allows anonymous access (AllowAny),
-                # so we don't assume request.user is authenticated; if there's no
-                # profile, get_user_department() falls back to "Default", which we
-                # store as a real signal ("not Lead Gen") rather than leaving null.
-                # We never create the Application row here — creation is admin-only
-                # via ApplicationListView.post elsewhere.
-                if not app_obj.source_department:
-                    dept = get_user_department(request.user)
-                    app_obj.source_department = dept.name if dept else None
-                    app_obj.save(update_fields=['source_department'])
-
-                # Feed into the engine payload so assess_case() can gate the
-                # Lead Gen disposable-income formula / £399 auto-DRO rule on it.
-                case_data["source_department"] = app_obj.source_department
-
-                # Map EvidenceLedger to the format engine expects
-                # Engine expects: [{"ref": "...", "is_verified": True, "category": "..."}]
-                local_evidence = list(app_obj.evidence.all().values('entry_type', 'created_at'))
-                # Since EvidenceLedger in models.py is minimal, we'll map entry_type to category
-                # and assume created_at means it exists. We might need more fields in models.py later.
-                case_data["evidence_ledger"] = [
-                    {"category": e["entry_type"], "is_verified": True, "ref": e["entry_type"]} 
-                    for e in local_evidence
-                ]
-                
-                # Check for ClientFlags
-                if hasattr(app_obj, 'client_flags'):
-                    flags = app_obj.client_flags
-                    case_data["is_currently_in_dmp"] = flags.is_currently_in_dmp
-                    case_data["is_royal_mail_employee"] = flags.is_royal_mail_employee
-                    case_data["is_police_officer"] = flags.is_police_officer
-                    case_data["previous_iva_failed"] = flags.previous_iva_failed
-        except Exception as e:
-            logger.error(f"Failed to fetch local evidence/flags: {e}")
-
-        # Normalise evidence_ledger — engine expects a list of 
-        # {"category": str, "is_verified": bool, "ref": str} 
-        # Guard against dict format from external callers 
-        _ev = case_data.get("evidence_ledger", []) 
-        if isinstance(_ev, dict): 
-            case_data["evidence_ledger"] = [ 
-                {"category": k, "is_verified": bool(v), "ref": k} 
-                for k, v in _ev.items() 
-            ] 
-        elif not isinstance(_ev, list): 
-            case_data["evidence_ledger"] = [] 
-
-        case_creditors = case_data.get("creditors") or []
-        detected_reps = detect_representatives(case_creditors)
-        result = assess_case(case_data, detected_reps)
-
-        # STEP 7 — Reconcile creditors the engine routed elsewhere (councils) or
-        # could not assess. Uses the shared helper so the displayed status is always
-        # the engine's CALCULATED value — councils reuse their real council_positions
-        # status (e.g. Rother District Council = REJECT), and genuinely unidentified
-        # creditors become UNKNOWN. NEVER a hardcoded ACCEPT.
-        from debt_app.criteria_engine import reconcile_creditor_positions
-        engine_positions = result.get("creditor_positions", [])
-        all_creditor_positions = reconcile_creditor_positions(result, prepared_creditors)
-
-        # STEP 7b — stamp CR fields onto engine position dicts, balance-aware dedup
-        _pc_enriched = [
-            pc for pc in prepared_creditors
-            if pc.get('type_code') or pc.get('cr_raw_name')
-        ]
-        _used_pc = set()
-
-        for pos in all_creditor_positions:
-            pos_name = (pos.get('original_aryza_name') or pos.get('creditor_name') or '').lower().strip()
-            pos_bal_pence = int(round((pos.get('balance') or 0) * 100))
-
-            best_idx = None
-            best_diff = None
-            for i, pc in enumerate(_pc_enriched):
-                if i in _used_pc:
-                    continue
-                pc_name = (pc.get('creditor_name') or '').lower().strip()
-                pos_canonical = (pos.get('creditor_name') or '').lower().strip()
-                name_match = (
-                    pc_name == pos_name or
-                    pc_name == pos_canonical or
-                    (len(pc_name) >= 5 and (pc_name in pos_name or pos_name in pc_name)) or
-                    (len(pc_name) >= 5 and (pc_name in pos_canonical or pos_canonical in pc_name))
-                )
-                if not name_match:
-                    continue
-                pc_bal_pence = int(round((pc.get('balance') or 0) * 100))
-                diff = abs(pc_bal_pence - pos_bal_pence)
-                if best_diff is None or diff < best_diff:
-                    best_diff = diff
-                    best_idx = i
-
-            if best_idx is not None:
-                _used_pc.add(best_idx)
-                pc = _pc_enriched[best_idx]
-                pos['type_code']             = pc.get('type_code') or ''
-                pos['cr_raw_name']           = pc.get('cr_raw_name') or ''
-                pos['cr_balance']            = pc.get('cr_balance')
-                pos['cr_account_status']            = pc.get('cr_account_status') or ''
-                pos['cr_account_status_subjective'] = pc.get('cr_account_status_subjective') or ''
-                pos['cr_credit_limit']       = pc.get('cr_credit_limit')
-                pos['cr_start_date']         = pc.get('cr_start_date')
-                pos['cr_account_age_months'] = pc.get('cr_account_age_months')
-                pos['cr_missed_payments_3m'] = pc.get('cr_missed_payments_3m')
-
-        # Re-apply representative-body vote mapping over the combined list so any
-        # backfilled (engine-missed) WATCH/TIX/EVOLVE creditor reflects its body's
-        # outcome. Idempotent for engine positions already mapped in assess_case().
-        from debt_app.criteria_engine import _apply_representative_outcomes
-        _apply_representative_outcomes(
-            all_creditor_positions,
-            result.get("representative_outcomes") or {},
-        )
-
-        restored_count = len(all_creditor_positions) - len(engine_positions)
-        logger.warning(
-            f"[POSITIONS TOTAL] {len(engine_positions)} engine + "
-            f"{restored_count} restored = "
-            f"{len(all_creditor_positions)} total"
-        )
-
-        # STEP 7c — Backfill credit-report-only accounts.
-        # Any CR account that was NOT matched to a case creditor is appended as
-        # an informational "CREDITOR-CR-ONLY" row so caseworkers see the full
-        # picture of the client's credit file, including undeclared accounts.
-        if _cr_unmatched:
-            # Build a set of cr_raw_names already stamped onto engine positions
-            # (from Step 7b enrichment) so we never double-append.
-            _already_stamped = {
-                (pos.get('cr_raw_name') or '').lower().strip()
-                for pos in all_creditor_positions
-                if pos.get('cr_raw_name')
-            }
-            from debt_app.helpers import get_creditor_by_trading_name, normalise_creditor_name
-            from debt_app.models import CreditorResolutionMiss
-
-            for _acc in _cr_unmatched:
-                _raw = ((_acc.get('raw_name') or '')).strip()
-                if not _raw:
-                    continue
-                if _raw.lower() in _already_stamped:
-                    continue
-                _cr_bal_pence = _acc.get('current_balance')
-                _cr_name = _acc.get('matched_creditor') or _raw
-
-                # Resolve against the SAME CreditorCriteria table/alias map used
-                # for declared creditors — a CR-only (undeclared) account is not
-                # exempt from representative-body voting just because it never
-                # reached _check_creditor_individual(). Previously this branch
-                # hardcoded representative='NONE' unconditionally, which meant a
-                # genuinely WATCH/TIX/EVOLVE creditor that only showed up as an
-                # undeclared credit-report account silently lost its badge.
-                try:
-                    _cr_criteria = get_creditor_by_trading_name(_cr_name)
-                    _cr_representative = _cr_criteria.representative
-                except CreditorCriteria.DoesNotExist:
-                    _cr_representative = 'NONE'
-                    try:
-                        CreditorResolutionMiss.objects.create(
-                            raw_name=_raw,
-                            normalised_name=normalise_creditor_name(_raw) or _raw,
-                            case_reference=aryza_reference,
-                            client_name=case_data.get('client_name', ''),
-                            balance=(_cr_bal_pence or 0) / 100.0,
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to log CreditorResolutionMiss for CR-only account {_raw!r}: {e}")
-
-                _cr_only_pos = {
-                    'criteria_id': None,
-                    'creditor_name': _cr_name,
-                    'display_name': None,
-                    'original_aryza_name': _raw if _raw != _cr_name else None,
-                    'resolved_canonical_name': _cr_name,
-                    'representative': _cr_representative,
-                    'effective_status': 'UNKNOWN',
-                    'findings': [{
-                        'code': 'CREDITOR-CR-ONLY',
-                        'reason': (
-                            'This account appears on the customer\'s credit report but '
-                            'was not declared as a debt on this case. The caseworker '
-                            'should confirm with the customer whether this debt exists '
-                            'and should be added.'
-                        ),
-                        'severity': 'info',
-                    }],
-                    'reason': (
-                        'This account appears on the customer\'s credit report but '
-                        'was not declared as a debt on this case. The caseworker '
-                        'should confirm with the customer whether this debt exists '
-                        'and should be added.'
-                    ),
-                    'rule_ids': ['CREDITOR-CR-ONLY'],
-                    'balance': 0.0,  # £0 — not declared in case
-                    'criteria_notes': '',
-                    'dividend_notes': '',
-                    'is_secured': False,
-                    'debt_type_normalised': None,
-                    '_creditor_idx': None,
-                    'cr_raw_name': _raw,
-                    'type_code': _acc.get('type_code') or '',
-                    'cr_balance': _cr_bal_pence,
-                    'cr_account_status': _acc.get('account_status') or '',
-                    'cr_account_status_subjective': _acc.get('account_status_subjective') or '',
-                    'cr_credit_limit': _acc.get('credit_limit'),
-                    'cr_start_date': normalise_start_date_iso(_acc.get('start_date')),
-                    'cr_account_age_months': _acc.get('account_age_months'),
-                    'cr_missed_payments_3m': _acc.get('missed_payments_last_3_months'),
-                }
-                all_creditor_positions.append(_cr_only_pos)
-                logger.info(
-                    f"[CR-ONLY] Backfilled undeclared account: {_raw!r} "
-                    f"(CR balance: {_cr_bal_pence}p, status: {_acc.get('account_status')!r})"
-                )
-
-            # Re-apply the representative-body outcome mapping now that CR-only
-            # accounts have been appended. The first call (above, before this
-            # block) ran before these positions existed, so a CR-only account
-            # correctly resolved to e.g. TIX would otherwise show the TIX badge
-            # but stay stuck at effective_status='UNKNOWN' — the outcome was
-            # never applied because the position didn't exist yet when that
-            # call ran. Documented as idempotent, so re-running it over
-            # everything (not just the new positions) is safe.
-            _apply_representative_outcomes(
-                all_creditor_positions,
-                result.get("representative_outcomes") or {},
-            )
-
-        enrich_positions_with_tallies(all_creditor_positions)
-        council_tax_evidence_list = attach_council_tax_evidence(all_creditor_positions, aryza_reference)
-        result["creditor_positions"] = all_creditor_positions
-
-        # Enrich rules with metadata from GlobalCriteria
-        result['hard_blocks'] = enrich_rules_with_meta(result.get('hard_blocks', []))
-        result['flags'] = enrich_rules_with_meta(result.get('flags', []))
-        result['passed'] = enrich_rules_with_meta(result.get('passed', []))
-        result['info'] = enrich_rules_with_meta(result.get('info', []))
-
-        # Determine decision and get recommendation
-        hard_blocks = result.get("hard_blocks", [])
-        flags = result.get("flags", [])
-        
-        if hard_blocks:
-            decision = "INELIGIBLE"
-        elif flags:
-            decision = "REFERRED"
-        else:
-            decision = "ELIGIBLE"
-            
-        # Captured BEFORE the overwrite two lines down — assess_case's own
-        # _derive_recommended_solution already computed "FORCED_DMP_VAT" as the
-        # single source of truth for the VAT-override precedence; get_recommendation
-        # must honour it rather than silently recompute a different decision from
-        # hard_blocks/flags alone (that was the bug: this view used to discard it).
-        vat_forced = result.get("recommended_solution") == "FORCED_DMP_VAT"
-        # Same capture pattern as vat_forced, for the Lead Gen £399 auto-DRO rule.
-        # Mutually exclusive with vat_forced by construction — assess_case routes
-        # a case where both conditions fire to "REVIEW_REQUIRED" instead, so at
-        # most one of vat_forced/dro_forced is ever True here.
-        dro_forced = result.get("recommended_solution") == "FORCED_DRO_LG"
-        recommendations = get_recommendation(
-            decision, result, case_data, vat_forced=vat_forced, dro_forced=dro_forced,
-        )
-        result["recommended_solution"] = recommendations.get("recommended_solution")
-        result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
-
-        serialized = build_phase7_response_fields(result)
-
-        # Attach financial summary fields that are NOT produced by build_phase7_response_fields
-        # but are required for correct display when the saved result is later reloaded.
-        # Without this, reloading from history always shows disposable_income = 0.
-        serialized["disposable_income"] = case_data.get("disposable_income")
-        serialized["total_unsecured_debt"] = case_data.get("total_unsecured_debt")
-        serialized["lead_gen_disposable_income"] = result.get("lead_gen_disposable_income")
-        serialized["council_tax_evidence"] = council_tax_evidence_list
-
-        # Step 4 — Save to CriteriaDecision
-        try:
-            # Clear previous history for this reference to satisfy "no history" requirement
-            CriteriaDecision.objects.filter(application_id=aryza_reference).delete()
-
-            # recommended_solution field in DB expects a string (the code)
-            db_recommended_solution = result["recommended_solution"].get("code", "UNCLEAR") if isinstance(result["recommended_solution"], dict) else (result["recommended_solution"] or "UNCLEAR")
-
-            decision_obj = CriteriaDecision.objects.create(
-                application_id=aryza_reference,
-                client_name=case_data.get("client_name", "Unknown"),
-                input_snapshot=case_data,
-                decision_output=serialized,
-                recommended_solution=db_recommended_solution,
-                passes_all_hard_blocks=serialized.get("passes_all_hard_blocks", False),
-                triggered_by=request.user if getattr(request.user, 'is_authenticated', False) else None,
-                source="STANDALONE"
-            )
-            decision_id = str(decision_obj.id)
-        except Exception as e:
-            logger.error("Failed to save CriteriaDecision: %s", e)
-            decision_id = None
-
-        logger.info("Assessment completed for %s: %s", aryza_reference, serialized.get("recommended_solution"))
-        return Response({
-            "success": True,
-            "decision_id": decision_id,
-            "client_name": case_data_obj.client_name,
-            "aryza_reference": aryza_reference,
-            "evaluated_at": timezone.now().isoformat(),
-            "disposable_income": case_data.get("disposable_income"),
-            "total_unsecured_debt": case_data.get("total_unsecured_debt"),
-            **serialized,
-        }, status=status.HTTP_200_OK)
+        return Response(outcome.response_body, status=status.HTTP_200_OK)
 
 
 class AssessHistoryView(APIView):
@@ -1479,7 +1525,7 @@ class CreditorListView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def get(self, request):
         search = request.query_params.get('search', '')
@@ -1546,7 +1592,7 @@ class CreditorDetailView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def _get_object(self, id):
         try:
@@ -1662,7 +1708,7 @@ class RulesListView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -1767,7 +1813,7 @@ class RulesDetailView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def _get_object(self, rule_key):
         try:
@@ -1913,7 +1959,7 @@ class CouncilRuleListView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -1969,7 +2015,7 @@ class CouncilRuleDetailView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def _get_object(self, pk):
         try:
@@ -2061,7 +2107,7 @@ class CountyCouncilListView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def get(self, request):
         page = int(request.query_params.get('page', 1))
@@ -2114,7 +2160,7 @@ class CountyCouncilDetailView(APIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), HasReadPermission()]
-        return [IsAuthenticated(), HasWritePermission()]
+        return [IsAuthenticated(), HasWritePermission(), DirectCriteriaEditAllowed()]
 
     def _get_object(self, pk):
         try:
@@ -2609,7 +2655,17 @@ class UserDetailView(APIView):
         # Prevent self-deletion
         if user == request.user:
             return Response({"detail": "You cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
-        user.delete()
+        try:
+            user.delete()
+        except ProtectedError:
+            # The user proposed or approved a controlled criteria change; the
+            # audit trail (CriteriaChangeRequest / CriteriaChangeAudit) must
+            # keep pointing at them, so refuse rather than 500.
+            return Response(
+                {"detail": "This user is recorded in the criteria change audit trail and cannot be deleted. "
+                           "Deactivate the account instead."},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2959,6 +3015,290 @@ class _InternalKeyOrAuthenticated(BasePermission):
         return bool(request.user and request.user.is_authenticated)
 
 
+def select_credit_report(aryza_reference, credit_report_id=None):
+    """Pick the CreditReport the standalone assessment enriches creditors from.
+
+    credit_report_id pins an exact row (scoped to this reference); otherwise
+    the most recent `extracted` report that has accounts. Returns None when
+    there is nothing usable. Shared by the assessment and the Lead Gen
+    credit-report status check so both agree on "usable report".
+    """
+    from debt_app.models import CreditReport
+    cr_obj = None
+    if credit_report_id:
+        # Caller (e.g. the frontend, right after upload-credit-report)
+        # knows exactly which extraction to use — pin to that row
+        # instead of re-deriving "best" from history. Scoped to this
+        # aryza_reference so a stray/mistyped id can't pull another
+        # case's report.
+        cr_obj = CreditReport.objects.filter(
+            id=credit_report_id,
+            aryza_reference=aryza_reference,
+        ).first()
+        if not cr_obj:
+            logger.warning(
+                "[CR ENRICH] credit_report_id=%s not found for reference=%s — "
+                "falling back to most-recent extraction",
+                credit_report_id, aryza_reference,
+            )
+    if cr_obj is None:
+        # No explicit id given (or it didn't resolve) — fall back to the
+        # most recent extraction for this reference. Previously this
+        # picked the extraction with the MOST accounts across ALL
+        # history, which can silently resurrect a stale report: case
+        # 349223 had four old extractions with 29 accounts each, then a
+        # fresh, correct re-upload with only 26 — "most accounts wins"
+        # kept serving the six-day-old 29-account report instead of the
+        # one just uploaded. Recency is the right default; passing
+        # credit_report_id explicitly is the reliable fix.
+        recent_reports = CreditReport.objects.filter(
+            aryza_reference=aryza_reference,
+            extraction_status="extracted",
+        ).order_by('-created_at')
+        cr_obj = next(
+            (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
+            None,
+        )
+    if cr_obj is None:
+        # Nothing to enrich from — every creditor's CR columns (cr_balance,
+        # cr_account_status, cr_missed_payments_3m, Match) will be left blank.
+        # This is not an exception, so without an explicit log line it looks
+        # to a caseworker like the feature was never implemented.
+        logger.warning(
+            "[CR ENRICH] no extracted CreditReport found for reference=%s "
+            "(credit_report_id=%s) — creditor CR columns will be blank",
+            aryza_reference, credit_report_id,
+        )
+    return cr_obj
+
+
+def process_credit_report_upload(aryza_reference, uploaded_file, user, extractor):
+    """Validate, store and extract one uploaded credit-report PDF.
+
+    Returns the DRF Response CreditReportUploadView has always returned.
+    Shared with the Lead Gen check, which reads response.status_code and
+    response.data and returns only a minimal summary to its caller.
+    `extractor` is passed in (not imported here) so callers and tests keep
+    controlling which extract_credit_report is used.
+    """
+    aryza_reference = (aryza_reference or "").strip()
+    if not aryza_reference:
+        return Response(
+            {"success": False, "error": "aryza_reference is required.", "code": "MISSING_REFERENCE"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not uploaded_file:
+        return Response(
+            {"success": False, "error": "credit_report file is required.", "code": "MISSING_FILE"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    name_lower = uploaded_file.name.lower()
+    if not name_lower.endswith(".pdf"):
+        return Response(
+            {"success": False, "error": "File must be a PDF (.pdf extension required).", "code": "INVALID_FILE_TYPE"},
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    header = uploaded_file.read(4)
+    uploaded_file.seek(0)
+    if header != b"%PDF":
+        return Response(
+            {"success": False, "error": "File does not appear to be a valid PDF.", "code": "INVALID_PDF"},
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    if uploaded_file.size == 0:
+        return Response(
+            {"success": False, "error": "Uploaded file is empty.", "code": "INVALID_PDF"},
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    # uploaded_by is nullable — None when the request comes from the internal service key
+    uploader = user if (user and user.is_authenticated) else None
+    record = CreditReport.objects.create(
+        aryza_reference=aryza_reference,
+        uploaded_file=uploaded_file,
+        extraction_status="pending",
+        uploaded_by=uploader,
+    )
+
+    try:
+        result = extractor(record.uploaded_file.path)
+        if "extraction_error" in result:
+            record.extraction_status = "failed"
+            record.extraction_error = result["extraction_error"]
+            record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+            # ⚠️ `success` MUST be False here. The case-assessment-tool's
+            # CriteriaClient.upload_credit_report() treats `success` as the
+            # only signal that extraction failed — it previously read
+            # `True` on this branch and treated a failed extraction
+            # identically to "client has no debts": empty accounts, no
+            # error surfaced, and the case's existing Creditor rows got
+            # deleted and replaced with nothing. See case-assessment-tool
+            # docs/api-fixes.md and platform/criteria.py.
+            return Response({
+                "success": False,
+                "credit_report_id": record.id,
+                "aryza_reference": aryza_reference,
+                "agency": "",
+                "extraction_status": "failed",
+                "accounts_found": 0,
+                "client_name_on_report": "",
+                "client_address_on_report": "",
+                "printed_report_date": "",
+                "unmatched_accounts": [],
+                "accounts": [],
+                "mortgage_accounts": [],
+                "other_accounts": [],
+                "public_information": {},
+                "error": result["extraction_error"],
+                "message": "Credit report uploaded but extraction failed",
+            })
+
+        record.extracted_data = result
+        record.agency = result.get("agency", "")
+        record.client_name_on_report = result.get("client_name", "")
+        record.client_address_on_report = result.get("client_address", "")
+
+        # A recognised bureau format (Experian / Aryza Advize) that
+        # nonetheless yields 0 accounts, 0 mortgages, and 0
+        # reconciliation-only rows is indistinguishable, on a plain
+        # "extracted" status, from a genuinely clean credit file — but
+        # in practice it usually means the PDF's internal layout is one
+        # this parser doesn't recognise (see the Valid8IP-format fix in
+        # integrations/credit_report.py). Flag it distinctly so it
+        # surfaces for manual review instead of silently reading as
+        # "client has no debts". `success` stays True — extraction did
+        # not raise — this only affects `extraction_status` and adds a
+        # `warning` key callers can choose to act on.
+        recognised_bureau = record.agency in ("Experian", "Aryza Advize")
+        found_nothing_at_all = not (
+            result.get("accounts") or result.get("mortgage_accounts") or result.get("other_accounts")
+        )
+        is_empty_recognised = recognised_bureau and found_nothing_at_all
+
+        # ⚠️ An UNRECOGNISED file that yields nothing at all is a failure,
+        # not a clean credit file: it is almost always another document (a
+        # bank statement) or a layout this parser cannot read. Saved as
+        # "extracted" (ref 411322, report 218: agency "Unknown", 0 accounts,
+        # `success: True`) it read as "client has no debts" -- the
+        # case-assessment-tool replaces the case's Creditor rows with the
+        # empty list on `success: True`, and `_enrich_from_credit_report` took
+        # it as the case's report, its `has_ccj: False` overriding the payload.
+        # `extracted_data` is deliberately NOT saved, as on the failure
+        # branch above, so nothing downstream can read it as a report.
+        if record.agency == "Unknown" and found_nothing_at_all:
+            not_a_report_error = (
+                "This file was not recognised as a credit report and no accounts could be "
+                "read from it. Check it is the client's Experian or Aryza credit report."
+            )
+            record.extraction_status = "failed"
+            record.extraction_error = not_a_report_error
+            record.save(update_fields=["agency", "extraction_status", "extraction_error", "updated_at"])
+            logger.warning(
+                "[CREDIT REPORT EXTRACT] ref=%s agency Unknown and 0 accounts/mortgages/other "
+                "-- not a readable credit report, marked failed",
+                aryza_reference,
+            )
+            return Response({
+                "success": False,
+                "credit_report_id": record.id,
+                "aryza_reference": aryza_reference,
+                "agency": record.agency,
+                "extraction_status": "failed",
+                "accounts_found": 0,
+                "client_name_on_report": "",
+                "client_address_on_report": "",
+                "printed_report_date": "",
+                "unmatched_accounts": [],
+                "accounts": [],
+                "mortgage_accounts": [],
+                "other_accounts": [],
+                "public_information": {},
+                "code": "NOT_A_CREDIT_REPORT",
+                "error": not_a_report_error,
+                "message": "Credit report uploaded but no accounts could be read",
+            })
+
+        record.extraction_status = "extracted_empty" if is_empty_recognised else "extracted"
+        record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "client_address_on_report", "extraction_status", "updated_at"])
+
+        if is_empty_recognised:
+            logger.warning(
+                "[CREDIT REPORT EXTRACT] ref=%s agency=%s recognised format but 0 accounts/"
+                "mortgages/other found — flagging extracted_empty for review",
+                aryza_reference, record.agency,
+            )
+
+        logger.info(
+            "[CREDIT REPORT EXTRACT] ref=%s agency=%s accounts=%d unmatched=%s matched=%s",
+            aryza_reference,
+            record.agency,
+            len(result.get("accounts", [])),
+            result.get("unmatched_accounts", []),
+            [a.get("matched_creditor") for a in result.get("accounts", [])],
+        )
+
+        response_payload = {
+            "success": True,
+            "credit_report_id": record.id,
+            "aryza_reference": aryza_reference,
+            "agency": record.agency,
+            "extraction_status": record.extraction_status,
+            "accounts_found": len(result.get("accounts", [])),
+            "client_name_on_report": record.client_name_on_report,
+            "client_address_on_report": record.client_address_on_report,
+            # ⚠️ The PRINTED issue / search date, "" when the report prints
+            # none. Deliberately not `report_date`, whose fallback is the
+            # latest tradeline update -- see `_PRINTED_REPORT_DATE_RES`.
+            # The case-assessment-tool shows it as the credit-search date.
+            "printed_report_date": result.get("printed_report_date", ""),
+            "unmatched_accounts": result.get("unmatched_accounts", []),
+            "accounts": result.get("accounts", []),
+            "mortgage_accounts": result.get("mortgage_accounts", []),
+            "other_accounts": result.get("other_accounts", []),
+            "public_information": result.get("public_information", {}),
+            "message": "Credit report uploaded and extracted successfully",
+        }
+        if is_empty_recognised:
+            response_payload["warning"] = (
+                f"Report agency was recognised as '{record.agency}' but 0 accounts, "
+                "mortgages, or reconciliation-only rows were extracted — this usually "
+                "means the PDF uses a layout this parser doesn't recognise yet, not that "
+                "the client genuinely has no credit history. Needs manual review."
+            )
+            response_payload["message"] = "Credit report uploaded — extraction found no accounts, needs review"
+
+        return Response(response_payload)
+
+    except Exception as exc:
+        logger.error("Credit report extraction failed: %s", exc, exc_info=True)
+        record.extraction_status = "failed"
+        record.extraction_error = str(exc)
+        record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
+        # `success: False` — see the matching branch above for why this
+        # flag has to reflect extraction failure, not just upload receipt.
+        return Response({
+            "success": False,
+            "credit_report_id": record.id,
+            "aryza_reference": aryza_reference,
+            "agency": "",
+            "extraction_status": "failed",
+            "accounts_found": 0,
+            "client_name_on_report": "",
+            "client_address_on_report": "",
+            "unmatched_accounts": [],
+            "accounts": [],
+            "mortgage_accounts": [],
+            "other_accounts": [],
+            "public_information": {},
+            "error": str(exc),
+            "message": "Credit report uploaded but extraction failed",
+        })
+
+
 class CreditReportUploadView(APIView):
     """
     POST /api/v1/criteria/upload-credit-report/
@@ -2970,223 +3310,12 @@ class CreditReportUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        aryza_reference = (request.data.get("aryza_reference") or "").strip()
-        if not aryza_reference:
-            return Response(
-                {"success": False, "error": "aryza_reference is required.", "code": "MISSING_REFERENCE"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        uploaded_file = request.FILES.get("credit_report")
-        if not uploaded_file:
-            return Response(
-                {"success": False, "error": "credit_report file is required.", "code": "MISSING_FILE"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        name_lower = uploaded_file.name.lower()
-        if not name_lower.endswith(".pdf"):
-            return Response(
-                {"success": False, "error": "File must be a PDF (.pdf extension required).", "code": "INVALID_FILE_TYPE"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        header = uploaded_file.read(4)
-        uploaded_file.seek(0)
-        if header != b"%PDF":
-            return Response(
-                {"success": False, "error": "File does not appear to be a valid PDF.", "code": "INVALID_PDF"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        if uploaded_file.size == 0:
-            return Response(
-                {"success": False, "error": "Uploaded file is empty.", "code": "INVALID_PDF"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        # uploaded_by is nullable — None when the request comes from the internal service key
-        uploader = request.user if (request.user and request.user.is_authenticated) else None
-        record = CreditReport.objects.create(
-            aryza_reference=aryza_reference,
-            uploaded_file=uploaded_file,
-            extraction_status="pending",
-            uploaded_by=uploader,
+        return process_credit_report_upload(
+            request.data.get("aryza_reference"),
+            request.FILES.get("credit_report"),
+            request.user,
+            extract_credit_report,
         )
-
-        try:
-            result = extract_credit_report(record.uploaded_file.path)
-            if "extraction_error" in result:
-                record.extraction_status = "failed"
-                record.extraction_error = result["extraction_error"]
-                record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
-                # ⚠️ `success` MUST be False here. The case-assessment-tool's
-                # CriteriaClient.upload_credit_report() treats `success` as the
-                # only signal that extraction failed — it previously read
-                # `True` on this branch and treated a failed extraction
-                # identically to "client has no debts": empty accounts, no
-                # error surfaced, and the case's existing Creditor rows got
-                # deleted and replaced with nothing. See case-assessment-tool
-                # docs/api-fixes.md and platform/criteria.py.
-                return Response({
-                    "success": False,
-                    "credit_report_id": record.id,
-                    "aryza_reference": aryza_reference,
-                    "agency": "",
-                    "extraction_status": "failed",
-                    "accounts_found": 0,
-                    "client_name_on_report": "",
-                    "client_address_on_report": "",
-                    "printed_report_date": "",
-                    "unmatched_accounts": [],
-                    "accounts": [],
-                    "mortgage_accounts": [],
-                    "other_accounts": [],
-                    "public_information": {},
-                    "error": result["extraction_error"],
-                    "message": "Credit report uploaded but extraction failed",
-                })
-
-            record.extracted_data = result
-            record.agency = result.get("agency", "")
-            record.client_name_on_report = result.get("client_name", "")
-            record.client_address_on_report = result.get("client_address", "")
-
-            # A recognised bureau format (Experian / Aryza Advize) that
-            # nonetheless yields 0 accounts, 0 mortgages, and 0
-            # reconciliation-only rows is indistinguishable, on a plain
-            # "extracted" status, from a genuinely clean credit file — but
-            # in practice it usually means the PDF's internal layout is one
-            # this parser doesn't recognise (see the Valid8IP-format fix in
-            # integrations/credit_report.py). Flag it distinctly so it
-            # surfaces for manual review instead of silently reading as
-            # "client has no debts". `success` stays True — extraction did
-            # not raise — this only affects `extraction_status` and adds a
-            # `warning` key callers can choose to act on.
-            recognised_bureau = record.agency in ("Experian", "Aryza Advize")
-            found_nothing_at_all = not (
-                result.get("accounts") or result.get("mortgage_accounts") or result.get("other_accounts")
-            )
-            is_empty_recognised = recognised_bureau and found_nothing_at_all
-
-            # ⚠️ An UNRECOGNISED file that yields nothing at all is a failure,
-            # not a clean credit file: it is almost always another document (a
-            # bank statement) or a layout this parser cannot read. Saved as
-            # "extracted" (ref 411322, report 218: agency "Unknown", 0 accounts,
-            # `success: True`) it read as "client has no debts" -- the
-            # case-assessment-tool replaces the case's Creditor rows with the
-            # empty list on `success: True`, and `_enrich_from_credit_report` took
-            # it as the case's report, its `has_ccj: False` overriding the payload.
-            # `extracted_data` is deliberately NOT saved, as on the failure
-            # branch above, so nothing downstream can read it as a report.
-            if record.agency == "Unknown" and found_nothing_at_all:
-                not_a_report_error = (
-                    "This file was not recognised as a credit report and no accounts could be "
-                    "read from it. Check it is the client's Experian or Aryza credit report."
-                )
-                record.extraction_status = "failed"
-                record.extraction_error = not_a_report_error
-                record.save(update_fields=["agency", "extraction_status", "extraction_error", "updated_at"])
-                logger.warning(
-                    "[CREDIT REPORT EXTRACT] ref=%s agency Unknown and 0 accounts/mortgages/other "
-                    "-- not a readable credit report, marked failed",
-                    aryza_reference,
-                )
-                return Response({
-                    "success": False,
-                    "credit_report_id": record.id,
-                    "aryza_reference": aryza_reference,
-                    "agency": record.agency,
-                    "extraction_status": "failed",
-                    "accounts_found": 0,
-                    "client_name_on_report": "",
-                    "client_address_on_report": "",
-                    "printed_report_date": "",
-                    "unmatched_accounts": [],
-                    "accounts": [],
-                    "mortgage_accounts": [],
-                    "other_accounts": [],
-                    "public_information": {},
-                    "code": "NOT_A_CREDIT_REPORT",
-                    "error": not_a_report_error,
-                    "message": "Credit report uploaded but no accounts could be read",
-                })
-
-            record.extraction_status = "extracted_empty" if is_empty_recognised else "extracted"
-            record.save(update_fields=["extracted_data", "agency", "client_name_on_report", "client_address_on_report", "extraction_status", "updated_at"])
-
-            if is_empty_recognised:
-                logger.warning(
-                    "[CREDIT REPORT EXTRACT] ref=%s agency=%s recognised format but 0 accounts/"
-                    "mortgages/other found — flagging extracted_empty for review",
-                    aryza_reference, record.agency,
-                )
-
-            logger.info(
-                "[CREDIT REPORT EXTRACT] ref=%s agency=%s accounts=%d unmatched=%s matched=%s",
-                aryza_reference,
-                record.agency,
-                len(result.get("accounts", [])),
-                result.get("unmatched_accounts", []),
-                [a.get("matched_creditor") for a in result.get("accounts", [])],
-            )
-
-            response_payload = {
-                "success": True,
-                "credit_report_id": record.id,
-                "aryza_reference": aryza_reference,
-                "agency": record.agency,
-                "extraction_status": record.extraction_status,
-                "accounts_found": len(result.get("accounts", [])),
-                "client_name_on_report": record.client_name_on_report,
-                "client_address_on_report": record.client_address_on_report,
-                # ⚠️ The PRINTED issue / search date, "" when the report prints
-                # none. Deliberately not `report_date`, whose fallback is the
-                # latest tradeline update -- see `_PRINTED_REPORT_DATE_RES`.
-                # The case-assessment-tool shows it as the credit-search date.
-                "printed_report_date": result.get("printed_report_date", ""),
-                "unmatched_accounts": result.get("unmatched_accounts", []),
-                "accounts": result.get("accounts", []),
-                "mortgage_accounts": result.get("mortgage_accounts", []),
-                "other_accounts": result.get("other_accounts", []),
-                "public_information": result.get("public_information", {}),
-                "message": "Credit report uploaded and extracted successfully",
-            }
-            if is_empty_recognised:
-                response_payload["warning"] = (
-                    f"Report agency was recognised as '{record.agency}' but 0 accounts, "
-                    "mortgages, or reconciliation-only rows were extracted — this usually "
-                    "means the PDF uses a layout this parser doesn't recognise yet, not that "
-                    "the client genuinely has no credit history. Needs manual review."
-                )
-                response_payload["message"] = "Credit report uploaded — extraction found no accounts, needs review"
-
-            return Response(response_payload)
-
-        except Exception as exc:
-            logger.error("Credit report extraction failed: %s", exc, exc_info=True)
-            record.extraction_status = "failed"
-            record.extraction_error = str(exc)
-            record.save(update_fields=["extraction_status", "extraction_error", "updated_at"])
-            # `success: False` — see the matching branch above for why this
-            # flag has to reflect extraction failure, not just upload receipt.
-            return Response({
-                "success": False,
-                "credit_report_id": record.id,
-                "aryza_reference": aryza_reference,
-                "agency": "",
-                "extraction_status": "failed",
-                "accounts_found": 0,
-                "client_name_on_report": "",
-                "client_address_on_report": "",
-                "unmatched_accounts": [],
-                "accounts": [],
-                "mortgage_accounts": [],
-                "other_accounts": [],
-                "public_information": {},
-                "error": str(exc),
-                "message": "Credit report uploaded but extraction failed",
-            })
 
 
 # Recognised image signatures — a real council-tax bill/letter is often

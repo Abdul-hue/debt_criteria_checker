@@ -7,6 +7,7 @@ from .models import (
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, DepartmentFeatureAccess, DepartmentFeaturePermission,
     CreditorVoteSummary,
+    LeadGenCheck, CriteriaVersion, CriteriaChangeRequest, CriteriaChangeAudit,
 )
 
 
@@ -219,3 +220,44 @@ class CreditorVoteSummaryAdmin(admin.ModelAdmin):
         'county_council__county_name'
     ]
     readonly_fields = ['last_synced_at']
+
+
+class _ReadOnlyAdmin(admin.ModelAdmin):
+    """Append-only / workflow-managed records: viewable, never edited here."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(LeadGenCheck)
+class LeadGenCheckAdmin(_ReadOnlyAdmin):
+    list_display = ['checked_at', 'username', 'department_name', 'aryza_reference', 'status',
+                    'overall_outcome', 'iva_outcome', 'dmp_outcome', 'criteria_version']
+    list_filter = ['status', 'overall_outcome', 'department_name']
+    search_fields = ['aryza_reference', 'username']
+    date_hierarchy = 'checked_at'
+
+
+@admin.register(CriteriaVersion)
+class CriteriaVersionAdmin(_ReadOnlyAdmin):
+    list_display = ['number', 'created_at', 'created_by', 'note', 'code_version']
+    exclude = ['snapshot']
+
+
+@admin.register(CriteriaChangeRequest)
+class CriteriaChangeRequestAdmin(_ReadOnlyAdmin):
+    list_display = ['id', 'title', 'status', 'created_by', 'created_at', 'decided_by', 'applied_version']
+    list_filter = ['status', 'is_rollback']
+
+
+@admin.register(CriteriaChangeAudit)
+class CriteriaChangeAuditAdmin(_ReadOnlyAdmin):
+    list_display = ['applied_at', 'version', 'model', 'object_label', 'field', 'proposed_by', 'approved_by']
+    list_filter = ['model']
+

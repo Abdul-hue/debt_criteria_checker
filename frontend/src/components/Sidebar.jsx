@@ -10,6 +10,9 @@ import {
   Paperclip,
   BookOpen,
   Home,
+  ClipboardCheck,
+  Activity,
+  GitPullRequest,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useFeatureAccess } from '../hooks/useFeatureAccess.js'
@@ -75,6 +78,14 @@ export default function Sidebar() {
     { to: '/decisions', label: 'Decisions', icon: <CheckSquare size={18} />, featureKey: 'decisions' },
   ]
 
+  const leadGenItems = [
+    { to: '/lead-gen', label: 'Lead Gen Check', icon: <ClipboardCheck size={18} />, featureKey: 'lead_gen_check' },
+    { to: '/lead-gen/activity', label: 'Lead Gen Activity', icon: <Activity size={18} />, featureKey: 'lead_gen_reporting' },
+    { to: '/criteria-changes', label: 'Criteria Management', icon: <GitPullRequest size={18} />, featureKeys: ['criteria_changes', 'criteria_approval'] },
+  ]
+  const canSee = (item) => isAdmin || (item.featureKeys ? item.featureKeys.some(k => hasFeature(k)) : hasFeature(item.featureKey))
+  const visibleLeadGenItems = leadGenItems.filter(canSee)
+
   const showRuleManagement = isAdmin || hasFeature('global_rules')
   const showGuidelines = hasFeature('sfs_guidelines')
   const showOperations = isAdmin || ['run_assessment', 'decisions'].some(k => hasFeature(k))
@@ -94,6 +105,8 @@ export default function Sidebar() {
                 {operationItems.map((item) => <NavItem key={item.to} item={item} />)}
               </>
             )}
+            <SectionLabel>Lead Gen &amp; Criteria</SectionLabel>
+            {leadGenItems.map((item) => <NavItem key={item.to} item={item} />)}
           </>
         ) : featuresLoading ? (
           <>
@@ -113,6 +126,12 @@ export default function Sidebar() {
               <>
                 <SectionLabel>Operations</SectionLabel>
                 {operationItems.filter((item) => hasFeature(item.featureKey)).map((item) => <NavItem key={item.to} item={item} />)}
+              </>
+            )}
+            {visibleLeadGenItems.length > 0 && (
+              <>
+                <SectionLabel>Lead Gen &amp; Criteria</SectionLabel>
+                {visibleLeadGenItems.map((item) => <NavItem key={item.to} item={item} />)}
               </>
             )}
           </>
