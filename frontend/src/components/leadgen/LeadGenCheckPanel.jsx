@@ -217,8 +217,9 @@ function ResultCard({ result }) {
 
       <div className="px-5 py-3 border-t border-slate-100 text-xs text-slate-500">
         Checked <time dateTime={result.checked_at}>{formatDayTime(result.checked_at)}</time>
-        <span aria-hidden="true" className="mx-1.5">·</span>
-        Criteria {result.criteria_version}
+        {result.criteria_version && (
+          <><span aria-hidden="true" className="mx-1.5">·</span>Criteria {result.criteria_version}</>
+        )}
       </div>
     </Card>
   )

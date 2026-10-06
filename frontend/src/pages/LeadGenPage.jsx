@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowUpRight, ClipboardCheck, ExternalLink, LogOut, PictureInPicture2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, ClipboardCheck, ExternalLink, LogOut, PictureInPicture2 } from 'lucide-react'
 import LeadGenCheckPanel from '../components/leadgen/LeadGenCheckPanel.jsx'
 import { Button, Card, Hint, HintProvider, PageHeader } from '../components/leadgen/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -124,8 +124,8 @@ export default function LeadGenPage() {
   const [pipWindow, setPipWindow] = useState(null)
   const [pipRoot, setPipRoot] = useState(null)
   const isStandalone = typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches
-  // The pop-out is the default way in. Browsers only open it from a click, so the
-  // page leads with an "Open Lead Gen check" button. The in-page form is the fallback,
+  // The pop-out is the default way in (opened on the first click on the page, or via
+  // the "Open Lead Gen check" button). The in-page form is the fallback,
   // and is used directly where a pop-out makes no sense: inside the pop-up window itself,
   // an installed app window, or a phone.
   const [inline, setInline] = useState(() => compact || isStandalone
@@ -148,6 +148,7 @@ export default function LeadGenPage() {
   }, [])
 
   const openPip = async () => {
+    autoOpened.current = true
     try {
       const win = await window.documentPictureInPicture.requestWindow(POPOUT_SIZE)
       copyStyles(win.document)
@@ -172,6 +173,38 @@ export default function LeadGenPage() {
   }
 
   const canPip = supportsDocumentPip()
+  // Browsers only offer the always-on-top window on HTTPS (or localhost).
+  const insecure = typeof window !== 'undefined' && window.isSecureContext === false
+
+  // "On by default": browsers refuse to open the always-on-top window without a
+  // user gesture, so open it on the first click / key press anywhere on the page.
+  // Only once per visit, so closing the widget on purpose doesn't reopen it.
+  const openPipRef = useRef(openPip)
+  openPipRef.current = openPip
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (!canPip || inline || pipWindow || autoOpened.current) return undefined
+    const onFirstGesture = (e) => {
+      if (e.target.closest?.('a, button, input, select, textarea, label')) return // has its own action
+      if (e.type === 'keydown' && (e.key === 'Escape' || e.key === 'Tab' || e.ctrlKey || e.metaKey || e.altKey)) return
+      autoOpened.current = true
+      openPipRef.current()
+    }
+    window.addEventListener('pointerdown', onFirstGesture)
+    window.addEventListener('keydown', onFirstGesture)
+    return () => {
+      window.removeEventListener('pointerdown', onFirstGesture)
+      window.removeEventListener('keydown', onFirstGesture)
+    }
+  }, [canPip, inline, pipWindow])
+
+  // The widget lives as long as this tab: warn before the tab is closed or reloaded.
+  useEffect(() => {
+    if (!pipWindow) return undefined
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [pipWindow])
   const openPopOut = canPip ? openPip : openSmallWindow
 
   const popOut = !inline ? null : canPip ? (
@@ -206,7 +239,10 @@ export default function LeadGenPage() {
           {pipWindow ? (
             <Card className="mx-auto max-w-md px-6 py-8 text-center">
               <PictureInPicture2 size={24} aria-hidden="true" className="mx-auto text-slate-400" />
-              <p className="mt-3 text-sm text-slate-700">The Lead Gen check is open in the pop-out window.</p>
+              <p className="mt-3 text-sm font-medium text-slate-800">The Lead Gen check is open in its always-on-top window.</p>
+              <p className="mt-1 text-sm text-slate-500">
+                You can switch to other tabs and apps and it stays on screen. Keep this tab open — closing it closes the check.
+              </p>
               <Button variant="secondary" className="mt-4" onClick={() => { setInline(true); pipWindow.close() }}>
                 Bring it back here
               </Button>
@@ -221,9 +257,18 @@ export default function LeadGenPage() {
               <h2 className="mt-4 text-lg font-semibold text-slate-900">Check cases from a pop-out window</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {canPip
-                  ? 'A small Lead Gen check that stays on top of your other apps while you work.'
+                  ? 'A small Lead Gen check that stays on top of your other tabs and apps. It opens as soon as you click anywhere on this page.'
                   : 'A small Lead Gen check in its own window, next to your other apps.'}
               </p>
+              {!canPip && insecure && (
+                <div className="mt-4 flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-left">
+                  <AlertTriangle size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-600" />
+                  <p className="text-sm text-amber-900">
+                    This page isn&apos;t on a secure (HTTPS) address, so your browser won&apos;t keep the Lead Gen
+                    window on top — it can go behind other windows. Ask IT to serve Lead Gen over HTTPS.
+                  </p>
+                </div>
+              )}
               <Button variant="primary" size="lg" className="mt-6 w-full sm:w-auto sm:min-w-[16rem]" onClick={openPopOut}>
                 <PictureInPicture2 size={16} aria-hidden="true" /> Open Lead Gen check
               </Button>
