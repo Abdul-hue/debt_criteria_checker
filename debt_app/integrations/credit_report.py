@@ -678,6 +678,247 @@ def _has_recent_spending(lines: list[str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Aryza Advize — month-by-month status history, read from word POSITIONS
+# ---------------------------------------------------------------------------
+#
+# ⚠️ THE TEXT LAYER CANNOT SAY WHICH MONTH A VALUE BELONGS TO. Each month of
+# the "Balance" grid is one cell holding the month's balance above its status
+# digit, with the year label centred between them, so `extract_text` flattens
+# a partial year into three lines -- balances, "2026 - - - - - -", statuses --
+# and the dashes and values no longer line up. Shuttleworth's report holds
+# Jan-Jun 2026 at the LEFT of its row and May-Dec 2024 at the RIGHT; only the
+# x-position says which. `_parse_missed_payments_last_3_months` and
+# `_parse_worst_status_from_grid` work on that text (and never recognise
+# "2026 - - -" as a year at all) -- left as they are, because the criteria
+# engine reads them; this is a separate, positional read for callers that
+# need the month.
+#
+# ⚠️ STATUS IS THE DIGIT, NEVER THE COLOUR. The cell's fill colour (green /
+# yellow / red / grey) is drawn from the status digit; across 20 real reports
+# and 14,000+ cells it never said anything the digit did not. The digit is
+# what is returned, raw: "0", "1".."6", "D", "U", "?", or whatever a future
+# report prints. A "-" cell is no data and is not a month in the history.
+
+_MONTH_ABBRS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+#: A grid row's balance usually sits ~5pt above its year label and its status
+#: ~5pt below, rows ~21.5pt apart. A line belongs to the NEAREST label within
+#: this reach -- just over half a row. ⚠️ Not tighter: a row whose label
+#: shares the balance's line has its status ~10pt below it (chelsea_bone,
+#: 2022), and an 8pt reach dropped that row's twelve statuses.
+_GRID_ROW_REACH = 12.0
+#: Within this of the year label's own line, a word is ON the label line --
+#: a "-" (no data) or, in a row split by a page break, the balance alone.
+_GRID_LABEL_LINE = 2.0
+#: Month header words are left-aligned in their cell; the cell starts a few
+#: points to the left of the word.
+_GRID_COLUMN_LEAD = 5.0
+_GRID_SECTION_TITLES = ("Balance", "Limit", "Payment Amount")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_AGREED_MONTHLY_PAYMENT_RE = re.compile(r"Payments:\s*Monthly\s+X\s+(\S+)")
+
+
+def _is_grid_balance_token(text: str) -> bool:
+    """A printed balance: "£8,039", "-£30", or the same with a mojibake
+    currency glyph (see `_parse_amount`). A bare "0" is NOT one -- on the
+    label line it is ambiguous, and reading it as a status would claim a
+    payment the report may not show."""
+    return bool(re.fullmatch(r"-?[^\d\s,\-]+[\d,]+(\.\d+)?", text)) or (
+        "," in text and bool(re.fullmatch(r"-?[\d,]+", text)))
+
+
+def _page_lines(page) -> list[tuple[float, list[dict]]]:
+    """A page's words as `(top, words left-to-right)` lines, top to bottom."""
+    lines: list[tuple[float, list[dict]]] = []
+    for word in sorted(page.extract_words(), key=lambda w: (w["top"], w["x0"])):
+        if lines and abs(lines[-1][0] - word["top"]) <= 1.0:
+            lines[-1][1].append(word)
+        else:
+            lines.append((word["top"], [word]))
+    return [(top, sorted(words, key=lambda w: w["x0"])) for top, words in lines]
+
+
+def _is_aryza_account_header(text: str, following: list[str]) -> bool:
+    """The same header rule as `_split_into_account_blocks`."""
+    if _TYPE_CODE_RE.match(text):
+        return True
+    return bool(_ARYZA_FALLBACK_HEADER_RE.match(text)) and "Account Details" in " ".join(following[:2])
+
+
+def _month_header_columns(words: list[dict]) -> list[float] | None:
+    """The 12 month columns' x0 from a grid's "Jan Feb ... Dec" header line,
+    or None when the line is not one.
+
+    ⚠️ THE HEADER CAN BE CUT SHORT. Price's report (Loans 2 Go, page 3) prints
+    "Jan ... Oct" -- Nov and Dec are not in the text layer -- while the grid
+    beneath has all twelve columns. The columns are evenly spaced, so the
+    missing ones are placed at the same pitch rather than the account losing
+    its whole history."""
+    names = [w["text"] for w in words]
+    if len(names) < 6 or names != list(_MONTH_ABBRS[:len(names)]):
+        return None
+    columns = [w["x0"] for w in words]
+    pitch = (columns[-1] - columns[0]) / (len(columns) - 1)
+    while len(columns) < 12:
+        columns.append(columns[-1] + pitch)
+    return columns
+
+
+def _month_of(columns: list[float], x_centre: float) -> int | None:
+    """1-12 for the month column `x_centre` falls in, else None."""
+    starts = [x - _GRID_COLUMN_LEAD for x in columns]
+    width = columns[-1] - columns[-2]
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else start + width
+        if start <= x_centre < end:
+            return i + 1
+    return None
+
+
+def _extract_status_histories(pdf) -> list[tuple[str, list[dict]]]:
+    """Every Aryza Advize account's Balance-grid history, in document order.
+
+    Returns `[(header text, history)]`; `history` is
+    `[{"month": "YYYY-MM", "status": str, "balance": pence | None}]`, oldest
+    first, one entry per month that carries a status. Only the "Balance"
+    grid is read -- "Limit" and "Payment Amount" carry no status.
+
+    A row cut by a page break (Topp, page 1 -> 2: the 2023 balances end
+    page 1, their statuses open page 2 with no year label) is completed
+    from the words above the first year label on the next page.
+    """
+    accounts: list[tuple[str, dict]] = []
+    # Walker state, carried across pages: the account being read, its
+    # current section, and the month columns of its last header row.
+    cells: dict | None = None          # (year, month) -> {"status", "balance"}
+    section: str | None = None
+    columns: list[float] | None = None
+
+    all_lines = [(page_no, top, words)
+                 for page_no, page in enumerate(pdf.pages)
+                 for top, words in _page_lines(page)]
+    texts = [" ".join(w["text"] for w in words) for _, _, words in all_lines]
+
+    def is_year_label(word, cols):
+        return bool(re.fullmatch(r"\d{4}", word["text"])) and word["x1"] < cols[0] - _GRID_COLUMN_LEAD
+
+    page_no_of = [page_no for page_no, _, _ in all_lines]
+    for page_no in sorted(set(page_no_of)):
+        # Pass 1: walk the page's lines for structure; keep each Balance-grid
+        # line with the account and month columns it belongs to.
+        grid_lines: list[tuple[dict, list[float], float, list[dict]]] = []
+        for idx in (i for i, p in enumerate(page_no_of) if p == page_no):
+            _, top, words = all_lines[idx]
+            text = texts[idx]
+            if _is_aryza_account_header(text, texts[idx + 1: idx + 3]):
+                cells = {}
+                accounts.append((text, cells))
+                section, columns = None, None
+                continue
+            if cells is None:
+                continue
+            if text in _GRID_SECTION_TITLES:
+                section = text
+                continue
+            header_columns = _month_header_columns(words)
+            if header_columns:
+                columns = header_columns
+                continue
+            if section == "Balance" and columns:
+                grid_lines.append((cells, columns, top, words))
+
+        # Pass 2: place each word against the year label of its own row.
+        labels = [(owner, int(words[0]["text"]), top)
+                  for owner, cols, top, words in grid_lines if is_year_label(words[0], cols)]
+        for owner, cols, top, words in grid_lines:
+            own_labels = [(year, label_top) for o, year, label_top in labels if o is owner]
+            near = [(abs(top - label_top), year, label_top) for year, label_top in own_labels
+                    if abs(top - label_top) <= _GRID_ROW_REACH]
+            if near:
+                _, row_year, label_top = min(near)
+                dy = top - label_top
+            elif owner and (not own_labels or top < min(lt for _, lt in own_labels)):
+                # Above the page's first label for this account: the rest of
+                # the row a page break cut -- the oldest row read so far. It
+                # only completes months that row already has.
+                row_year = min(y for y, _m in owner)
+                dy = None
+            else:
+                continue
+            for word in words:
+                text = word["text"]
+                if text == "-" or is_year_label(word, cols):
+                    continue
+                month = _month_of(cols, (word["x0"] + word["x1"]) / 2)
+                if month is None:
+                    continue
+                key = (row_year, month)
+                if dy is None:
+                    target = owner.get(key)
+                    if target is None:
+                        continue
+                    if _is_grid_balance_token(text):
+                        target["balance"] = target["balance"] if target["balance"] is not None else _parse_amount(text)
+                    elif target["status"] is None:
+                        target["status"] = text
+                    continue
+                target = owner.setdefault(key, {"status": None, "balance": None})
+                if dy < -_GRID_LABEL_LINE or (abs(dy) <= _GRID_LABEL_LINE and _is_grid_balance_token(text)):
+                    target["balance"] = _parse_amount(text)
+                elif dy > _GRID_LABEL_LINE and target["status"] is None:
+                    target["status"] = text
+
+    histories = []
+    for header, account_cells in accounts:
+        history = [{"month": f"{year:04d}-{month:02d}", "status": c["status"], "balance": c["balance"]}
+                   for (year, month), c in sorted(account_cells.items())
+                   if c["status"] not in (None, "-")]
+        histories.append((header, history))
+    return histories
+
+
+def _safe_status_histories(pdf) -> dict[str, list[list[dict]]]:
+    """`_extract_status_histories` keyed by header (a queue per header, in
+    document order), or {} on any failure -- the history is extra evidence
+    and must never cost the report its accounts."""
+    try:
+        by_header: dict[str, list[list[dict]]] = {}
+        for header, history in _extract_status_histories(pdf):
+            by_header.setdefault(header, []).append(history)
+        return by_header
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("[EXTRACTOR] status-history read failed: %s", exc, exc_info=True)
+        return {}
+
+
+def _status_history_fields(history: list[dict] | None) -> dict:
+    """The account fields the status history adds."""
+    history = list(history or [])
+    return {
+        "status_history": history,
+        # The newest month the lender reported a status for -- never assumed
+        # to be December or the report's own month.
+        "latest_reported_month": history[-1]["month"] if history else None,
+    }
+
+
+def _extract_last_update(lines: list[str]) -> str | None:
+    """The account's "Last Update: YYYY-MM-DD", or None."""
+    value = _extract_field(lines, "Last Update").split()
+    return value[0] if value and _ISO_DATE_RE.match(value[0]) else None
+
+
+def _extract_agreed_monthly_payment_pence(block_text: str) -> int | None:
+    """The agreed payment printed in the account header -- "Payments: Monthly
+    X £308" -- in pence. None when the header prints no amount ("Payments:
+    Monthly" on a card) or a frequency other than monthly: nothing is
+    converted or invented. Distinct from `monthly_payment`, which is read
+    from the Payment Amount grid (and which HP accounts do not have)."""
+    m = _AGREED_MONTHLY_PAYMENT_RE.search(block_text)
+    return _parse_amount(m.group(1)) if m else None
+
+
+# ---------------------------------------------------------------------------
 # Experian CAIS format — constants and helpers
 # ---------------------------------------------------------------------------
 
@@ -1556,6 +1797,14 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         "worst_status": worst_status,
         "payment_history_months": payment_history_months,
         "monthly_payment": monthly_payment,
+        # The header's agreed payment ("Payments: Monthly X £308"), pence --
+        # the only payment figure an HP account prints. `monthly_payment`
+        # above is unchanged: the criteria engine reads it for mortgages.
+        "agreed_monthly_payment": _extract_agreed_monthly_payment_pence(block_text),
+        "last_update": _extract_last_update(lines),
+        # Filled from the PDF's word positions by `extract_credit_report`
+        # (`_extract_status_histories`); the block text cannot place a month.
+        **_status_history_fields(None),
         "reconciliation_only": reconciliation_only,
     }
 
@@ -1584,6 +1833,10 @@ def extract_credit_report(pdf_path: str) -> dict:
         with pdfplumber.open(pdf_path) as pdf:
             page_texts = [page.extract_text() or "" for page in pdf.pages]
             full_text = "\n".join(page_texts)
+            # Aryza Advize only -- the month grid is that layout's. Read while
+            # the PDF is open; never raises (`_safe_status_histories`).
+            status_histories = (_safe_status_histories(pdf)
+                                if _detect_agency(full_text) != "Experian" else {})
 
         printed_report_date = _extract_printed_report_date(page_texts[0] if page_texts else "")
         agency = _detect_agency(full_text)
@@ -1676,6 +1929,10 @@ def extract_credit_report(pdf_path: str) -> dict:
                 parsed = _parse_account_block(header, block_text)
                 if parsed is None:
                     continue  # header did not parse
+                # The same headers, in the same order, as the text split --
+                # a header the positional walk did not see keeps an empty history.
+                queue = status_histories.get(header) or []
+                parsed.update(_status_history_fields(queue.pop(0) if queue else None))
                 if parsed.get("reconciliation_only"):
                     # Non-debt tradelines (insurance, multi-comms). Not IVA
                     # debt, but returned separately so the assessment app can
