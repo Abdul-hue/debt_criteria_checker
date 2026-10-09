@@ -15,6 +15,7 @@ case look unsuitable. The full CAT assessment is unchanged — they remain
 hard blocks there.
 """
 
+import json
 import logging
 from collections import defaultdict
 
@@ -38,10 +39,11 @@ LEAD_GEN_DEPARTMENT = "Lead Generation"
 #     invoice, bank statements, signed third-party letters).
 #   * Each rule's code only tests whether that document is present in the
 #     payload's `documents` (or its date/holder) — never the client's finances.
+#   * TIG-13 (previous-IVA termination report): approved business decision
+#     (2026-10-10) to show it as evidence required later at Lead Gen. The rule
+#     only fires for a previous IVA, and only tests that the report is on file;
+#     CAT / the full assessment still hard-block without it.
 # NOT included:
-#   * TIG-13 (previous-IVA termination report) — 0050 records it as
-#     "explicitly kept per product decision"; awaiting a business decision, so
-#     it stays a Lead Gen blocker (the conservative, unchanged treatment).
 #   * TIG-11-GAMBLING (gambling must be under £1,000) and TIG-10 (unidentified
 #     debts / debt-level issue) — substantive eligibility, not paperwork.
 EVIDENCE_STAGE_RULES = {
@@ -52,6 +54,7 @@ EVIDENCE_STAGE_RULES = {
     "TIG-09": "CIS invoice",
     "TIG-11": "Bank statement",
     "TIG-12": "Signed third-party contribution letter",
+    "TIG-13": "Termination report",
 }
 
 # ---------------------------------------------------------------------------
@@ -154,6 +157,7 @@ def interpret_engine_result(
     dmp_eligibility,
     documents_supplied,
     rule_titles=None,
+    income_missing=False,
 ):
     """Pure interpretation of assess_case() outputs into Lead Gen outcomes.
 
@@ -162,6 +166,11 @@ def interpret_engine_result(
     documents_supplied: whether the assessed payload carried any `documents`.
         Evidence-stage treatment applies only when none were supplied, so a
         document that WAS supplied and failed a check is never hidden.
+    income_missing: no income is recorded in the fact find (see
+        lead_gen_income_missing). The engine's £399 forced DRO then rests on an
+        unknown income, so it is not shown as a DRO referral; a warning tells
+        staff to check the fact find instead. Recorded income (including an
+        entered £0) keeps the existing DRO rule.
     """
     def is_evidence(rule):
         return (not documents_supplied) and _rid(rule) in EVIDENCE_STAGE_RULES
@@ -179,7 +188,7 @@ def interpret_engine_result(
         rid for rid in dict.fromkeys(_rid(r) for r in list(hard_blocks) + list(flags) if is_evidence(r))
     ]
 
-    dro_forced = engine_solution == "FORCED_DRO_LG"
+    dro_forced = engine_solution == "FORCED_DRO_LG" and not income_missing
     vat_forced = engine_solution == "FORCED_DMP_VAT"
 
     # ---- IVA -----------------------------------------------------------
@@ -239,10 +248,25 @@ def interpret_engine_result(
         "review_reasons": review_reasons[:MAX_DISPLAY_REASONS],
         "evidence_required_later": evidence,
         "evidence_codes": evidence_codes,
+        "warnings": [dict(INCOME_NOT_RECORDED_WARNING)] if income_missing else [],
     }
 
 
-def to_lead_gen_result(outcome):
+INCOME_NOT_RECORDED_WARNING = {
+    "code": "INCOME-NOT-RECORDED",
+    "text": "Income not recorded — check the fact find",
+}
+
+
+def lead_gen_income_missing(case_obj):
+    """True when the case has no usable income: a £0 total that is not an
+    entered figure (no income row, a blank one, or a failed read). An income
+    row with amounts entered — even £0 — is recorded income."""
+    total = (getattr(case_obj, "income", None) or {}).get("total") or 0
+    return total <= 0 and getattr(case_obj, "income_recorded", None) is not True
+
+
+def to_lead_gen_result(outcome, income_missing=False):
     """Interpret a StandaloneAssessmentResult (views.criteria_views)."""
     return interpret_engine_result(
         engine_solution=outcome.engine_recommended_solution,
@@ -251,7 +275,150 @@ def to_lead_gen_result(outcome):
         creditor_positions=outcome.engine_creditor_positions,
         dmp_eligibility=outcome.dmp_eligibility,
         documents_supplied=bool(outcome.case_data.get("documents")),
+        income_missing=income_missing,
     )
+
+
+# ---------------------------------------------------------------------------
+# DMP checklist answers (council tax)
+# ---------------------------------------------------------------------------
+# The engine's only answer-driven DMP rejection is council tax: arrears for
+# BOTH the current and previous year AND the right to pay by instalments lost
+# (_evaluate_dmp_eligibility). Lead Gen asks exactly those three questions and
+# feeds them through the same inputs the CAT screen uses: the two year answers
+# as council-tax creditor-row selections, the instalment answer as the
+# case-level checkbox (criteria_views.build_dmp_checklist).
+
+LEAD_GEN_DMP_QUESTIONS = (
+    "council_tax_current_year",
+    "council_tax_previous_year",
+    "lost_right_to_pay_instalments",
+)
+
+
+def _is_yes(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    return value == 1
+
+
+def lead_gen_dmp_inputs(raw):
+    """Lead Gen DMP answers -> (creditor_rows, dmp_checklist_raw) for
+    run_standalone_assessment. Unknown keys are ignored; a missing or
+    unticked answer means "no". `raw` may be a dict or a JSON string (the
+    multipart request sent when a credit report is uploaded)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    answers = {q: _is_yes(raw.get(q)) for q in LEAD_GEN_DMP_QUESTIONS}
+    creditor_rows = []
+    if answers["council_tax_current_year"]:
+        creditor_rows.append({"debt_type_normalised": "council_tax", "value": "current"})
+    if answers["council_tax_previous_year"]:
+        creditor_rows.append({"debt_type_normalised": "council_tax", "value": "previous"})
+    checklist_raw = {"lost_right_to_pay_instalments": answers["lost_right_to_pay_instalments"]}
+    return creditor_rows, checklist_raw
+
+
+# ---------------------------------------------------------------------------
+# Estimated disposable income (informational guideline only)
+# ---------------------------------------------------------------------------
+# Manager's formula: minimum expenditure = £799 (first adult) + £579 per
+# additional adult + £331 per child; estimate = monthly income - rent - that.
+# Nothing here feeds the IVA / DMP / DRO outcomes above or the engine's
+# lead_gen_disposable_income (£399 forced-DRO rule).
+EDI_FIRST_ADULT_PENCE = 79_900
+EDI_ADDITIONAL_ADULT_PENCE = 57_900
+EDI_CHILD_PENCE = 33_100
+
+_EDI_UNAVAILABLE = "Estimated disposable income unavailable — "
+EDI_UNAVAILABLE_TEXT = {
+    "NO_SFS": "SFS information is not available.",
+    "EMPTY_SFS": "SFS information is not available.",
+    "SFS_UNREADABLE": "SFS information could not be read. Please try again.",
+    "INVALID_HOUSEHOLD": "the number of adults and children on the SFS is not valid.",
+    "RENT_NOT_RECORDED": "current rent is not recorded.",
+    "INCOME_NOT_RECORDED": "monthly income is not recorded.",
+}
+
+
+def _money(pence):
+    """-900 -> '-£9.00', 170900 -> '£1,709.00'."""
+    sign = "-" if pence < 0 else ""
+    return f"{sign}£{abs(pence) / 100:,.2f}"
+
+
+def _count(value):
+    """A household count from the SFS: a whole number >= 0, else None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def estimate_disposable_income(household, monthly_income_pence):
+    """Estimated DI from the active SFS household and the existing monthly income.
+
+    household: AryzaClient.fetch_sfs_household() output (or None).
+    monthly_income_pence: CaseData.income["total"] — the same figure the engine
+        uses as total_income. 0 means income was not captured (see
+        _prepare_engine_payload), so it is unavailable, never a £0 estimate.
+
+    Missing or invalid data makes the estimate unavailable rather than being
+    treated as 0. Household values are not capped.
+    """
+    household = household or {"status": "NO_SFS"}
+    status = household.get("status")
+    if status != "OK":
+        code = status if status in ("NO_SFS", "EMPTY_SFS") else "SFS_UNREADABLE"
+        return _edi_unavailable([code])
+
+    reasons = []
+    adults = _count(household.get("adults"))
+    under_16 = _count(household.get("under_16"))
+    under_18 = _count(household.get("under_18"))
+    if adults is None or adults < 1 or under_16 is None or under_18 is None:
+        reasons.append("INVALID_HOUSEHOLD")
+    rent = household.get("rent_monthly_pence")
+    if rent is None or rent < 0:
+        reasons.append("RENT_NOT_RECORDED")
+    if not monthly_income_pence or monthly_income_pence <= 0:
+        reasons.append("INCOME_NOT_RECORDED")
+    if reasons:
+        return _edi_unavailable(reasons)
+
+    children = under_16 + under_18  # under_18 = ages 16-17
+    minimum = (EDI_FIRST_ADULT_PENCE
+               + EDI_ADDITIONAL_ADULT_PENCE * (adults - 1)
+               + EDI_CHILD_PENCE * children)
+    estimate = monthly_income_pence - rent - minimum
+    return {
+        "available": True,
+        "adults": adults,
+        "children": children,
+        "monthly_income": monthly_income_pence / 100,
+        "monthly_rent": rent / 100,
+        "minimum_expenditure": minimum / 100,
+        "estimated_disposable_income": estimate / 100,
+        "message": (
+            f"For {adults} adult(s) and {children} child(ren), the estimated disposable income is "
+            f"{_money(estimate)} per month. Please use this estimate as a guideline only when making "
+            "your decision. A full I&E assessment is still required to confirm affordability and suitability."
+        ),
+    }
+
+
+def _edi_unavailable(codes):
+    codes = list(dict.fromkeys(codes))
+    return {
+        "available": False,
+        "reasons": [{"code": c, "text": _EDI_UNAVAILABLE + EDI_UNAVAILABLE_TEXT[c]} for c in codes],
+    }
 
 
 def display_client_name(full_name):

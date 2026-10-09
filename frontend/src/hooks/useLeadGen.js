@@ -30,20 +30,24 @@ export function useLeadGenCreditReportStatus(reference) {
 /**
  * Run a Lead Gen pre-screen. Sends multipart when a credit report file is
  * attached (uploaded and extracted server-side by the existing parser).
+ * dmp_checklist: the council tax answers ({key: boolean}); sent as JSON text
+ * in the multipart form.
  */
 export function useLeadGenCheck() {
   return useMutation({
-    mutationFn: async ({ aryza_reference, credit_report_id, file }) => {
+    mutationFn: async ({ aryza_reference, credit_report_id, file, dmp_checklist }) => {
       if (file) {
         const form = new FormData()
         form.append('aryza_reference', aryza_reference)
         form.append('credit_report', file)
+        if (dmp_checklist) form.append('dmp_checklist', JSON.stringify(dmp_checklist))
         const { data } = await api.post('/api/v1/criteria/lead-gen/check/', form)
         return data
       }
       const { data } = await api.post('/api/v1/criteria/lead-gen/check/', {
         aryza_reference,
         ...(credit_report_id ? { credit_report_id } : {}),
+        ...(dmp_checklist ? { dmp_checklist } : {}),
       })
       return data
     },

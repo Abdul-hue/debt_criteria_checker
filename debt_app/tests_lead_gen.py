@@ -157,10 +157,57 @@ class LeadGenInterpretationTests(SimpleTestCase):
         self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")
         self.assertEqual(r["evidence_required_later"], [])
 
-    def test_tig13_remains_a_lead_gen_blocker_pending_business_decision(self):
-        self.assertNotIn("TIG-13", EVIDENCE_STAGE_RULES)
+    def test_tig13_is_evidence_required_later_at_lead_gen(self):
+        # Approved 2026-10-10: a missing termination report no longer blocks the pre-screen.
         r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-13")])
+        self.assertEqual(r["iva"]["code"], "POTENTIALLY_SUITABLE")
+        self.assertEqual(r["evidence_required_later"], ["Termination report"])
+        self.assertEqual(r["evidence_codes"], ["TIG-13"])
+        self.assertEqual(r["reasons"], [])
+
+    def test_tig13_still_blocks_when_documents_were_supplied_without_the_report(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-13")], documents_supplied=True)
         self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")
+        self.assertIn("TIG-13", r["reason_codes"])
+        self.assertEqual(r["evidence_required_later"], [])
+
+    def test_supplied_termination_report_passes_the_unchanged_engine_rule(self):
+        from debt_app.engine.criteria import _tig_13
+        report = [{"document_type": "termination_report"}]
+        self.assertFalse(_tig_13({"previous_iva": True, "termination_report_docs": report}).triggered)
+        self.assertTrue(_tig_13({"previous_iva": True, "termination_report_docs": []}).triggered)
+        self.assertFalse(_tig_13({"previous_iva": False, "termination_report_docs": []}).triggered)
+
+    # ---- missing income vs the £399 forced DRO -----------------------------
+
+    def test_forced_dro_with_missing_income_becomes_a_fact_find_warning(self):
+        r = _interpret(engine_solution="FORCED_DRO_LG", hard_blocks=[_hb("TIG-02")], income_missing=True)
+        self.assertIsNone(r["dro"])
+        self.assertNotEqual(r["overall"]["code"], "DRO_REFER")
+        # Agreed: other criteria (here DMP) still give "Potentially suitable", with the warning.
+        self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")
+        self.assertEqual(r["dmp"]["code"], "POTENTIALLY_SUITABLE")
+        self.assertNotIn("FORCED_DRO_LG", r["reason_codes"])
+        self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")  # TIG-02 still applies
+        self.assertEqual(r["warnings"], [{"code": "INCOME-NOT-RECORDED",
+                                          "text": "Income not recorded — check the fact find"}])
+
+    def test_forced_dro_with_recorded_income_is_unchanged(self):
+        r = _interpret(engine_solution="FORCED_DRO_LG", hard_blocks=[_hb("TIG-02")])
+        self.assertEqual(r["overall"]["code"], "DRO_REFER")
+        self.assertEqual(r["dro"]["code"], "REFER")
+        self.assertEqual(r["warnings"], [])
+
+    def test_income_missing_rule(self):
+        from types import SimpleNamespace as NS
+        missing = lead_gen.lead_gen_income_missing
+        self.assertTrue(missing(NS(income={"total": 0}, income_recorded=None)))    # default zero
+        self.assertTrue(missing(NS(income={"total": 0}, income_recorded=False)))   # blank row / no row
+        self.assertTrue(missing(NS(income={"total": -5}, income_recorded=None)))
+        self.assertTrue(missing(NS(income={}, income_recorded=None)))
+        self.assertFalse(missing(NS(income={"total": 0}, income_recorded=True)))   # entered £0
+        self.assertFalse(missing(NS(income={"total": 1}, income_recorded=None)))
+        self.assertFalse(missing(NS(income={"total": 39_800}, income_recorded=False)))  # e.g. third-party only
 
     def test_gambling_and_proof_of_debt_are_not_evidence_stage(self):
         for rid in ("TIG-11-GAMBLING", "TIG-10"):
@@ -331,7 +378,9 @@ class LeadGenCheckEndpointTests(_LeadGenFixture):
             self.assertNotIn(forbidden_text, raw)
         self.assertEqual(set(body), {
             "success", "check_id", "aryza_reference", "client", "checked_at", "overall", "iva", "dmp", "dro",
-            "reasons", "review_reasons", "evidence_required_later", "credit_report", "criteria_version",
+            "reasons", "review_reasons", "evidence_required_later", "warnings", "credit_report",
+            "estimated_disposable_income",
+            "criteria_version",
         })
 
     # ---- errors -------------------------------------------------------------
@@ -519,26 +568,59 @@ class StrictFeatureReportingTests(_LeadGenFixture):
 class LeadGenFinalVerificationTests(_LeadGenFixture):
     """Final-verification cases (pinned behaviour; see the implementation report)."""
 
-    def test_tig13_previous_iva_is_not_hidden_through_the_real_api(self):
-        # Current behaviour pending a business decision: TIG-13 stays a Lead Gen blocker.
+    def test_tig13_is_evidence_later_at_lead_gen_but_cat_still_blocks(self):
+        # Approved 2026-10-10: Lead Gen shows the termination report as evidence required later.
         case = self._good_case("LG-PREV-IVA", previous_iva=True)
         body = self._check(case).json()
-        self.assertEqual(body["iva"]["code"], "NOT_SUITABLE")
-        self.assertIn("TIG-13", [r["code"] for r in body["reasons"]])
-        self.assertNotIn("termination", " ".join(body["evidence_required_later"]).lower())
+        self.assertNotIn("TIG-13", [r["code"] for r in body["reasons"]])
+        self.assertIn("Termination report", body["evidence_required_later"])
+        self.assertNotEqual(body["iva"]["code"], "NOT_SUITABLE")
+        self.assertIn("TIG-13", LeadGenCheck.objects.get(aryza_reference="LG-PREV-IVA").reason_codes)
+        # The full (CAT) assessment of the same case still hard-blocks on TIG-13.
+        with patch(FETCH, return_value=case):
+            cat = APIClient().post("/api/v1/criteria/assess/", data={"aryza_reference": "LG-PREV-IVA"}, format="json")
+        self.assertIn("TIG-13", [r["rule_id"] for r in cat.json()["hard_blocks"]])
 
-    def test_zero_income_currently_presents_as_dro_referral(self):
-        """Characterisation only, NOT an endorsement. With no income in the fact
-        find the engine's Lead Gen DI is 0 (< 399) -> FORCED_DRO_LG, while TIG-02
-        simultaneously reports that no income has been entered. Whether Lead Gen
-        should present this as a DRO referral is an open business decision; this
-        pins today's behaviour so any change is deliberate."""
-        case = self._good_case("LG-NO-INCOME", income_pence=0, expenditure_pence=0)
+    def test_no_previous_iva_has_no_termination_report_requirement(self):
+        body = self._check(self._good_case("LG-NO-PREV-IVA")).json()
+        self.assertNotIn("Termination report", body["evidence_required_later"])
+        self.assertNotIn("TIG-13", [r["code"] for r in body["reasons"]])
+
+    def test_missing_income_warns_instead_of_dro_referral(self):
+        """Approved 2026-10-10. Nothing entered in the fact find (the default £0,
+        or a blank income row) shows a warning, not a DRO referral. The engine
+        still computes its £399 forced DRO; Lead Gen records it but does not
+        present it."""
+        for ref, recorded in (("LG-NO-INCOME", None), ("LG-BLANK-INCOME", False)):
+            with self.subTest(income_recorded=recorded):
+                case = self._good_case(ref, income_pence=0, expenditure_pence=0)
+                case.income_recorded = recorded
+                body = self._check(case).json()
+                self.assertNotEqual(body["overall"]["code"], "DRO_REFER")
+                self.assertEqual(body["overall"]["code"], "POTENTIALLY_SUITABLE")  # via DMP, with the warning
+                self.assertIsNone(body["dro"])
+                self.assertEqual(body["warnings"], [{"code": "INCOME-NOT-RECORDED",
+                                                     "text": "Income not recorded — check the fact find"}])
+                rec = LeadGenCheck.objects.get(aryza_reference=ref)
+                self.assertEqual(rec.engine_recommended_solution, "FORCED_DRO_LG")
+                self.assertFalse(rec.dro_referral)
+                self.assertIn("INCOME-NOT-RECORDED", rec.reason_codes)
+                self.assertIn("TIG-02", rec.reason_codes)
+
+    def test_entered_zero_income_keeps_the_existing_dro_rule(self):
+        case = self._good_case("LG-ZERO-ENTERED", income_pence=0, expenditure_pence=0)
+        case.income_recorded = True
         body = self._check(case).json()
         self.assertEqual(body["overall"]["code"], "DRO_REFER")
-        rec = LeadGenCheck.objects.get(aryza_reference="LG-NO-INCOME")
-        self.assertEqual(rec.engine_recommended_solution, "FORCED_DRO_LG")
-        self.assertIn("TIG-02", rec.reason_codes)
+        self.assertEqual(body["warnings"], [])
+
+    def test_valid_low_income_still_dro_and_valid_high_income_unchanged(self):
+        low = self._check(self._good_case("LG-LOW", income_pence=30_000, expenditure_pence=10_000)).json()
+        self.assertEqual(low["overall"]["code"], "DRO_REFER")
+        self.assertEqual(low["warnings"], [])
+        high = self._check(self._good_case("LG-HIGH", income_pence=250_000)).json()
+        self.assertIsNone(high["dro"])
+        self.assertEqual(high["warnings"], [])
 
     def test_supplied_document_failure_is_not_hidden(self):
         from debt_app.views.criteria_views import StandaloneAssessmentResult

@@ -28,6 +28,7 @@ from debt_app.aryza_client import (
     AryzaCaseNotFoundError,
     AryzaConnectionError,
     AryzaDataError,
+    fetch_sfs_household,
 )
 from debt_app.helpers import get_user_department
 from debt_app.models import CreditReport, LeadGenCheck
@@ -36,6 +37,9 @@ from debt_app.services.criteria_versioning import current_criteria_version, get_
 from debt_app.services.lead_gen import (
     LEAD_GEN_DEPARTMENT,
     display_client_name,
+    estimate_disposable_income,
+    lead_gen_income_missing,
+    lead_gen_dmp_inputs,
     summarise_activity,
     to_lead_gen_result,
 )
@@ -146,17 +150,20 @@ class LeadGenCheckView(APIView):
                 )
 
         # 3. Shared assessment, Lead Gen context, no persistent side effects.
+        dmp_creditor_rows, dmp_checklist_raw = lead_gen_dmp_inputs(request.data.get("dmp_checklist"))
         try:
             outcome = criteria_views.run_standalone_assessment(
                 reference,
                 user=user,
                 credit_report_id=credit_report_id,
+                creditor_rows=dmp_creditor_rows,
+                dmp_checklist_raw=dmp_checklist_raw,
                 case_data_obj=case_obj,
                 source_department_override=LEAD_GEN_DEPARTMENT,
                 persist_source_department=False,
                 save_decision=False,
             )
-            lead_gen = to_lead_gen_result(outcome)
+            lead_gen = to_lead_gen_result(outcome, income_missing=lead_gen_income_missing(case_obj))
         except Exception:
             logger.exception("[LEAD GEN] assessment failed for %s", reference)
             rec = _record(user, reference, "ENGINE_ERROR", error_code="ENGINE_ERROR",
@@ -178,11 +185,25 @@ class LeadGenCheckView(APIView):
             dro_referral=lead_gen["dro"] is not None,
             overall_outcome=lead_gen["overall"]["code"],
             engine_recommended_solution=str(outcome.engine_recommended_solution or ""),
-            reason_codes=lead_gen["reason_codes"] + lead_gen["evidence_codes"],
+            reason_codes=lead_gen["reason_codes"] + lead_gen["evidence_codes"]
+            + [w["code"] for w in lead_gen["warnings"]],
             evidence_required=lead_gen["evidence_required_later"],
             credit_report_id=used_report.id if used_report else credit_report_id,
             credit_report_status=credit_report_status,
         )
+
+        # 5. Informational estimated DI from the active SFS. Computed after the
+        # outcome above and never fed back into it; a failure only makes the
+        # estimate unavailable.
+        try:
+            household = fetch_sfs_household(case_obj.clientid) if case_obj.clientid else None
+            estimated_di = estimate_disposable_income(household, (case_obj.income or {}).get("total"))
+            if estimated_di["available"]:
+                # Aryza's own non-monthly figures behind the converted monthly income.
+                estimated_di["non_monthly_income"] = list(getattr(case_obj, "non_monthly_income", []) or [])
+        except Exception:
+            logger.exception("[LEAD GEN] estimated DI failed for %s", reference)
+            estimated_di = estimate_disposable_income({"status": "ERROR"}, None)
 
         credit_report = {"status": credit_report_status}
         if credit_report_status == "none":
@@ -205,7 +226,9 @@ class LeadGenCheckView(APIView):
             "reasons": lead_gen["reasons"],
             "review_reasons": lead_gen["review_reasons"],
             "evidence_required_later": lead_gen["evidence_required_later"],
+            "warnings": lead_gen["warnings"],
             "credit_report": credit_report,
+            "estimated_disposable_income": estimated_di,
             "criteria_version": rec.criteria_version if rec else None,
         }, status=status.HTTP_200_OK)
 

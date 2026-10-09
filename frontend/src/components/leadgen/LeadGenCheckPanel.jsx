@@ -77,6 +77,62 @@ function ItemList({ title, items, tone, Icon, renderText = (r) => r.text, getKey
   )
 }
 
+const GBP = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' })
+
+const PER = { weekly: 'a week', fortnightly: 'a fortnight', '4_weekly': 'every 4 weeks' }
+
+/** "Child Benefit £27.00 a week (£117.00 a month)" — Aryza's own figure behind the monthly total. */
+const nonMonthlyNote = (items) => (items || [])
+  .map((i) => `${i.source} ${GBP.format(i.amount)} ${PER[i.frequency] || i.frequency} (${GBP.format(i.monthly)} a month)`)
+  .join('; ')
+
+/** Informational estimate only — the IVA / DMP / DRO outcomes above are unaffected by it. */
+function EstimatedDisposableIncome({ estimate }) {
+  if (!estimate) return null
+  if (!estimate.available) {
+    const reasons = [...new Set((estimate.reasons || []).map((r) => r.text))]
+    return (
+      <div>
+        <SectionLabel>Estimated disposable income</SectionLabel>
+        <ul className="rounded-md border border-slate-200 divide-y divide-slate-100">
+          {reasons.map((text) => (
+            <li key={text} className="flex items-start gap-2.5 px-3.5 py-2.5 text-sm text-slate-800">
+              <CircleDashed size={16} aria-hidden="true" className={clsx('mt-0.5 shrink-0', TONES.neutral.icon)} />
+              <span>{text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+  const rows = [
+    ['Adults', estimate.adults],
+    ['Children', estimate.children],
+    ['Monthly income', GBP.format(estimate.monthly_income), nonMonthlyNote(estimate.non_monthly_income)],
+    ['Monthly rent', GBP.format(estimate.monthly_rent)],
+    ['Estimated minimum expenditure', GBP.format(estimate.minimum_expenditure)],
+  ]
+  return (
+    <div>
+      <SectionLabel>Estimated disposable income</SectionLabel>
+      <dl className="rounded-md border border-slate-200 divide-y divide-slate-100 text-sm">
+        {rows.map(([label, value, note]) => (
+          <div key={label} className="flex flex-wrap items-center justify-between gap-x-4 px-3.5 py-2">
+            <dt className="text-slate-600">{label}</dt>
+            <dd className="tabular-nums text-slate-900">{value}</dd>
+            {note && <dd className="basis-full mt-0.5 text-xs text-slate-500">Includes {note}</dd>}
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 bg-slate-50">
+          <dt className="font-semibold text-slate-900">Estimated disposable income</dt>
+          <dd className="tabular-nums font-semibold text-slate-900">{GBP.format(estimate.estimated_disposable_income)}</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs text-slate-500">{estimate.message}</p>
+    </div>
+  )
+}
+
 function CreditReportStatus({ reference, status, isLoading, isError, wantsUpload, onWantUpload, onCancelUpload }) {
   if (reference.length < 3) {
     return <p className="text-sm text-slate-500">Enter a case reference to look for a credit report on file.</p>
@@ -126,6 +182,36 @@ function CreditReportStatus({ reference, status, isLoading, isError, wantsUpload
   )
 }
 
+/** The engine's DMP council tax rule: a DMP is not possible when all three apply. */
+const DMP_QUESTIONS = [
+  { key: 'council_tax_current_year', label: 'Council tax arrears for this year' },
+  { key: 'council_tax_previous_year', label: 'Council tax arrears for last year' },
+  { key: 'lost_right_to_pay_instalments', label: 'Lost the right to pay council tax by instalments' },
+]
+
+const NO_DMP_ANSWERS = Object.fromEntries(DMP_QUESTIONS.map((q) => [q.key, false]))
+
+function DmpChecklist({ answers, onToggle }) {
+  return (
+    <fieldset className="space-y-2.5">
+      <legend className="text-sm font-medium text-slate-800">DMP checklist</legend>
+      <p className="text-xs text-slate-500">Tick any that apply to the customer.</p>
+      {DMP_QUESTIONS.map((q) => (
+        <label key={q.key} htmlFor={`lg-dmp-${q.key}`} className="flex items-start gap-2.5 text-sm text-slate-800 cursor-pointer">
+          <input
+            id={`lg-dmp-${q.key}`}
+            type="checkbox"
+            checked={answers[q.key]}
+            onChange={() => onToggle(q.key)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-500"
+          />
+          <span>{q.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+
 function ResultPlaceholder({ pending }) {
   return (
     <div className="hidden lg:flex flex-col items-center justify-center text-center rounded-lg border border-dashed border-slate-300 bg-white/60 px-6 py-16">
@@ -152,7 +238,7 @@ function ResultCard({ result }) {
   const OverallIcon = overallTone.Icon
   const reasonsTitle = result.overall.code === 'DOES_NOT_MEET_CRITERIA' ? 'Reason' : 'Why not'
   const noIssues = result.overall.code === 'POTENTIALLY_SUITABLE' && !result.reasons?.length
-    && !result.review_reasons?.length && !result.evidence_required_later?.length
+    && !result.review_reasons?.length && !result.evidence_required_later?.length && !result.warnings?.length
   const crNote = result.credit_report?.warning || result.credit_report?.message
 
   return (
@@ -166,6 +252,17 @@ function ResultCard({ result }) {
       </div>
 
       <div className="p-5 space-y-5">
+        {result.warnings?.length > 0 && (
+          <div role="alert" className="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3">
+            <AlertTriangle size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="space-y-0.5">
+              {result.warnings.map((w) => (
+                <p key={w.code} className="text-sm font-semibold text-amber-900">{w.text}</p>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <SectionLabel>Overall outcome</SectionLabel>
           <div className={clsx('flex items-start gap-3 rounded-md border px-4 py-3', overallTone.bg, overallTone.border)}>
@@ -187,6 +284,8 @@ function ResultCard({ result }) {
             <OutcomeRow name="DMP" outcome={result.dmp} />
           </ul>
         </div>
+
+        <EstimatedDisposableIncome estimate={result.estimated_disposable_income} />
 
         <ItemList title={reasonsTitle} items={result.reasons} tone="danger" Icon={XCircle} />
         <ItemList title="Needs review" items={result.review_reasons} tone="warning" Icon={AlertTriangle} />
@@ -239,6 +338,7 @@ export default function LeadGenCheckPanel() {
   const [wantsUpload, setWantsUpload] = useState(false)
   const [result, setResult] = useState(null)
   const [refError, setRefError] = useState('')
+  const [dmpAnswers, setDmpAnswers] = useState(NO_DMP_ANSWERS)
   const fileInput = useRef(null)
   const check = useLeadGenCheck()
   const crStatus = useLeadGenCreditReportStatus(debouncedRef)
@@ -251,6 +351,7 @@ export default function LeadGenCheckPanel() {
   useEffect(() => {
     setWantsUpload(false)
     setFile(null)
+    setDmpAnswers(NO_DMP_ANSWERS)
   }, [debouncedRef])
 
   const showUpload = debouncedRef.length >= 3 && !crStatus.isLoading
@@ -265,7 +366,7 @@ export default function LeadGenCheckPanel() {
     }
     setResult(null)
     check.mutate(
-      { aryza_reference: ref, file: showUpload ? file : null },
+      { aryza_reference: ref, file: showUpload ? file : null, dmp_checklist: dmpAnswers },
       {
         onSuccess: (data) => {
           setResult(data)
@@ -333,6 +434,13 @@ export default function LeadGenCheckPanel() {
               <p id="lg-cr-hint" className="mt-1.5 text-xs text-slate-500">PDF only. Read when you check the case.</p>
             </div>
           )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100">
+          <DmpChecklist
+            answers={dmpAnswers}
+            onToggle={(key) => setDmpAnswers((prev) => ({ ...prev, [key]: !prev[key] }))}
+          />
         </div>
 
         <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/70 rounded-b-lg">

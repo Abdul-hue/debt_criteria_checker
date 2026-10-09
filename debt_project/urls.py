@@ -14,11 +14,24 @@ from django.views.generic import TemplateView
 print("\n--- LOADING FLAT CORE URLS.PY ---")
 
 
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
+from django.views.decorators.cache import never_cache
 
 
 def ping(request):
     return HttpResponse("OK")
+
+
+@never_cache
+def service_worker(request):
+    """Lead Gen PWA service worker (frontend/public/sw.js, built into
+    frontend/dist). Served from the site root, not /static/, because a worker
+    can only control pages under its own path; never cached so updates apply."""
+    try:
+        body = (settings.BASE_DIR / 'frontend' / 'dist' / 'sw.js').read_bytes()
+    except FileNotFoundError:
+        raise Http404("Service worker not built")
+    return HttpResponse(body, content_type='application/javascript')
 
 
 urlpatterns = [
@@ -36,6 +49,8 @@ urlpatterns = [
 
     # All criteria endpoints (assess, creditors, rules, councils, applications, evidence, voters, users)
     path('api/v1/criteria/', include('debt_app.urls_criteria')),
+
+    path('sw.js', service_worker, name='service-worker'),
 
     # Frontend SPA catch-all
     re_path(r'^.*$', TemplateView.as_view(template_name='index.html'), name='frontend'),

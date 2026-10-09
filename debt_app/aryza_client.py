@@ -88,6 +88,46 @@ def _handle_operational_error(exc: Exception) -> None:
     raise AryzaConnectionError(str(exc)) from exc
 
 
+# client_income amount columns read for the monthly income, as
+# (column, CaseData.income bucket, label). Every column has a matching
+# "<column>_frequency" (weekly / fortnightly / 4_weekly / monthly; NULL is
+# treated as monthly), and each amount is converted with its own frequency.
+_INCOME_COLUMNS = (
+    ("earnings_net", "employment", "Earnings"),
+    ("earnings_partner_net", "employment", "Partner's earnings"),
+    ("benefit_universal_credit", "universal_credit", "Universal Credit"),
+    ("benefit_dla", "dla", "DLA"),
+    ("benefit_pip", "pip", "PIP"),
+    ("benefit_child", "other_benefits", "Child Benefit"),
+    ("benefit_housing", "other_benefits", "Housing Benefit"),
+    ("benefit_income_support", "other_benefits", "Income Support"),
+    ("benefit_working_tax_credit", "other_benefits", "Working Tax Credit"),
+    ("benefit_child_tax_credit", "other_benefits", "Child Tax Credit"),
+    ("benefit_esa", "other_benefits", "ESA"),
+    ("benefit_carers_allowance", "other_benefits", "Carer's Allowance"),
+    ("benefit_aa", "other_benefits", "Attendance Allowance"),
+    ("benefit_bereavement", "other_benefits", "Bereavement benefit"),
+    ("benefit_incapacity", "other_benefits", "Incapacity Benefit"),
+    ("benefit_industrial_disablement", "other_benefits", "Industrial Injuries Disablement Benefit"),
+    ("benefit_job_seekers_allowance", "other_benefits", "Jobseeker's Allowance"),
+    ("benefit_job_seekers_allowance_cont_based", "other_benefits", "Contribution-based Jobseeker's Allowance"),
+    ("benefit_maternity_allowance", "other_benefits", "Maternity Allowance"),
+    ("benefit_statutory_maternity_pay", "other_benefits", "Statutory Maternity Pay"),
+    ("benefit_statutory_sick_pay", "other_benefits", "Statutory Sick Pay"),
+    ("benefit_council_tax", "other_benefits", "Council Tax Support"),
+    ("pension_state", "other_benefits", "State Pension"),
+    ("pension_client", "other_benefits", "Pension"),
+    ("pension_private", "other_benefits", "Private pension"),
+    ("pension_credit", "other_benefits", "Pension Credit"),
+    ("pension_other", "other_benefits", "Other pension"),
+    ("student_loan", "other_benefits", "Student loan"),
+    ("student_grant", "other_benefits", "Student grant"),
+    ("child_income_support", "other_benefits", "Child income support"),
+    ("non_dependant_contributions", "third_party", "Non-dependant contributions"),
+    ("lodger_income", "third_party", "Lodger income"),
+)
+
+
 # Normalise raw Aryza employment_status values to the keys the criteria engine expects.
 _INCOME_SOURCE_MAP = {
     "benefits_only": "benefits",
@@ -149,6 +189,13 @@ class CaseData:
         }
         self.dependants: List[Dict[str, int]] = []
         self.audit_log: List[Dict[str, Any]] = []
+        # True: the selected client_income row has at least one amount entered
+        # (an entered 0 counts). False: no row, or every amount is blank (NULL).
+        # None: not determined (query failed, or CaseData built elsewhere).
+        self.income_recorded: Optional[bool] = None
+        # Income items Aryza holds at a non-monthly frequency, for display:
+        # {"source", "amount", "frequency", "monthly"} in pounds.
+        self.non_monthly_income: List[Dict[str, Any]] = []
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -510,82 +557,76 @@ class AryzaClient:
         """Fetch income data from client_income table (wide-column format)."""
         with connection.cursor() as cursor:
             try:
+                # Use the income row of the client's current SFS. Every SFS has its
+                # own client_income row (statement_id = client_sfs.id; statement_type
+                # NULL or 'sfs'), and the client's oldest row is usually a blank one,
+                # so an unordered "WHERE clientid LIMIT 1" mostly returned £0.
+                # Current SFS = newest active client_sfs (same as fetch_sfs_household).
                 cursor.execute(
-                    """SELECT
-                        earnings_net, earnings_net_frequency,
-                        earnings_partner_net, earnings_partner_net_frequency,
-                        benefit_universal_credit, benefit_universal_credit_frequency,
-                        benefit_dla, benefit_dla_frequency,
-                        benefit_pip, benefit_pip_frequency,
-                        benefit_child, benefit_housing, benefit_income_support,
-                        benefit_working_tax_credit, benefit_child_tax_credit,
-                        benefit_esa, benefit_carers_allowance,
-                        benefit_aa, benefit_bereavement, benefit_incapacity,
-                        benefit_industrial_disablement, benefit_job_seekers_allowance,
-                        benefit_job_seekers_allowance_cont_based,
-                        benefit_maternity_allowance, benefit_statutory_maternity_pay,
-                        benefit_statutory_sick_pay, benefit_council_tax,
-                        pension_state, pension_client, pension_private,
-                        pension_credit, pension_other,
-                        student_loan, student_grant, child_income_support,
-                        non_dependant_contributions, lodger_income
-                    FROM client_income WHERE clientid = %s LIMIT 1""",
+                    "SELECT id FROM client_sfs "
+                    "WHERE clientid = %s AND active = 1 ORDER BY id DESC LIMIT 1",
                     [clientid]
                 )
-                row = cursor.fetchone()
-                if row:
-                    # col indices after adding earnings_partner_net_frequency at [3]:
-                    # [0] earnings_net  [1] earnings_net_frequency
-                    # [2] earnings_partner_net  [3] earnings_partner_net_frequency
-                    # [4] uc  [5] uc_freq  [6] dla  [7] dla_freq  [8] pip  [9] pip_freq
-                    # [10:17] other means-tested benefits (child..carers)
-                    # [17:27] additional benefits (aa..council_tax)
-                    # [27:32] pensions (state, client, private, credit, other)
-                    # [32:35] student_loan, student_grant, child_income_support
-                    # [35] non_dependant_contributions  [36] lodger_income
-
-                    # Employment income (normalise to monthly, both client and partner)
-                    emp_net = self._pence(row[0])
-                    emp_freq = row[1] or 'monthly'
-                    emp_partner = self._pence(row[2])
-                    emp_partner_freq = row[3] or 'monthly'
-                    case.income["employment"] = (
-                        self._normalise_to_monthly(emp_net, emp_freq) +
-                        self._normalise_to_monthly(emp_partner, emp_partner_freq)
+                sfs = cursor.fetchone()
+                income_id = None
+                income_source = None
+                if sfs:
+                    cursor.execute(
+                        "SELECT id FROM client_income "
+                        "WHERE clientid = %s AND statement_id = %s "
+                        "AND (statement_type IS NULL OR statement_type = 'sfs') "
+                        "ORDER BY id DESC LIMIT 1",
+                        [clientid, sfs[0]]
                     )
+                    linked = cursor.fetchone()
+                    if linked:
+                        income_id, income_source = linked[0], "current SFS"
+                if income_id is None:
+                    # No active SFS or no row linked to it: the client's newest income
+                    # row, matching the "latest row" convention used for client_iande.
+                    cursor.execute(
+                        "SELECT id FROM client_income WHERE clientid = %s ORDER BY id DESC LIMIT 1",
+                        [clientid]
+                    )
+                    newest = cursor.fetchone()
+                    if newest:
+                        income_id, income_source = newest[0], "newest row (no current SFS income row)"
+                row = None
+                if income_id is not None:
+                    columns = [name for col, _, _ in _INCOME_COLUMNS for name in (col, f"{col}_frequency")]
+                    cursor.execute(
+                        f"SELECT {', '.join(columns)} FROM client_income WHERE id = %s",
+                        [income_id]
+                    )
+                    row = cursor.fetchone()
+                if row:
+                    values = dict(zip(columns, row))
+                    # Every amount is converted to monthly with its own frequency
+                    # (previously only earnings, UC, DLA and PIP were; the other
+                    # benefits, pensions, student and third-party amounts were
+                    # added as if already monthly).
+                    buckets = dict.fromkeys(("employment", "universal_credit", "dla", "pip",
+                                             "other_benefits", "third_party"), 0)
+                    for col, bucket, label in _INCOME_COLUMNS:
+                        amount = self._pence(values[col])
+                        freq = values[f"{col}_frequency"] or 'monthly'
+                        monthly = self._normalise_to_monthly(amount, freq)
+                        buckets[bucket] += monthly
+                        if amount > 0 and freq != 'monthly':
+                            case.non_monthly_income.append({
+                                "source": label, "amount": amount / 100,
+                                "frequency": freq, "monthly": monthly / 100,
+                            })
+                    case.income_recorded = any(values[col] is not None for col, _, _ in _INCOME_COLUMNS)
 
-                    # Universal Credit
-                    uc_amt = self._pence(row[4])
-                    uc_freq = row[5] or 'monthly'
-                    case.income["universal_credit"] = self._normalise_to_monthly(uc_amt, uc_freq)
-
-                    # DLA
-                    dla_amt = self._pence(row[6])
-                    dla_freq = row[7] or 'monthly'
-                    case.income["dla"] = self._normalise_to_monthly(dla_amt, dla_freq)
-
-                    # PIP
-                    pip_amt = self._pence(row[8])
-                    pip_freq = row[9] or 'monthly'
-                    case.income["pip"] = self._normalise_to_monthly(pip_amt, pip_freq)
-
-                    # Other means-tested benefits and additional benefit types
-                    # (child, housing, income support, tax credits, ESA, carer, AA,
-                    # bereavement, incapacity, industrial disablement, JSA x2,
-                    # maternity allowance, statutory maternity/sick pay, council tax)
-                    other = sum(self._pence(v) for v in row[10:27] if v is not None)
-                    case.income["other_benefits"] = other
-
-                    # Pension income (state, client, private, credit, other)
-                    pension = sum(self._pence(v) for v in row[27:32] if v is not None)
-                    case.income["other_benefits"] += pension
-
-                    # Other income (student loan, student grant, child income support)
-                    other_income = sum(self._pence(v) for v in row[32:35] if v is not None)
-                    case.income["other_benefits"] += other_income
+                    case.income["employment"] = buckets["employment"]
+                    case.income["universal_credit"] = buckets["universal_credit"]
+                    case.income["dla"] = buckets["dla"]
+                    case.income["pip"] = buckets["pip"]
+                    case.income["other_benefits"] = buckets["other_benefits"]
 
                     # Third-party contributions (non-dependant, lodger)
-                    tp = sum(self._pence(v) for v in [row[35], row[36]] if v is not None)
+                    tp = buckets["third_party"]
                     if tp > 0 and case.income["third_party_contribution"] == 0:
                         case.income["third_party_contribution"] = tp
 
@@ -601,8 +642,9 @@ class AryzaClient:
                     )
 
                     logger.debug(f"Income fetched for {clientid}: emp={case.income['employment']}, uc={case.income['universal_credit']}")
-                    self._audit(case, "client_income", "FOUND", f"Total: £{case.income['total']/100.0:.2f}")
+                    self._audit(case, "client_income", "FOUND", f"Income row from {income_source}")
                 else:
+                    case.income_recorded = False
                     self._audit(case, "client_income", "EMPTY", "No income record found")
             except Exception as e:
                 logger.debug(f"Failed to fetch client_income for clientid {clientid}: {e}")
@@ -717,6 +759,64 @@ class AryzaClient:
             except Exception as e:
                 logger.debug(f"Failed to fetch expenditure data for clientid {clientid}: {e}")
                 self._audit(case, "client_expenses (expenditure)", "ERROR", str(e))
+
+    def fetch_sfs_household(self, clientid: int, connection=None) -> Dict[str, Any]:
+        """Household facts from the client's active SFS, for the Lead Gen
+        estimated-disposable-income guideline only (not used by the engine).
+
+        Returns raw facts; validation and the calculation live in
+        services.lead_gen.estimate_disposable_income. status is one of:
+          OK         active SFS with expense rows
+          NO_SFS     no active client_sfs row for this client
+          EMPTY_SFS  active SFS with no SFS expense rows (statement not filled in)
+          ERROR      the query failed
+        rent_monthly_pence is None when no rent row with a value exists on the
+        active SFS. Mortgage is deliberately never read here.
+        """
+        result = {"status": "ERROR", "adults": None, "under_16": None, "under_18": None,
+                  "rent_monthly_pence": None}
+        try:
+            connection = connection or self._get_connection()
+            with connection.cursor() as cursor:
+                # Active SFS; a handful of clients have several active rows, so
+                # take the newest (id order matches date_created order).
+                cursor.execute(
+                    "SELECT id, no_adults, under_16, under_18 FROM client_sfs "
+                    "WHERE clientid = %s AND active = 1 ORDER BY id DESC LIMIT 1",
+                    [clientid]
+                )
+                sfs = cursor.fetchone()
+                if not sfs:
+                    result["status"] = "NO_SFS"
+                    return result
+                sfs_id = sfs[0]
+                cursor.execute(
+                    "SELECT COUNT(*) FROM client_expenses "
+                    "WHERE clientid = %s AND statement_id = %s AND type = 'sfs'",
+                    [clientid, sfs_id]
+                )
+                if not cursor.fetchone()[0]:
+                    result["status"] = "EMPTY_SFS"
+                    return result
+                result.update(status="OK", adults=sfs[1], under_16=sfs[2], under_18=sfs[3])
+                # One rent row only — the latest with a value. Multiple rent rows
+                # on a statement are never summed.
+                cursor.execute(
+                    "SELECT value, frequency FROM client_expenses "
+                    "WHERE clientid = %s AND statement_id = %s AND type = 'sfs' "
+                    "AND field = 'rent' AND value IS NOT NULL "
+                    "ORDER BY id DESC LIMIT 1",
+                    [clientid, sfs_id]
+                )
+                rent = cursor.fetchone()
+                if rent:
+                    result["rent_monthly_pence"] = self._normalise_to_monthly(
+                        self._pence(rent[0]), rent[1] or 'monthly'
+                    )
+        except Exception as e:
+            logger.warning(f"SFS household fetch failed for clientid {clientid}: {e}")
+            result["status"] = "ERROR"
+        return result
 
     def _fetch_transaction_data(self, connection, case: CaseData, clientid: int) -> None:
         """Open Banking transaction data — table absent in this Aryza instance."""
@@ -1162,3 +1262,8 @@ def fetch_case_by_reference(reference: str) -> CaseData:
     """
     client = AryzaClient()
     return client.fetch_case_by_reference(reference)
+
+
+def fetch_sfs_household(clientid: int) -> Dict[str, Any]:
+    """Public API: active-SFS household facts (see AryzaClient.fetch_sfs_household)."""
+    return AryzaClient().fetch_sfs_household(clientid)

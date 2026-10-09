@@ -147,6 +147,13 @@ export default function LeadGenPage() {
     return () => link.remove()
   }, [])
 
+  // Service worker for installability + an offline screen (it caches nothing).
+  // Production build only; browsers allow it only over HTTPS (or localhost).
+  useEffect(() => {
+    if (!import.meta.env.PROD || !('serviceWorker' in navigator) || !window.isSecureContext) return
+    navigator.serviceWorker.register('/sw.js', { scope: '/lead-gen' }).catch(() => {})
+  }, [])
+
   const openPip = async () => {
     autoOpened.current = true
     try {
