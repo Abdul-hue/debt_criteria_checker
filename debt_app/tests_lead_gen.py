@@ -521,6 +521,8 @@ class LeadGenCheckEndpointTests(_LeadGenFixture):
             "monthly_income": 2_500.0,
             "monthly_expenditure": 1_800.0,
             "disposable_income": 700.0,
+            "disposable_income_basis": "FULL_IE",
+            "full_ie_disposable_income": None,
         })
 
     def test_figures_not_recorded_are_none_not_zero(self):

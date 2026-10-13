@@ -571,6 +571,7 @@ def run_standalone_assessment(
     persist_source_department=True,
     save_decision=True,
     sfs_household=None,
+    disposable_income_override=None,
 ):
     """Run the standalone (Aryza-sourced) criteria assessment for one case.
 
@@ -588,6 +589,10 @@ def run_standalone_assessment(
     save_decision: False skips the CriteriaDecision delete-and-save.
     sfs_household: an already-fetched fetch_sfs_household() result; only read
         for Lead Generation cases (their rent feeds the £399 rule).
+    disposable_income_override: pounds/month used as the case's disposable
+        income for THIS run instead of the full I&E figure (Lead Gen passes its
+        estimated disposable income). The full I&E figure is kept in
+        case_data["full_ie_disposable_income"].
     """
     # DMP Eligibility Checklist — combines per-row dropdown selections
     # (council tax current/previous, water included, parking
@@ -606,6 +611,11 @@ def run_standalone_assessment(
     case_data, prepared_creditors, _cr_unmatched = AssessCaseView()._prepare_engine_payload(
         case_data_obj, credit_report_id,
     )
+    if disposable_income_override is not None:
+        case_data["full_ie_disposable_income"] = case_data.get("disposable_income")
+        case_data["disposable_income"] = disposable_income_override
+        # The engine reads disposable income from the financial summary.
+        case_data.setdefault("financial_summary", {})["net_balance"] = disposable_income_override
     # Phase A: attach as a new top-level payload key only — not read
     # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).
     case_data["dmp_checklist"] = dmp_checklist

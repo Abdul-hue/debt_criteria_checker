@@ -164,6 +164,21 @@ class LeadGenCheckView(APIView):
         except Exception:
             logger.exception("[LEAD GEN] SFS household read failed for %s", reference)
             household = {"status": "ERROR"}
+        # Lead Gen decides on the estimated disposable income (business
+        # decision 2026-10-13): the IVA minimum, DRO surplus and DMP checks all
+        # use it. Without an estimate the full I&E figure is used, as before.
+        # The £399 rule keeps its own figure (income minus rent or mortgage).
+        try:
+            estimated_di = estimate_disposable_income(household, (case_obj.income or {}).get("total"))
+            if estimated_di["available"]:
+                # Aryza's own non-monthly figures behind the converted monthly income.
+                estimated_di["non_monthly_income"] = list(getattr(case_obj, "non_monthly_income", []) or [])
+        except Exception:
+            logger.exception("[LEAD GEN] estimated DI failed for %s", reference)
+            estimated_di = estimate_disposable_income({"status": "ERROR"}, None)
+        di_override = (
+            max(0.0, float(estimated_di["estimated_disposable_income"])) if estimated_di["available"] else None
+        )
 
         def assess(checklist_raw):
             return criteria_views.run_standalone_assessment(
@@ -175,6 +190,7 @@ class LeadGenCheckView(APIView):
                 solution_checklist_raw=solution_checklist,
                 case_data_obj=case_obj,
                 sfs_household=household,
+                disposable_income_override=di_override,
                 source_department_override=LEAD_GEN_DEPARTMENT,
                 persist_source_department=False,
                 save_decision=False,
@@ -220,18 +236,6 @@ class LeadGenCheckView(APIView):
             credit_report_id=used_report.id if used_report else credit_report_id,
             credit_report_status=credit_report_status,
         )
-
-        # 5. Informational estimated DI from the active SFS. Computed after the
-        # outcome above and never fed back into it; a failure only makes the
-        # estimate unavailable.
-        try:
-            estimated_di = estimate_disposable_income(household, (case_obj.income or {}).get("total"))
-            if estimated_di["available"]:
-                # Aryza's own non-monthly figures behind the converted monthly income.
-                estimated_di["non_monthly_income"] = list(getattr(case_obj, "non_monthly_income", []) or [])
-        except Exception:
-            logger.exception("[LEAD GEN] estimated DI failed for %s", reference)
-            estimated_di = estimate_disposable_income({"status": "ERROR"}, None)
 
         credit_report = {"status": credit_report_status}
         if credit_report_status == "none":

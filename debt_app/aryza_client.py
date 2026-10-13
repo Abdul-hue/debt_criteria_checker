@@ -762,7 +762,7 @@ class AryzaClient:
 
     def fetch_sfs_household(self, clientid: int, connection=None) -> Dict[str, Any]:
         """Household facts from the client's active SFS, for the Lead Gen
-        estimated-disposable-income guideline only (not used by the engine).
+        estimated disposable income (and the SFS rent for the £399 rule).
 
         Returns raw facts; validation and the calculation live in
         services.lead_gen.estimate_disposable_income. status is one of:

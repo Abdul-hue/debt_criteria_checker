@@ -27,13 +27,29 @@ describe('SolutionOptions', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('reports Yes / No / Not answered as true / false / null', () => {
+  it('reports Yes / No / Clear as true / false / null', () => {
     const onAnswerChange = vi.fn()
-    render(<SolutionOptions solutions={solutions} answers={DEFAULT_SOLUTION_CHECKLIST} onAnswerChange={onAnswerChange} />)
-    const select = screen.getByLabelText('Had a Debt Relief Order in the last 6 years?')
-    fireEvent.change(select, { target: { value: 'yes' } })
-    fireEvent.change(select, { target: { value: 'no' } })
-    expect(onAnswerChange).toHaveBeenNthCalledWith(1, 'dro_in_last_6_years', true)
-    expect(onAnswerChange).toHaveBeenNthCalledWith(2, 'dro_in_last_6_years', false)
+    const answers = { ...DEFAULT_SOLUTION_CHECKLIST, dro_in_last_6_years: true }
+    render(<SolutionOptions solutions={solutions} answers={answers} onAnswerChange={onAnswerChange} />)
+    const group = screen.getByRole('radiogroup', { name: 'Had a Debt Relief Order in the last 6 years?' })
+    expect(within(group).getByRole('radio', { name: 'Yes' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(within(group).getByRole('radio', { name: 'No' }))
+    fireEvent.click(within(group).getByRole('radio', { name: 'Yes' }))
+    fireEvent.click(within(group.parentElement).getByRole('button', { name: 'Clear' }))
+    expect(onAnswerChange).toHaveBeenNthCalledWith(1, 'dro_in_last_6_years', false)
+    expect(onAnswerChange).toHaveBeenNthCalledWith(2, 'dro_in_last_6_years', true)
+    expect(onAnswerChange).toHaveBeenNthCalledWith(3, 'dro_in_last_6_years', null)
+  })
+
+  it('lists eligible solutions first and expands a card to show every point', () => {
+    render(<SolutionOptions solutions={solutions} />)
+    expect(screen.getAllByTestId(/^solution-/).map((card) => card.dataset.testid)).toEqual([
+      'solution-DMP', 'solution-BANKRUPTCY', 'solution-DRO', 'solution-IVA',
+    ])
+    const dmp = screen.getByTestId('solution-DMP')
+    const toggle = within(dmp).getByRole('button', { expanded: false })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(within(dmp).getByText('Good to know')).toBeInTheDocument()
   })
 })

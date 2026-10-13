@@ -528,16 +528,21 @@ def case_figures(case_data, income_missing=False):
       * income when lead_gen_income_missing() says it is missing;
       * expenditure when the SFS has no expenses (total 0), the same reading
         _prepare_engine_payload uses ("income present but no SFS expenses yet").
-    disposable_income is exactly what TIG-02 compared, including Aryza's own
-    DI fallback when no income rows exist.
+    disposable_income is exactly what the checks used (TIG-02, DRO surplus,
+    DMP): the estimated disposable income when one was available (basis
+    "ESTIMATE", with the full I&E figure alongside), otherwise the full I&E
+    figure, including Aryza's own DI fallback when no income rows exist.
     """
     case_data = case_data or {}
     expenditure = _pounds((case_data.get("expenditure") or {}).get("total"))
+    estimate_used = "full_ie_disposable_income" in case_data
     return {
         "total_unsecured_debt": _pounds(case_data.get("total_unsecured_debt")),
         "monthly_income": None if income_missing else _pounds((case_data.get("income") or {}).get("total")),
         "monthly_expenditure": expenditure if expenditure else None,
         "disposable_income": _pounds(case_data.get("disposable_income")),
+        "disposable_income_basis": "ESTIMATE" if estimate_used else "FULL_IE",
+        "full_ie_disposable_income": _pounds(case_data.get("full_ie_disposable_income")) if estimate_used else None,
     }
 
 
@@ -647,11 +652,12 @@ def without_vat_answers(checklist_raw):
 
 
 # ---------------------------------------------------------------------------
-# Estimated disposable income (informational guideline only)
+# Estimated disposable income (the disposable income the Lead Gen checks use)
 # ---------------------------------------------------------------------------
 # Manager's formula: minimum expenditure = £799 (first adult) + £579 per
 # additional adult + £331 per child; estimate = monthly income - rent - that.
-# Nothing here feeds the IVA / DMP / DRO outcomes above or the engine's
+# Since 2026-10-13 the Lead Gen check uses it (floored at £0) as the case's
+# disposable income for the IVA / DMP / DRO checks; it never feeds the engine's
 # lead_gen_disposable_income (£399 forced-DRO rule).
 EDI_FIRST_ADULT_PENCE = 79_900
 EDI_ADDITIONAL_ADULT_PENCE = 57_900
@@ -727,8 +733,8 @@ def estimate_disposable_income(household, monthly_income_pence):
         "estimated_disposable_income": estimate / 100,
         "message": (
             f"For {adults} adult(s) and {children} child(ren), the estimated disposable income is "
-            f"{_money(estimate)} per month. Please use this estimate as a guideline only when making "
-            "your decision. A full I&E assessment is still required to confirm affordability and suitability."
+            f"{_money(estimate)} per month. The Lead Gen checks use this estimate. "
+            "A full I&E assessment is still required to confirm affordability and suitability."
         ),
     }
 

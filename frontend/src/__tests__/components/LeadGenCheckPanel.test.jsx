@@ -230,6 +230,27 @@ describe('LeadGenCheckPanel', () => {
     expect(screen.getByText('£1,605.00')).toBeInTheDocument()
     expect(screen.getByText('£45.00')).toBeInTheDocument()
     expect(screen.getByText('Not recorded')).toBeInTheDocument()
+    expect(screen.getByText('Disposable income (per month)')).toBeInTheDocument()
+  })
+
+  it('shows which disposable income the checks used when it is the estimate', async () => {
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'POTENTIALLY_SUITABLE', label: 'Potentially suitable at Lead Gen stage' },
+      iva: { code: 'POTENTIALLY_SUITABLE', label: 'IVA — Potentially suitable' },
+      dmp: { code: 'POTENTIALLY_SUITABLE', label: 'DMP — Potentially suitable' },
+      case_figures: {
+        total_unsecured_debt: 8772, monthly_income: 2297, monthly_expenditure: 2178, disposable_income: 748,
+        disposable_income_basis: 'ESTIMATE', full_ie_disposable_income: 119,
+      },
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    const used = (await screen.findByText('Disposable income used for the checks (estimate)')).closest('div')
+    expect(within(used).getByText('£748.00')).toBeInTheDocument()
+    const fullIe = screen.getByText('Disposable income from the I&E (per month)').closest('div')
+    expect(within(fullIe).getByText('£119.00')).toBeInTheDocument()
   })
 
   it('shows the DRO referral separately', async () => {
@@ -250,7 +271,7 @@ describe('LeadGenCheckPanel', () => {
 
   it('shows the estimated disposable income breakdown alongside the unchanged IVA outcome', async () => {
     const message = 'For 2 adult(s) and 1 child(ren), the estimated disposable income is -£9.00 per month. '
-      + 'Please use this estimate as a guideline only when making your decision. '
+      + 'The Lead Gen checks use this estimate. '
       + 'A full I&E assessment is still required to confirm affordability and suitability.'
     api.post.mockResolvedValueOnce({ data: {
       ...baseResult,

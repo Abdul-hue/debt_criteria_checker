@@ -232,11 +232,15 @@ const figure = (value) => (value === null || value === undefined ? 'Not recorded
 /** The figures the criteria were run on, so the advisor can see why a rule fired. */
 function CaseFigures({ figures }) {
   if (!figures) return null
+  // The checks use the estimated disposable income when there is one, and the
+  // full I&E figure otherwise; both are shown when the estimate was used.
+  const estimate = figures.disposable_income_basis === 'ESTIMATE'
   const rows = [
     ['Total unsecured debt', figures.total_unsecured_debt],
     ['Monthly income', figures.monthly_income],
     ['Monthly expenditure', figures.monthly_expenditure],
-    ['Disposable income (per month)', figures.disposable_income],
+    ...(estimate ? [['Disposable income from the I&E (per month)', figures.full_ie_disposable_income]] : []),
+    [estimate ? 'Disposable income used for the checks (estimate)' : 'Disposable income (per month)', figures.disposable_income],
   ]
   return (
     <div>

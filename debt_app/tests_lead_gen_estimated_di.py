@@ -1,5 +1,5 @@
 """
-Lead Gen estimated disposable income (informational guideline only).
+Lead Gen estimated disposable income (used by the Lead Gen checks since 2026-10-13).
 
   * EstimateCalculationTests — services.lead_gen.estimate_disposable_income:
     the manager's formula, unavailable states, unusual household values.
@@ -65,7 +65,7 @@ class EstimateCalculationTests(SimpleTestCase):
         self.assertEqual(r["estimated_disposable_income"], -9.0)
         self.assertEqual(r["message"], (
             "For 2 adult(s) and 1 child(ren), the estimated disposable income is -£9.00 per month. "
-            "Please use this estimate as a guideline only when making your decision. "
+            "The Lead Gen checks use this estimate. "
             "A full I&E assessment is still required to confirm affordability and suitability."
         ))
         self.assertNotIn("eligible", r["message"].lower())
@@ -282,24 +282,37 @@ class EstimateEndpointTests(_LeadGenFixture):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(_codes(resp.json()["estimated_disposable_income"]), ["SFS_UNREADABLE"])
 
-    def test_iva_result_unchanged_by_estimate(self):
-        """A strongly negative estimate does not change a potentially-suitable IVA."""
-        baseline = self._check(self._good_case("LG-EDI-IVA")).json()
+    def test_the_checks_use_the_estimate(self):
+        """Business decision 2026-10-13: Lead Gen decides on the estimated
+        disposable income. A negative estimate (used as £0) fails the IVA
+        minimum and leaves nothing for a DMP, where the full I&E figure (£700)
+        passed both."""
+        baseline = self._check(self._good_case("LG-EDI-IVA")).json()  # no SFS -> full I&E figure
+        self.assertEqual(baseline["case_figures"]["disposable_income_basis"], "FULL_IE")
+        self.assertNotEqual(baseline["iva"]["code"], "NOT_SUITABLE")
         with_estimate = self._check_with(self._good_case("LG-EDI-IVA"), _household(adults=5, under_16=4, rent=150_000))
         self.assertLess(with_estimate["estimated_disposable_income"]["estimated_disposable_income"], 0)
-        for key in self.OUTCOME_KEYS:
-            self.assertEqual(with_estimate[key], baseline[key], key)
-        recs = LeadGenCheck.objects.filter(aryza_reference="LG-EDI-IVA").order_by("id")
-        self.assertEqual(len({(r.iva_outcome, r.overall_outcome, r.engine_recommended_solution) for r in recs}), 1)
+        figures = with_estimate["case_figures"]
+        self.assertEqual((figures["disposable_income"], figures["disposable_income_basis"],
+                          figures["full_ie_disposable_income"]), (0.0, "ESTIMATE", 700.0))
+        self.assertEqual(with_estimate["iva"]["code"], "NOT_SUITABLE")
+        self.assertIn("TIG-02", [r["code"] for r in with_estimate["iva_reasons"]])
+        self.assertEqual(with_estimate["dmp"]["code"], "NOT_SUITABLE")
+        self.assertIn("DMP-NO-SURPLUS", [r["code"] for r in with_estimate["dmp_reasons"]])
 
-    def test_dro_result_unchanged_by_estimate(self):
-        """Low income still forces the existing £399 DRO route; the separate estimate does not alter it."""
+    def test_a_positive_estimate_is_used_as_it_is(self):
+        # £2,500 - £400 rent - £799 = £1,301
+        body = self._check_with(self._good_case("LG-EDI-POS"), _household(adults=1, rent=40_000))
+        self.assertEqual((body["case_figures"]["disposable_income"], body["case_figures"]["disposable_income_basis"]),
+                         (1301.0, "ESTIMATE"))
+
+    def test_399_rule_keeps_its_own_figure(self):
+        """Low income still forces the £399 DRO route: that rule uses income
+        minus rent, never the estimate."""
         case = lambda: self._good_case("LG-EDI-DRO", income_pence=30_000, expenditure_pence=10_000)
         baseline = self._check(case()).json()
-        before = self._record("LG-EDI-DRO")
         with_estimate = self._check_with(case(), _household(adults=1, rent=0))
         self.assertEqual(baseline["overall"]["code"], "DRO_REFER")
-        for key in self.OUTCOME_KEYS:
-            self.assertEqual(with_estimate[key], baseline[key], key)
-        self.assertEqual(self._record("LG-EDI-DRO"), before)
-        self.assertEqual(before[4], "FORCED_DRO_LG")
+        self.assertEqual(with_estimate["overall"]["code"], "DRO_REFER")
+        self.assertEqual(self._record("LG-EDI-DRO")[4], "FORCED_DRO_LG")
+        self.assertIn("£300.00", with_estimate["iva_reasons"][0]["detail"])  # income, no rent recorded
