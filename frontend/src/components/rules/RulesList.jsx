@@ -42,7 +42,7 @@ const RULE_META = {
   }, 
   "WATCH-22.2": { 
     title: "Debt Repayable Without IVA", 
-    description: "WATCH representatives reject cases where the client's disposable income could repay all unsecured debt within 6 years (72 months) without an IVA arrangement.", 
+    description: "WATCH representatives reject cases where the client's disposable income could repay all unsecured debt without an IVA arrangement: within 6 years (72 months) if the client has a mortgage, or 5 years (60 months) if not.",
   }, 
   "WATCH-22.8": { 
     title: "Client Age — End-of-Term Risk", 

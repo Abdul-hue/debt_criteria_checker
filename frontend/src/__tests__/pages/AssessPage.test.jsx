@@ -14,7 +14,7 @@ vi.mock('../../hooks/useAssessCase', () => ({
 vi.mock('../../components/assess/CaseSearch', () => ({
   default: ({ onResult }) => (
     <div>
-      <button onClick={() => onResult({ id: 'ASS-1', overall_status: 'PASS' })}>Mock Run</button>
+      <button onClick={() => onResult({ id: 'ASS-1', overall_status: 'PASS', client_name: 'Jane Doe', aryza_reference: 'REF-1', recommended_solution: 'IVA_VIABLE' })}>Mock Run</button>
     </div>
   )
 }))
@@ -48,19 +48,21 @@ describe('AssessPage', () => {
     expect(screen.getByText('Mock Run')).toBeInTheDocument()
   })
 
-  it('renders VerdictBanner when result is available', async () => {
+  it('renders the criteria report when a result is available', async () => {
     render(<AssessPage />, { wrapper: createWrapper() })
-    
+
     const runBtn = screen.getByText('Mock Run')
     fireEvent.click(runBtn)
-    
+
     await waitFor(() => {
-      expect(screen.getByText('PASS')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Jane Doe' })).toBeInTheDocument()
     })
+    expect(screen.getByText('IVA Recommended')).toBeInTheDocument()
   })
 
   it('shows empty state when no assessment loaded', () => {
     render(<AssessPage />, { wrapper: createWrapper() })
-    expect(screen.getByText(/no assessment loaded/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Run Case Assessment' })).toBeInTheDocument()
+    expect(screen.queryByText('IVA Recommended')).not.toBeInTheDocument()
   })
 })

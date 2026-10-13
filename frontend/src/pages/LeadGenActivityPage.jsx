@@ -16,7 +16,9 @@ const COLUMNS = [
   ['iva_potential', 'IVA'],
   ['dmp_potential', 'DMP'],
   ['dro_referral', 'DRO refer'],
+  ['caseworker_review', 'Caseworker review'],
   ['no_solution', 'No solution'],
+  ['income_not_recorded', 'Income missing'],
   ['failed_attempts', 'Failed attempts'],
 ]
 
@@ -26,7 +28,7 @@ const DATE_INPUT = 'h-10 rounded-md border border-slate-300 bg-white px-3 text-s
 function cellClass(key, value) {
   if (key === 'cases_checked') return 'font-semibold text-slate-900'
   if (!value) return 'text-slate-400'
-  if (key === 'failed_attempts') return 'font-medium text-amber-700'
+  if (key === 'failed_attempts' || key === 'income_not_recorded') return 'font-medium text-amber-700'
   return 'text-slate-700'
 }
 
@@ -84,7 +86,7 @@ export default function LeadGenActivityPage() {
       {data && (
         <Card>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[960px] text-sm">
               <caption className="sr-only">{subtitle}</caption>
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>

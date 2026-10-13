@@ -226,6 +226,18 @@
           "actual_value": null,
           "creditors": [],
           "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
           "message": "HMRC is not the customer's largest creditor, so this check does not apply.",
           "rule_id": "TIG-15.1",
           "severity": "pass",
@@ -618,6 +630,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -662,6 +686,60 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 10500.0
@@ -883,6 +961,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -1282,6 +1372,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -1326,6 +1428,60 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 10500.0
       },
@@ -1416,10 +1572,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "source_department": null,
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
@@ -1735,6 +1893,18 @@
           "actual_value": null,
           "creditors": [],
           "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
           "message": "HMRC is not the customer's largest creditor, so this check does not apply.",
           "rule_id": "TIG-15.1",
           "severity": "pass",
@@ -2127,6 +2297,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -2171,6 +2353,60 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 10500.0
@@ -2438,6 +2674,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -2837,6 +3085,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -2881,6 +3141,60 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 10500.0
       },
@@ -2979,10 +3293,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {
@@ -3261,6 +3577,18 @@
           "actual_value": null,
           "creditors": [],
           "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
           "message": "HMRC is not the customer's largest creditor, so this check does not apply.",
           "rule_id": "TIG-15.1",
           "severity": "pass",
@@ -3653,6 +3981,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -3697,6 +4037,60 @@
         "rationale": "IVA is not suitable due to hard blocks: Blocked Lender is expected to block this IVA. Reason: Account under internal review A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "1 IVA criteria blocker failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": false,
       "total_unsecured_debt": 10500.0
@@ -3950,6 +4344,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -4349,6 +4755,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -4393,6 +4811,60 @@
           "rationale": "IVA is not suitable due to hard blocks: Blocked Lender is expected to block this IVA. Reason: Account under internal review A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "1 IVA criteria blocker failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": false,
         "total_unsecured_debt": 10500.0
       },
@@ -4482,10 +4954,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {
@@ -4726,6 +5200,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -5125,6 +5611,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -5169,6 +5667,62 @@
         "rationale": "IVA is not suitable due to hard blocks: The customer's total unsecured debt is \u00a32,500.00. An IVA usually requires total debt of at least \u00a36,000.00. Because the debt is below this amount, the case does not currently meet the criteria for an IVA. A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "1 IVA criteria blocker failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 4 months (0.3 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [
+            "The customer's total debt is \u00a32,500.00, which is at or below the \u00a33,000.00 minimum needed for a debt management plan. This case cannot proceed as a DMP unless the total debt is higher than this."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": false,
       "total_unsecured_debt": 2500.0
@@ -5393,6 +5947,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -5792,6 +6358,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -5836,6 +6414,62 @@
           "rationale": "IVA is not suitable due to hard blocks: The customer's total unsecured debt is \u00a32,500.00. An IVA usually requires total debt of at least \u00a36,000.00. Because the debt is below this amount, the case does not currently meet the criteria for an IVA. A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "1 IVA criteria blocker failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 4 months (0.3 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [
+              "The customer's total debt is \u00a32,500.00, which is at or below the \u00a33,000.00 minimum needed for a debt management plan. This case cannot proceed as a DMP unless the total debt is higher than this."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": false,
         "total_unsecured_debt": 2500.0
       },
@@ -5925,10 +6559,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 2500.0,
         "vehicle": {
@@ -6251,6 +6887,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -6650,6 +7298,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -6694,6 +7354,60 @@
         "rationale": "IVA is not suitable due to hard blocks: The customer is employed but no wage slip has been uploaded. At least one wage slip is required for each employment income source before the case can proceed.; No bank statement has been uploaded for the customer. A valid bank statement must be provided before the case can proceed. A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "2 IVA criteria blockers failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": false,
       "total_unsecured_debt": 10500.0
@@ -7000,6 +7714,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -7399,6 +8125,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -7443,6 +8181,60 @@
           "rationale": "IVA is not suitable due to hard blocks: The customer is employed but no wage slip has been uploaded. At least one wage slip is required for each employment income source before the case can proceed.; No bank statement has been uploaded for the customer. A valid bank statement must be provided before the case can proceed. A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "2 IVA criteria blockers failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": false,
         "total_unsecured_debt": 10500.0
       },
@@ -7532,10 +8324,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {
@@ -7870,6 +8664,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-12",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -8257,6 +9063,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -8301,6 +9119,60 @@
         "rationale": "IVA is not suitable due to hard blocks: The customer receives benefit income, but no benefit award letter or current-year bank statement has been uploaded to prove it. One of these must be provided before the case can proceed.; The customer receives Universal Credit, but no Universal Credit journal has been uploaded. This must be provided before the case can proceed.; No bank statement has been uploaded for the customer. A valid bank statement must be provided before the case can proceed.; The customer has a previous IVA on record, but no termination report has been uploaded. This must be provided before the case can proceed. A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "4 IVA criteria blockers failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": false,
       "total_unsecured_debt": 10500.0
@@ -8619,6 +9491,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-12",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -9006,6 +9890,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -9050,6 +9946,60 @@
           "rationale": "IVA is not suitable due to hard blocks: The customer receives benefit income, but no benefit award letter or current-year bank statement has been uploaded to prove it. One of these must be provided before the case can proceed.; The customer receives Universal Credit, but no Universal Credit journal has been uploaded. This must be provided before the case can proceed.; No bank statement has been uploaded for the customer. A valid bank statement must be provided before the case can proceed.; The customer has a previous IVA on record, but no termination report has been uploaded. This must be provided before the case can proceed. A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "4 IVA criteria blockers failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": false,
         "total_unsecured_debt": 10500.0
       },
@@ -9139,10 +10089,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {
@@ -9374,6 +10326,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -9773,6 +10737,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -9817,6 +10793,60 @@
         "rationale": "This is a Lead Generation case with disposable income below \u00a3399 (Total Household Income minus rent-or-mortgage payment) \u2014 a Debt Relief Order is required regardless of all other criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3200.00 a month, the debts would take about 53 months (4.4 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3200.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 10500.0
@@ -10032,6 +11062,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -10431,6 +11473,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -10475,6 +11529,60 @@
           "rationale": "This is a Lead Generation case with disposable income below \u00a3399 (Total Household Income minus rent-or-mortgage payment) \u2014 a Debt Relief Order is required regardless of all other criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3200.00 a month, the debts would take about 53 months (4.4 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3200.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 10500.0
       },
@@ -10565,10 +11673,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "source_department": "Lead Generation",
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
@@ -10853,6 +11963,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -11252,6 +12374,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -11296,6 +12430,61 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "The following debt(s) must be left out of the DMP arrangement: current gas bill.",
+            "At \u00a3700.00 a month, the debts would take about 17 months (1.4 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 11300.0
@@ -11563,6 +12752,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -11962,6 +13163,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -12006,6 +13219,61 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "The following debt(s) must be left out of the DMP arrangement: current gas bill.",
+              "At \u00a3700.00 a month, the debts would take about 17 months (1.4 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 11300.0
       },
@@ -12107,10 +13375,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 11300.0,
         "vehicle": {
@@ -12349,6 +13619,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -12748,6 +14030,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -12792,6 +14086,60 @@
         "rationale": "IVA is not suitable due to hard blocks: The customer's total unsecured debt is \u00a34,000.00. An IVA usually requires total debt of at least \u00a36,000.00. Because the debt is below this amount, the case does not currently meet the criteria for an IVA. A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "1 IVA criteria blocker failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 6 months (0.5 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": false,
       "total_unsecured_debt": 4000.0
@@ -13014,6 +14362,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -13413,6 +14773,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -13457,6 +14829,60 @@
           "rationale": "IVA is not suitable due to hard blocks: The customer's total unsecured debt is \u00a34,000.00. An IVA usually requires total debt of at least \u00a36,000.00. Because the debt is below this amount, the case does not currently meet the criteria for an IVA. A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "1 IVA criteria blocker failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 6 months (0.5 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": false,
         "total_unsecured_debt": 4000.0
       },
@@ -13546,10 +14972,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 4000.0,
         "vehicle": {
@@ -13787,6 +15215,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -14186,6 +15626,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -14230,6 +15682,60 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 10500.0
@@ -14451,6 +15957,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -14850,6 +16368,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -14894,6 +16424,60 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 10500.0
       },
@@ -14983,10 +16567,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {
@@ -15283,6 +16869,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -15682,6 +17280,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -15726,6 +17336,60 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "2 IVA points need checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 16 months (1.3 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 11000.0
@@ -16006,6 +17670,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -16405,6 +18081,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -16449,6 +18137,60 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "2 IVA points need checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 16 months (1.3 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 11000.0
       },
@@ -16550,10 +18292,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 11000.0,
         "vehicle": {
@@ -16742,10 +18486,10 @@
           "actual_value": 13.769363166953529,
           "creditors": [],
           "description": null,
-          "message": "WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 6-year (72 months) payoff threshold. WATCH is expected to reject the IVA.",
+          "message": "WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 5-year (60 months) payoff threshold (client has no mortgage). WATCH is expected to reject the IVA.",
           "rule_id": "WATCH-22.2",
           "severity": "hard_block",
-          "threshold": 72.0,
+          "threshold": 60.0,
           "title": "WATCH-22.2",
           "triggered": true
         }
@@ -16850,6 +18594,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -17225,6 +18981,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -17374,10 +19142,64 @@
         "code": "DMP",
         "confidence": "MEDIUM",
         "label": "Debt Management Plan",
-        "rationale": "IVA is not suitable due to hard blocks: The customer's total debt is \u00a38,000.00, which is below the \u00a312,000.00 minimum required when Link Financial is a creditor. This case cannot proceed.; WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 6-year (72 months) payoff threshold. WATCH is expected to reject the IVA. A DMP is the recommended fallback for debt repayment."
+        "rationale": "IVA is not suitable due to hard blocks: The customer's total debt is \u00a38,000.00, which is below the \u00a312,000.00 minimum required when Link Financial is a creditor. This case cannot proceed.; WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 5-year (60 months) payoff threshold (client has no mortgage). WATCH is expected to reject the IVA. A DMP is the recommended fallback for debt repayment."
       },
       "representatives_detected": [
         "WATCH"
+      ],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [
+            "2 IVA criteria blockers failed. See the IVA criteria results for details."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 12 months (1.0 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
       ],
       "success": true,
       "tig_eligible": false,
@@ -17549,10 +19371,10 @@
             "actual_value": 13.769363166953529,
             "creditors": [],
             "description": null,
-            "message": "WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 6-year (72 months) payoff threshold. WATCH is expected to reject the IVA.",
+            "message": "WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 5-year (60 months) payoff threshold (client has no mortgage). WATCH is expected to reject the IVA.",
             "rule_id": "WATCH-22.2",
             "severity": "hard_block",
-            "threshold": 72.0,
+            "threshold": 60.0,
             "title": "WATCH-22.2",
             "triggered": true
           }
@@ -17657,6 +19479,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -18032,6 +19866,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -18181,10 +20027,64 @@
           "code": "DMP",
           "confidence": "MEDIUM",
           "label": "Debt Management Plan",
-          "rationale": "IVA is not suitable due to hard blocks: The customer's total debt is \u00a38,000.00, which is below the \u00a312,000.00 minimum required when Link Financial is a creditor. This case cannot proceed.; WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 6-year (72 months) payoff threshold. WATCH is expected to reject the IVA. A DMP is the recommended fallback for debt repayment."
+          "rationale": "IVA is not suitable due to hard blocks: The customer's total debt is \u00a38,000.00, which is below the \u00a312,000.00 minimum required when Link Financial is a creditor. This case cannot proceed.; WATCH-22.2 breached: total debt / (disposable income x 0.83) = 13.8 months, which is at or below the 5-year (60 months) payoff threshold (client has no mortgage). WATCH is expected to reject the IVA. A DMP is the recommended fallback for debt repayment."
         },
         "representatives_detected": [
           "WATCH"
+        ],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [
+              "2 IVA criteria blockers failed. See the IVA criteria results for details."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 12 months (1.0 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
         ],
         "tig_eligible": false,
         "total_unsecured_debt": 8000.0
@@ -18275,10 +20175,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 8000.0,
         "vehicle": {
@@ -18516,6 +20418,18 @@
           "severity": "pass",
           "threshold": null,
           "title": "TIG-13",
+          "triggered": false
+        },
+        {
+          "action": null,
+          "actual_value": null,
+          "creditors": [],
+          "description": null,
+          "message": "The case records whether the customer has had a previous IVA.",
+          "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+          "severity": "pass",
+          "threshold": null,
+          "title": "PREVIOUS-IVA-UNCONFIRMED",
           "triggered": false
         },
         {
@@ -18915,6 +20829,18 @@
           "triggered": false
         },
         {
+          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a debt collector.",
+          "rule_id": "BPO-DEBT",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Debt collector listed instead of debt provider",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -18959,6 +20885,60 @@
         "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
       },
       "representatives_detected": [],
+      "solution_eligibility": [
+        {
+          "code": "IVA",
+          "label": "Individual Voluntary Arrangement (IVA)",
+          "notes": [],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "1 IVA point needs checking. See the IVA criteria results for details."
+          ]
+        },
+        {
+          "code": "DMP",
+          "label": "Debt Management Plan (DMP)",
+          "notes": [
+            "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+            "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+          ],
+          "reasons": [],
+          "status": "ELIGIBLE",
+          "to_confirm": []
+        },
+        {
+          "code": "DRO",
+          "label": "Debt Relief Order (DRO)",
+          "notes": [
+            "No application fee. The DRO normally lasts 12 months."
+          ],
+          "reasons": [
+            "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+          ],
+          "status": "NOT_ELIGIBLE",
+          "to_confirm": [
+            "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+            "Confirm the customer has lived or worked in England or Wales in the last three years.",
+            "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+            "Confirm the customer has not had a DRO in the last six years."
+          ]
+        },
+        {
+          "code": "BANKRUPTCY",
+          "label": "Bankruptcy",
+          "notes": [
+            "The \u00a3680 application fee must be paid in full before applying.",
+            "The customer has a monthly surplus, so income payments may be required for up to three years.",
+            "Discharge is normally after 12 months."
+          ],
+          "reasons": [],
+          "status": "NEEDS_REVIEW",
+          "to_confirm": [
+            "Confirm the customer has the required England and Wales connection."
+          ]
+        }
+      ],
       "success": true,
       "tig_eligible": true,
       "total_unsecured_debt": 10500.0
@@ -19180,6 +21160,18 @@
             "severity": "pass",
             "threshold": null,
             "title": "TIG-13",
+            "triggered": false
+          },
+          {
+            "action": null,
+            "actual_value": null,
+            "creditors": [],
+            "description": null,
+            "message": "The case records whether the customer has had a previous IVA.",
+            "rule_id": "PREVIOUS-IVA-UNCONFIRMED",
+            "severity": "pass",
+            "threshold": null,
+            "title": "PREVIOUS-IVA-UNCONFIRMED",
             "triggered": false
           },
           {
@@ -19579,6 +21571,18 @@
             "triggered": false
           },
           {
+            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a debt collector.",
+            "rule_id": "BPO-DEBT",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Debt collector listed instead of debt provider",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -19623,6 +21627,60 @@
           "rationale": "Case is potentially suitable for an IVA, but requires manual review of flagged criteria."
         },
         "representatives_detected": [],
+        "solution_eligibility": [
+          {
+            "code": "IVA",
+            "label": "Individual Voluntary Arrangement (IVA)",
+            "notes": [],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "1 IVA point needs checking. See the IVA criteria results for details."
+            ]
+          },
+          {
+            "code": "DMP",
+            "label": "Debt Management Plan (DMP)",
+            "notes": [
+              "At \u00a3700.00 a month, the debts would take about 15 months (1.2 years) to repay. Check this is reasonable for the customer's circumstances.",
+              "Priority commitments (mortgage or rent, council tax, utilities) are dealt with separately. Creditors do not have to accept reduced payments, freeze interest or charges, or stop recovery action."
+            ],
+            "reasons": [],
+            "status": "ELIGIBLE",
+            "to_confirm": []
+          },
+          {
+            "code": "DRO",
+            "label": "Debt Relief Order (DRO)",
+            "notes": [
+              "No application fee. The DRO normally lasts 12 months."
+            ],
+            "reasons": [
+              "Monthly surplus is \u00a3700.00. A DRO needs it to be less than \u00a375 a month."
+            ],
+            "status": "NOT_ELIGIBLE",
+            "to_confirm": [
+              "Confirm the customer's assets and savings are worth \u00a32,000 or less.",
+              "Confirm the customer has lived or worked in England or Wales in the last three years.",
+              "Confirm the customer is not currently bankrupt, under an interim order or in an IVA.",
+              "Confirm the customer has not had a DRO in the last six years."
+            ]
+          },
+          {
+            "code": "BANKRUPTCY",
+            "label": "Bankruptcy",
+            "notes": [
+              "The \u00a3680 application fee must be paid in full before applying.",
+              "The customer has a monthly surplus, so income payments may be required for up to three years.",
+              "Discharge is normally after 12 months."
+            ],
+            "reasons": [],
+            "status": "NEEDS_REVIEW",
+            "to_confirm": [
+              "Confirm the customer has the required England and Wales connection."
+            ]
+          }
+        ],
         "tig_eligible": true,
         "total_unsecured_debt": 10500.0
       },
@@ -19721,10 +21779,12 @@
         "property": {
           "equity": 0.0,
           "mortgage_balance": 0,
+          "mortgage_balance_known": true,
           "owns_property": false,
-          "property_value": 0.0
+          "property_value": null
         },
         "sfs_expenditure_breakdown": [],
+        "solution_checklist": {},
         "third_party_contribution": 0.0,
         "total_unsecured_debt": 10500.0,
         "vehicle": {

@@ -164,7 +164,17 @@ class Command(BaseCommand):
             lines = f.readlines()
 
         created = updated = skipped = non_council = 0
-        
+
+        # Some rows were first created straight from the workbook with line
+        # breaks inside the name (e.g. the Scarborough note). The markdown has
+        # single spaces there, so match existing rows ignoring whitespace
+        # rather than creating a second row for the same council.
+        def _ws_key(name):
+            return re.sub(r"\s+", " ", (name or "").replace("\xa0", " ")).strip().lower()
+
+        # Built lazily: a dry run never touches the database.
+        existing_by_key = None
+
         # Table starts after header and separator
         in_table = False
         for line in lines:
@@ -231,10 +241,17 @@ class Command(BaseCommand):
                 created += 1
                 continue
 
-            obj, was_created = CouncilRule.objects.get_or_create(
-                council_name=raw_name,
-                defaults=defaults,
-            )
+            if existing_by_key is None:
+                existing_by_key = {_ws_key(c.council_name): c for c in CouncilRule.objects.all()}
+            obj = existing_by_key.get(_ws_key(raw_name))
+            if obj is None:
+                obj, was_created = CouncilRule.objects.get_or_create(
+                    council_name=raw_name,
+                    defaults=defaults,
+                )
+                existing_by_key[_ws_key(obj.council_name)] = obj
+            else:
+                was_created = False
 
             if was_created:
                 created += 1

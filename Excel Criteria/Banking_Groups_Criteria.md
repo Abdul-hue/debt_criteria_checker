@@ -1,5 +1,7 @@
 # Banking Groups
 
+> Source: `2026-10-12 TIP CRITERIA & VOTING HISTORY.xlsx` — sheet `Banking Groups` — exported 2026-10-13 by `manage.py export_excel_criteria`. Regenerate with that command rather than editing rows by hand; rows added by hand are kept on regeneration and listed at the end.
+
 ## RBS Banking Group
 
 - Royal Bank of Scotland

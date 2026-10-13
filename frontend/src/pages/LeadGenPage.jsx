@@ -43,8 +43,9 @@ function Divider() {
 
 /**
  * Lead Gen app bar. Lead Gen is its own workflow on the criteria engine, not a
- * CAT screen: the only link out is the clearly labelled, secondary
- * "Back to main app" link (admins only, as before).
+ * CAT screen: the only link out is a clearly labelled, secondary link to "/",
+ * which sends admins to /admin ("Back to main app") and everyone else to
+ * their /dashboard ("Dashboard").
  */
 function LeadGenHeader({ user, isAdmin, onLogout, popOut }) {
   const name = displayName(user)
@@ -70,20 +71,16 @@ function LeadGenHeader({ user, isAdmin, onLogout, popOut }) {
             </>
           )}
 
-          {isAdmin && (
-            <>
-              <Hint label="Leave Lead Gen and go back to the main app">
-                <Link
-                  to="/"
-                  className="inline-flex h-9 items-center gap-1 rounded-md px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
-                >
-                  Back to main app
-                  <ArrowUpRight size={15} aria-hidden="true" />
-                </Link>
-              </Hint>
-              <Divider />
-            </>
-          )}
+          <Hint label={isAdmin ? 'Leave Lead Gen and go back to the main app' : 'Go to your dashboard'}>
+            <Link
+              to="/"
+              className="inline-flex h-9 items-center gap-1 rounded-md px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+            >
+              {isAdmin ? 'Back to main app' : 'Dashboard'}
+              <ArrowUpRight size={15} aria-hidden="true" />
+            </Link>
+          </Hint>
+          <Divider />
 
           <div className="flex items-center gap-3">
             {name && (

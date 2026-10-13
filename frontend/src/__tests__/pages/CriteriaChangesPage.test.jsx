@@ -53,6 +53,39 @@ describe('CriteriaChangesPage', () => {
     expect(screen.getByRole('button', { name: 'Change creditor' })).toBeInTheDocument()
   })
 
+  it('shows when a trial case was last assessed and warns about an unreliable snapshot', async () => {
+    const change = {
+      id: 3, title: 'Creditor statuses', reason: 'Excel sync', status: 'TRIALLED', status_label: 'Trialled — awaiting sign-off',
+      created_by: 'Abdul.wasay', created_at: '2026-10-13T02:50:00+01:00', items: [], viewer: {},
+      trial_run_by: 'Abdul.wasay', trial_run_at: '2026-10-13T03:00:00+01:00',
+      trial_summary: {
+        cases_evaluated: 22, cases_changed: 2, cases_errored: 0,
+        changed: [
+          {
+            aryza_reference: '373236', snapshot_saved_at: '2026-06-25T11:46:06+01:00',
+            warnings: ['This case was last assessed on 25 Jun 2026, before a fix to how a previous IVA is read from Aryza.'],
+            differences: { flags: { before: ['TIG-18'], after: ['MAJORITY-IMPOSSIBLE', 'TIG-18'] } },
+          },
+          { aryza_reference: '420180', differences: { majority: { before: 'achievable', after: 'not achievable' } } },
+        ],
+      },
+    }
+    api.get.mockImplementation((url) => {
+      if (url.endsWith('criteria-changes/3/')) return Promise.resolve({ data: change })
+      if (url.endsWith('criteria-changes/')) return Promise.resolve({ data: { live_version: 'v4', results: [change] } })
+      return Promise.resolve({ data: { live_version: 'v4', results: [] } })
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Creditor statuses/ }))
+    const flagged = (await screen.findByText('Case 373236')).closest('details')
+    expect(within(flagged).getByText('Check before relying on this')).toBeInTheDocument()
+    expect(within(flagged).getByText(/before a fix to how a previous IVA is read/)).toBeInTheDocument()
+    expect(within(flagged).getByText(/Last assessed/)).toBeInTheDocument()
+    const clean = screen.getByText('Case 420180').closest('details')
+    expect(within(clean).queryByText('Check before relying on this')).not.toBeInTheDocument()
+    expect(within(clean).queryByText(/Last assessed/)).not.toBeInTheDocument()
+  })
+
   it('marks the live version and drafts a rollback only with a reason', async () => {
     api.post.mockResolvedValueOnce({ data: { id: 9 } })
     renderPage()

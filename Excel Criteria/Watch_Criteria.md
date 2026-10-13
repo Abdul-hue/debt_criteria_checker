@@ -11,10 +11,7 @@
 | Condition | Action |
 |-----------|--------|
 | Debt can be paid off in less than 6 years | **Reject IVA** |
-| Bankruptcy dividend is higher than IVA | **Reject IVA** |
-| Equity is greater than debt | **Reject IVA** |
 | Client only has debt with 1 lender (need separate lender account of more than £500) | **Reject IVA** |
-| Any spending within 3 months (on all accounts) | **Reject** |
 | Client has children over 13 and no sustainability paragraph (Drafter) | **Reject** |
 | Client aged 80 or above | **Abstain (not vote)** |
 | Antecedent transactions appear — irrelevant of the dividend factor | **Reject all cases** |
@@ -35,3 +32,13 @@
 
 - **Gambling as main cause of debt:** Will require 3 months clean bank statement.
 - **Previously proposed IVA:** The main content (I&E, assets, liabilities) needs to remain the same, or a reason must be provided for the changes.
+
+---
+
+## Removed from the workbook on 2026-10-12
+
+Confirmed by the sheet owner as no longer used ("no longer a thing"). Listed here so nobody re-adds them from memory; the matching rule switches (WATCH-22.3, WATCH-22.4, WATCH-22.6) are turned off through the criteria change workflow.
+
+- Will reject IVA if Bankruptcy dividend is higher than IVA
+- Will reject IVA if equity is greater than debt
+- Will reject (on all accounts) if any spending within 3 months

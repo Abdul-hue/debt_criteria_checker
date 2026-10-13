@@ -1,7 +1,6 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import LoginPage from '../../pages/LoginPage'
-import VerdictBanner from '../../components/assess/VerdictBanner'
 import ConfirmDialog from '../../components/shared/ConfirmDialog'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { MemoryRouter } from 'react-router-dom'
@@ -24,20 +23,6 @@ describe('Accessibility Smoke Tests', () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
-  })
-
-  it('VerdictBanner uses semantic structure', () => {
-    const mockResult = {
-      overall_status: 'PASS',
-      recommended_solution: 'IVA',
-      iva_term_months: 60,
-      dividend_analysis: { estimated_pence: '33.5' },
-      id: 'ASS-123'
-    }
-    render(<VerdictBanner result={mockResult} />)
-    // StatusBadge inside uses role="status" or similar if implemented, 
-    // but here we check for the text at least.
-    expect(screen.getByText('PASS')).toBeInTheDocument()
   })
 
   it('ConfirmDialog has alertdialog role', () => {

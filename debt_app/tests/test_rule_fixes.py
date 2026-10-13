@@ -2,8 +2,9 @@
 Regression tests for WATCH-22.2 (payoff-duration formula) and TIG-18 (2-month spend).
 
 WATCH-22.2 fix: repayment_months = total_debt / (disposable_income * 0.83)
-  Hard block if <= 72 months (repayable within 6 years).
-  Pass       if >  72 months.
+  Hard block if <= 72 months (client has a mortgage — 6 years)
+             or <= 60 months (no mortgage — 5 years).
+  Pass       otherwise.
   Non-positive DI returns pass ("cannot calculate").
 
 TIG-18 fix: trigger only when total_spend_2mo >= monthly_income * 2.0.
@@ -44,6 +45,9 @@ def _base_case(**overrides) -> dict:
 # -----------------------------------------------------------------------
 # WATCH-22.2
 # -----------------------------------------------------------------------
+_MORTGAGE = {"has_property": True, "mortgage_balance": 120000.0}
+
+
 class Watch222Tests(TestCase):
 
     def test_hard_block_when_within_72_months(self):
@@ -55,13 +59,43 @@ class Watch222Tests(TestCase):
         self.assertEqual(r.severity, "hard_block")
         self.assertAlmostEqual(r.actual_value, 15000 / (500 * 0.83), places=1)
 
-    def test_hard_block_at_exactly_72_months(self):
-        """Boundary: exactly 72 months is still a block (<=)."""
+    def test_hard_block_at_exactly_72_months_with_mortgage(self):
+        """Boundary: exactly 72 months is still a block (<=) when client has a mortgage."""
         di = 30000 / (0.83 * 72)
-        c = _base_case(disposable_income=di, total_debt=30000.0)
+        c = _base_case(disposable_income=di, total_debt=30000.0, **_MORTGAGE)
         r = _watch_22_2(c)
         self.assertTrue(r.triggered)
         self.assertEqual(r.severity, "hard_block")
+        self.assertEqual(r.threshold, 72.0)
+
+    def test_hard_block_at_exactly_60_months_without_mortgage(self):
+        """Boundary: exactly 60 months is still a block (<=) when no mortgage."""
+        di = 30000 / (0.83 * 60)
+        c = _base_case(disposable_income=di, total_debt=30000.0)
+        r = _watch_22_2(c)
+        self.assertTrue(r.triggered)
+        self.assertEqual(r.threshold, 60.0)
+
+    def test_66_months_blocks_with_mortgage_passes_without(self):
+        """66 months sits between the two thresholds."""
+        di = 30000 / (0.83 * 66)
+        with_mortgage = _watch_22_2(_base_case(disposable_income=di, total_debt=30000.0, **_MORTGAGE))
+        without = _watch_22_2(_base_case(disposable_income=di, total_debt=30000.0))
+        self.assertTrue(with_mortgage.triggered)
+        self.assertFalse(without.triggered)
+
+    def test_mortgage_payment_alone_counts_as_mortgage(self):
+        di = 30000 / (0.83 * 66)
+        c = _base_case(disposable_income=di, total_debt=30000.0,
+                       has_property=True, mortgage_balance=0.0, mortgage_monthly_payment=650.0)
+        self.assertTrue(_watch_22_2(c).triggered)
+
+    def test_mortgage_balance_without_property_is_not_a_mortgage(self):
+        """A mortgage_balance with has_property=False (e.g. HP typed as mortgage) uses 60 months."""
+        di = 30000 / (0.83 * 66)
+        c = _base_case(disposable_income=di, total_debt=30000.0,
+                       has_property=False, mortgage_balance=120000.0)
+        self.assertFalse(_watch_22_2(c).triggered)
 
     def test_pass_when_above_72_months(self):
         """total_debt / (DI * 0.83) > 72 -> pass."""

@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     CreditorCriteria, GlobalCriteria, Voter, Application, EvidenceLedger,
     CriteriaDecision, GuidelineCategory, ExpenditureGuideline, CreditReport,
-    CouncilTaxEvidence,
+    CouncilTaxEvidence, DebtCollector,
     Department, UserProfile,
     DepartmentRuleVisibility, DepartmentCreditorVisibility, DepartmentCouncilVisibility,
     DepartmentSFSVisibility, DepartmentFeatureAccess, DepartmentFeaturePermission,
@@ -27,7 +27,8 @@ class CreditorCriteriaAdmin(admin.ModelAdmin):
                        'source_sheet', 'is_active', 'last_updated'),
         }),
         ('Dividend', {
-            'fields': ('min_dividend_pence', 'dividend_notes', 'conditional_voter_min_dividend_pence'),
+            'fields': ('min_dividend_pence', 'dividend_notes', 'conditional_voter_min_dividend_pence',
+                       'young_account_months', 'young_account_min_dividend_pence'),
         }),
         ('Age & Repayability', {
             'fields': ('account_age_months', 'reject_if_debt_repayable_within_months'),
@@ -63,6 +64,14 @@ class GlobalCriteriaAdmin(admin.ModelAdmin):
     list_filter = ['criteria_set', 'severity']
     search_fields = ['rule_key', 'rule_name']
     readonly_fields = ['last_updated']
+
+
+@admin.register(DebtCollector)
+class DebtCollectorAdmin(admin.ModelAdmin):
+    list_display = ['name', 'aliases', 'is_active', 'updated_at']
+    list_filter = ['is_active']
+    search_fields = ['name', 'notes']
+    readonly_fields = ['created_at', 'updated_at']
 
 
 @admin.register(Voter)

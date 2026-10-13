@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
-  AlertTriangle, CheckCircle2, CircleDashed, FileSearch, FileText, Loader2, Search, Upload, XCircle,
+  AlertTriangle, CheckCircle2, ChevronDown, CircleDashed, FileSearch, FileText, Info, Loader2, Search, Upload, XCircle,
 } from 'lucide-react'
 import { apiErrorMessage, useLeadGenCheck, useLeadGenCreditReportStatus } from '../../hooks/useLeadGen'
 import { Button, Card, Field, TextInput, TONES } from './ui.jsx'
@@ -15,12 +15,14 @@ const OUTCOME_TONE = {
   NOT_SUITABLE: 'danger',
   NOT_ASSESSED: 'neutral',
   REFER: 'warning',
+  REVIEW_REQUIRED: 'warning',
 }
 
 const OVERALL_TONE = {
   POTENTIALLY_SUITABLE: 'success',
   DRO_REFER: 'warning',
   DOES_NOT_MEET_CRITERIA: 'danger',
+  REVIEW_REQUIRED: 'warning',
 }
 
 /** "IVA — Potentially suitable" -> ["IVA", "Potentially suitable"]; display only. */
@@ -58,21 +60,113 @@ function OutcomeRow({ name, outcome }) {
   )
 }
 
+/** A reason that opens to show the engine's plain-English explanation. */
+function ExpandableItem({ text, detail, tone, Icon }) {
+  const [open, setOpen] = useState(false)
+  const panelId = useId()
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left text-sm text-slate-800 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-500"
+      >
+        <Icon size={16} aria-hidden="true" className={clsx('mt-0.5 shrink-0', tone.icon)} />
+        <span className="flex-1">{text}</span>
+        <ChevronDown
+          size={16}
+          aria-hidden="true"
+          className={clsx('mt-0.5 shrink-0 text-slate-400 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      <div id={panelId} hidden={!open} className={clsx('pb-3 pl-10 pr-3.5 text-sm', tone.text)}>
+        {detail}
+      </div>
+    </li>
+  )
+}
+
+/** Lists longer than this show the first few and a "Show N more" button. */
+const VISIBLE_ITEMS = 3
+
 function ItemList({ title, items, tone, Icon, renderText = (r) => r.text, getKey = (r) => r.code, note }) {
+  const [showAll, setShowAll] = useState(false)
   if (!items || items.length === 0) return null
   const t = TONES[tone]
+  const expandable = items.some((r) => r?.detail)
+  const hidden = showAll ? 0 : Math.max(items.length - VISIBLE_ITEMS, 0)
+  const visible = hidden ? items.slice(0, VISIBLE_ITEMS) : items
   return (
     <div>
       <SectionLabel count={items.length}>{title}</SectionLabel>
       {note && <p className="-mt-1 mb-2 text-xs text-slate-500">{note}</p>}
+      {expandable && <p className="-mt-1 mb-2 text-xs text-slate-500">Select a reason to see why.</p>}
       <ul className="rounded-md border border-slate-200 divide-y divide-slate-100">
-        {items.map((r) => (
+        {visible.map((r) => (r?.detail ? (
+          <ExpandableItem key={getKey(r)} text={renderText(r)} detail={r.detail} tone={t} Icon={Icon} />
+        ) : (
           <li key={getKey(r)} className="flex items-start gap-2.5 px-3.5 py-2.5 text-sm text-slate-800">
             <Icon size={16} aria-hidden="true" className={clsx('mt-0.5 shrink-0', t.icon)} />
             <span>{renderText(r)}</span>
           </li>
-        ))}
+        )))}
       </ul>
+      {items.length > VISIBLE_ITEMS && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-1.5 rounded text-xs font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+        >
+          {hidden ? `Show ${hidden} more` : 'Show fewer'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+const DETAIL_KIND = {
+  reason: { tone: 'danger', Icon: XCircle },
+  confirm: { tone: 'warning', Icon: AlertTriangle },
+  note: { tone: 'neutral', Icon: Info },
+}
+
+/** A solution's reasons, details to confirm and notes, from the engine's own solution card. */
+function SolutionDetail({ title, outcome }) {
+  const [showAll, setShowAll] = useState(false)
+  if (!outcome || outcome.code === 'NOT_ASSESSED') return null
+  const rows = [
+    ...(outcome.reasons || []).map((r) => ({ key: r.code, text: r.text, kind: 'reason' })),
+    ...(outcome.to_confirm || []).map((text, i) => ({ key: `confirm-${i}`, text, kind: 'confirm' })),
+    ...(outcome.notes || []).map((text, i) => ({ key: `note-${i}`, text, kind: 'note' })),
+  ]
+  if (rows.length === 0) return null
+  const hidden = showAll ? 0 : Math.max(rows.length - VISIBLE_ITEMS, 0)
+  const visible = hidden ? rows.slice(0, VISIBLE_ITEMS) : rows
+  return (
+    <div>
+      <SectionLabel count={rows.length}>{title}</SectionLabel>
+      <ul className="rounded-md border border-slate-200 divide-y divide-slate-100">
+        {visible.map((row) => {
+          const { tone, Icon } = DETAIL_KIND[row.kind]
+          return (
+            <li key={row.key} className="flex items-start gap-2.5 px-3.5 py-2.5 text-sm text-slate-800">
+              <Icon size={16} aria-hidden="true" className={clsx('mt-0.5 shrink-0', TONES[tone].icon)} />
+              <span>{row.text}</span>
+            </li>
+          )
+        })}
+      </ul>
+      {rows.length > VISIBLE_ITEMS && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-1.5 rounded text-xs font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+        >
+          {hidden ? `Show ${hidden} more` : 'Show fewer'}
+        </button>
+      )}
     </div>
   )
 }
@@ -133,6 +227,34 @@ function EstimatedDisposableIncome({ estimate }) {
   )
 }
 
+const figure = (value) => (value === null || value === undefined ? 'Not recorded' : GBP.format(value))
+
+/** The figures the criteria were run on, so the advisor can see why a rule fired. */
+function CaseFigures({ figures }) {
+  if (!figures) return null
+  const rows = [
+    ['Total unsecured debt', figures.total_unsecured_debt],
+    ['Monthly income', figures.monthly_income],
+    ['Monthly expenditure', figures.monthly_expenditure],
+    ['Disposable income (per month)', figures.disposable_income],
+  ]
+  return (
+    <div>
+      <SectionLabel>Case figures</SectionLabel>
+      <dl className="rounded-md border border-slate-200 divide-y divide-slate-100 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex flex-wrap items-center justify-between gap-x-4 px-3.5 py-2">
+            <dt className="text-slate-600">{label}</dt>
+            <dd className={clsx('tabular-nums', value === null || value === undefined ? 'text-slate-500' : 'text-slate-900')}>
+              {figure(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
 function CreditReportStatus({ reference, status, isLoading, isError, wantsUpload, onWantUpload, onCancelUpload }) {
   if (reference.length < 3) {
     return <p className="text-sm text-slate-500">Enter a case reference to look for a credit report on file.</p>
@@ -182,14 +304,109 @@ function CreditReportStatus({ reference, status, isLoading, isError, wantsUpload
   )
 }
 
-/** The engine's DMP council tax rule: a DMP is not possible when all three apply. */
+/**
+ * The council tax three drive the engine's DMP rule (not possible when all
+ * three apply). The utility / phone answers only add DMP notes.
+ */
 const DMP_QUESTIONS = [
   { key: 'council_tax_current_year', label: 'Council tax arrears for this year' },
   { key: 'council_tax_previous_year', label: 'Council tax arrears for last year' },
   { key: 'lost_right_to_pay_instalments', label: 'Lost the right to pay council tax by instalments' },
+  { key: 'current_gas_bill', label: 'Current gas bill' },
+  { key: 'current_electric_bill', label: 'Current electric bill' },
+  { key: 'previous_gas_provider_debt', label: 'Previous gas provider debt' },
+  { key: 'previous_electric_provider_debt', label: 'Previous electric provider debt' },
+  { key: 'current_phone_contract', label: 'Current phone contract' },
 ]
 
 const NO_DMP_ANSWERS = Object.fromEntries(DMP_QUESTIONS.map((q) => [q.key, false]))
+
+const NO_VAT_ANSWERS = { hmrc_debt_has_vat: false, hmrc_previous_year_vat: false }
+
+const VAT_HINT = {
+  unknown: 'Check the case first to see if HMRC is a creditor.',
+  none: 'No HMRC debt found on this case.',
+  hmrc: 'HMRC is a creditor on this case. Answer, then check the case again.',
+}
+
+/**
+ * Always listed in the DMP checklist (as on the Run Assessment screen), but
+ * only answerable once a check has shown this case has an HMRC creditor
+ * (status 'hmrc'); before that, or with no HMRC debt, it is greyed out with
+ * a hint. A previous-year VAT debt rules out an IVA; "has VAT" alone changes
+ * nothing, so the previous-year tick only appears under it.
+ */
+function VatQuestion({ answers, onToggle, status }) {
+  const box = 'mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-500 disabled:opacity-50'
+  const enabled = status === 'hmrc'
+  return (
+    <fieldset className="space-y-2.5">
+      <legend className="sr-only">HMRC VAT</legend>
+      <label
+        htmlFor="lg-vat-has"
+        className={clsx('flex items-start gap-2.5 text-sm', enabled ? 'text-slate-800 cursor-pointer' : 'text-slate-400')}
+      >
+        <input id="lg-vat-has" type="checkbox" checked={enabled && answers.hmrc_debt_has_vat} disabled={!enabled}
+          onChange={() => onToggle('hmrc_debt_has_vat')} aria-describedby="lg-vat-hint" className={box} />
+        <span>HMRC debt includes VAT</span>
+      </label>
+      <p id="lg-vat-hint" className="-mt-1.5 ml-6 text-xs text-slate-500">{VAT_HINT[status]}</p>
+      {enabled && answers.hmrc_debt_has_vat && (
+        <label htmlFor="lg-vat-prev" className="ml-6 flex items-start gap-2.5 text-sm text-slate-800 cursor-pointer">
+          <input id="lg-vat-prev" type="checkbox" checked={answers.hmrc_previous_year_vat}
+            onChange={() => onToggle('hmrc_previous_year_vat')} className={box} />
+          <span>The VAT is from a previous year</span>
+        </label>
+      )}
+    </fieldset>
+  )
+}
+
+/** The engine's DRO / Bankruptcy questions (solution_checklist): Yes / No / not answered. */
+const SOLUTION_QUESTIONS = [
+  { key: 'assets_over_2000', label: 'Assets and savings worth more than £2,000?' },
+  { key: 'england_wales_connection', label: 'Lived or worked in England or Wales in the last 3 years?' },
+  { key: 'currently_insolvent', label: 'Currently bankrupt, under an interim order or in an IVA?' },
+  { key: 'dro_in_last_6_years', label: 'Had a Debt Relief Order in the last 6 years?' },
+]
+
+const NO_SOLUTION_ANSWERS = Object.fromEntries(SOLUTION_QUESTIONS.map((q) => [q.key, null]))
+
+const answeredOnly = (answers) => Object.fromEntries(Object.entries(answers).filter(([, v]) => v !== null))
+
+function SolutionQuestions({ answers, onChange }) {
+  const answered = Object.keys(answeredOnly(answers)).length
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded text-sm font-medium text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500">
+        <span>
+          DRO and bankruptcy questions
+          <span className="ml-1.5 text-xs font-normal text-slate-500">
+            {answered ? `${answered} of ${SOLUTION_QUESTIONS.length} answered` : 'optional'}
+          </span>
+        </span>
+        <ChevronDown size={16} aria-hidden="true" className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 space-y-2.5">
+        {SOLUTION_QUESTIONS.map((q) => (
+          <label key={q.key} htmlFor={`lg-sol-${q.key}`} className="flex items-center justify-between gap-3 text-sm text-slate-800">
+            <span>{q.label}</span>
+            <select
+              id={`lg-sol-${q.key}`}
+              value={answers[q.key] === null ? '' : answers[q.key] ? 'yes' : 'no'}
+              onChange={(e) => onChange(q.key, e.target.value === '' ? null : e.target.value === 'yes')}
+              className="h-8 shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+            >
+              <option value="">Not answered</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+        ))}
+      </div>
+    </details>
+  )
+}
 
 function DmpChecklist({ answers, onToggle }) {
   return (
@@ -240,6 +457,13 @@ function ResultCard({ result }) {
   const noIssues = result.overall.code === 'POTENTIALLY_SUITABLE' && !result.reasons?.length
     && !result.review_reasons?.length && !result.evidence_required_later?.length && !result.warnings?.length
   const crNote = result.credit_report?.warning || result.credit_report?.message
+  // Bankruptcy is possible on almost every case (its only hard test, the
+  // England and Wales connection, is not in Aryza), so it is shown only when
+  // nothing else is: IVA, DMP and DRO all not suitable.
+  const showBankruptcy = result.overall.code === 'DOES_NOT_MEET_CRITERIA'
+    && Boolean(result.bankruptcy) && result.bankruptcy.code !== 'NOT_ASSESSED'
+  // Newer responses send every IVA and DMP reason separately; group them by solution.
+  const grouped = Array.isArray(result.iva_reasons) && Array.isArray(result.dmp_reasons)
 
   return (
     <Card aria-live="polite" aria-labelledby="lg-result-title">
@@ -279,15 +503,42 @@ function ResultCard({ result }) {
         <div>
           <SectionLabel>Solutions</SectionLabel>
           <ul className="rounded-md border border-slate-200 divide-y divide-slate-100">
-            {result.dro && <OutcomeRow name="DRO" outcome={result.dro} />}
+            {result.dro?.code === 'REFER' && <OutcomeRow name="DRO" outcome={result.dro} />}
             <OutcomeRow name="IVA" outcome={result.iva} />
             <OutcomeRow name="DMP" outcome={result.dmp} />
+            {result.dro && result.dro.code !== 'REFER' && result.dro.code !== 'NOT_ASSESSED' && (
+              <OutcomeRow name="DRO" outcome={result.dro} />
+            )}
+            {showBankruptcy && (
+              <OutcomeRow name="Bankruptcy" outcome={result.bankruptcy} />
+            )}
           </ul>
         </div>
 
+        <ItemList
+          title="DMP notes"
+          items={result.dmp_notes}
+          tone="neutral"
+          Icon={Info}
+          renderText={(n) => n}
+          getKey={(n) => n}
+        />
+
+        <SolutionDetail title="DRO details" outcome={result.dro} />
+        {showBankruptcy && <SolutionDetail title="Bankruptcy details" outcome={result.bankruptcy} />}
+
         <EstimatedDisposableIncome estimate={result.estimated_disposable_income} />
 
-        <ItemList title={reasonsTitle} items={result.reasons} tone="danger" Icon={XCircle} />
+        <CaseFigures figures={result.case_figures} />
+
+        {grouped ? (
+          <>
+            <ItemList title="Why IVA is not suitable" items={result.iva_reasons} tone="danger" Icon={XCircle} />
+            <ItemList title="Why DMP is not suitable" items={result.dmp_reasons} tone="danger" Icon={XCircle} />
+          </>
+        ) : (
+          <ItemList title={reasonsTitle} items={result.reasons} tone="danger" Icon={XCircle} />
+        )}
         <ItemList title="Needs review" items={result.review_reasons} tone="warning" Icon={AlertTriangle} />
         <ItemList
           title="Evidence required later"
@@ -339,6 +590,10 @@ export default function LeadGenCheckPanel() {
   const [result, setResult] = useState(null)
   const [refError, setRefError] = useState('')
   const [dmpAnswers, setDmpAnswers] = useState(NO_DMP_ANSWERS)
+  const [vatAnswers, setVatAnswers] = useState(NO_VAT_ANSWERS)
+  const [solutionAnswers, setSolutionAnswers] = useState(NO_SOLUTION_ANSWERS)
+  // Reference a successful check confirmed has an HMRC creditor (else null).
+  const [hmrcRef, setHmrcRef] = useState(null)
   const fileInput = useRef(null)
   const check = useLeadGenCheck()
   const crStatus = useLeadGenCreditReportStatus(debouncedRef)
@@ -352,7 +607,27 @@ export default function LeadGenCheckPanel() {
     setWantsUpload(false)
     setFile(null)
     setDmpAnswers(NO_DMP_ANSWERS)
+    setSolutionAnswers(NO_SOLUTION_ANSWERS)
   }, [debouncedRef])
+
+  // VAT is answerable only once a successful check of this reference found HMRC.
+  const vatStatus = check.isPending ? 'unknown'
+    : hmrcRef !== null && hmrcRef === reference.trim() ? 'hmrc'
+      : result?.aryza_reference === reference.trim() && result?.hmrc_is_creditor === false ? 'none'
+        : 'unknown'
+
+  useEffect(() => {
+    if (hmrcRef !== null && hmrcRef !== reference.trim()) {
+      setHmrcRef(null)
+      setVatAnswers(NO_VAT_ANSWERS)
+    }
+  }, [reference, hmrcRef])
+
+  const toggleVat = (key) => setVatAnswers((prev) => (
+    key === 'hmrc_debt_has_vat' && prev.hmrc_debt_has_vat
+      ? NO_VAT_ANSWERS
+      : { ...prev, [key]: !prev[key] }
+  ))
 
   const showUpload = debouncedRef.length >= 3 && !crStatus.isLoading
     && (wantsUpload || (crStatus.data && !crStatus.data.has_usable_report))
@@ -365,15 +640,32 @@ export default function LeadGenCheckPanel() {
       return
     }
     setResult(null)
+    const dmpChecklist = hmrcRef === ref ? { ...dmpAnswers, ...vatAnswers } : dmpAnswers
+    const solutionChecklist = answeredOnly(solutionAnswers)
     check.mutate(
-      { aryza_reference: ref, file: showUpload ? file : null, dmp_checklist: dmpAnswers },
+      {
+        aryza_reference: ref,
+        file: showUpload ? file : null,
+        dmp_checklist: dmpChecklist,
+        ...(Object.keys(solutionChecklist).length ? { solution_checklist: solutionChecklist } : {}),
+      },
       {
         onSuccess: (data) => {
           setResult(data)
+          if (data.hmrc_is_creditor === true) {
+            setHmrcRef(ref)
+          } else {
+            setHmrcRef(null)
+            setVatAnswers(NO_VAT_ANSWERS)
+          }
           setFile(null)
           setWantsUpload(false)
           if (fileInput.current) fileInput.current.value = ''
           queryClient.invalidateQueries({ queryKey: ['lead-gen-credit-report-status', ref] })
+        },
+        onError: () => {
+          setHmrcRef(null)
+          setVatAnswers(NO_VAT_ANSWERS)
         },
       },
     )
@@ -441,7 +733,18 @@ export default function LeadGenCheckPanel() {
             answers={dmpAnswers}
             onToggle={(key) => setDmpAnswers((prev) => ({ ...prev, [key]: !prev[key] }))}
           />
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <VatQuestion answers={vatAnswers} onToggle={toggleVat} status={vatStatus} />
+          </div>
         </div>
+
+        <div className="px-5 py-4 border-t border-slate-100">
+          <SolutionQuestions
+            answers={solutionAnswers}
+            onChange={(key, value) => setSolutionAnswers((prev) => ({ ...prev, [key]: value }))}
+          />
+        </div>
+
 
         <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/70 rounded-b-lg">
           <Button type="submit" variant="primary" size="lg" className="w-full" disabled={check.isPending}>

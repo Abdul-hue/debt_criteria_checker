@@ -17,6 +17,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from debt_app.aryza_client import (
     fetch_case_by_reference,
+    fetch_sfs_household,
     AryzaCaseNotFoundError,
     AryzaConnectionError,
     AryaTimeoutError,
@@ -300,6 +301,7 @@ def build_phase7_response_fields(result: dict) -> dict:
         "dividend_analysis": result.get("dividend_analysis"),
         "representatives_detected": list(result.get("representatives_detected") or []),
         "dmp_eligibility": result.get("dmp_eligibility"),
+        "solution_eligibility": result.get("solution_eligibility", []),
         "hmrc_is_creditor": result.get("hmrc_is_creditor", False),
     }
 
@@ -533,6 +535,27 @@ class StandaloneAssessmentResult:
     dmp_eligibility: object
     case_data: dict
     decision_id: object = None
+    # What the engine's lead_gen_disposable_income deducted:
+    # {"source": "mortgage"|"rent", "amount"} or None (nothing deducted).
+    lead_gen_housing: object = None
+
+
+def lead_gen_sfs_rent(case_data_obj, sfs_household=None):
+    """Monthly rent in pounds from the active SFS, or None when not recorded
+    (no SFS, an unfilled one, no rent row, or a failed read)."""
+    try:
+        if sfs_household is None:
+            clientid = getattr(case_data_obj, "clientid", None)
+            if not clientid:
+                return None
+            sfs_household = fetch_sfs_household(clientid)
+        pence = (sfs_household or {}).get("rent_monthly_pence")
+        if (sfs_household or {}).get("status") != "OK" or pence is None or pence < 0:
+            return None
+        return pence / 100
+    except Exception:
+        logger.exception("[LEAD GEN] SFS rent read failed")
+        return None
 
 
 def run_standalone_assessment(
@@ -542,10 +565,12 @@ def run_standalone_assessment(
     credit_report_id=None,
     creditor_rows=None,
     dmp_checklist_raw=None,
+    solution_checklist_raw=None,
     case_data_obj=None,
     source_department_override=None,
     persist_source_department=True,
     save_decision=True,
+    sfs_household=None,
 ):
     """Run the standalone (Aryza-sourced) criteria assessment for one case.
 
@@ -561,6 +586,8 @@ def run_standalone_assessment(
     source_department_override: department name used for THIS run only.
     persist_source_department: False never writes Application.source_department.
     save_decision: False skips the CriteriaDecision delete-and-save.
+    sfs_household: an already-fetched fetch_sfs_household() result; only read
+        for Lead Generation cases (their rent feeds the £399 rule).
     """
     # DMP Eligibility Checklist — combines per-row dropdown selections
     # (council tax current/previous, water included, parking
@@ -582,6 +609,8 @@ def run_standalone_assessment(
     # Phase A: attach as a new top-level payload key only — not read
     # by _parse_case or any rule function yet (see DMP_CHECKLIST_FIELDS).
     case_data["dmp_checklist"] = dmp_checklist
+    # Advisor answers for the DRO / Bankruptcy criteria Aryza holds no data for.
+    case_data["solution_checklist"] = solution_checklist_raw or {}
 
     # Step 3 — Run assessment engine
     # Fetch local evidence and flags to enrich the Aryza data
@@ -633,6 +662,14 @@ def run_standalone_assessment(
     # the in-memory engine payload is affected — nothing is persisted.
     if source_department_override is not None:
         case_data["source_department"] = source_department_override
+
+    # Lead Gen £399 rule: rent from the active SFS (business decision
+    # 2026-10-13). Only for Lead Generation cases; a failed or empty read
+    # leaves rent unrecorded, which keeps the income-only fallback.
+    if case_data.get("source_department") == "Lead Generation":
+        rent = lead_gen_sfs_rent(case_data_obj, sfs_household)
+        if rent is not None:
+            case_data["rent_monthly"] = rent
 
     # Normalise evidence_ledger — engine expects a list of 
     # {"category": str, "is_verified": bool, "ref": str} 
@@ -859,9 +896,18 @@ def run_standalone_assessment(
     # a case where both conditions fire to "REVIEW_REQUIRED" instead, so at
     # most one of vat_forced/dro_forced is ever True here.
     dro_forced = result.get("recommended_solution") == "FORCED_DRO_LG"
+    # ...and when both fire. With the previous-year VAT tick set the engine
+    # returns FORCED_DMP_VAT unless the DRO override also fired, so
+    # REVIEW_REQUIRED plus that tick is exactly the VAT-vs-DRO conflict (a
+    # REVIEW_REQUIRED from non-voting creditors has no VAT tick and is unchanged).
+    forced_conflict = (
+        result.get("recommended_solution") == "REVIEW_REQUIRED"
+        and bool((case_data.get("dmp_checklist") or {}).get("hmrc_previous_year_vat"))
+    )
     engine_recommended_solution = result.get("recommended_solution")
     recommendations = get_recommendation(
         decision, result, case_data, vat_forced=vat_forced, dro_forced=dro_forced,
+        forced_conflict=forced_conflict,
     )
     result["recommended_solution"] = recommendations.get("recommended_solution")
     result["alternative_solutions"] = recommendations.get("alternative_solutions", [])
@@ -923,6 +969,7 @@ def run_standalone_assessment(
         dmp_eligibility=result.get("dmp_eligibility"),
         case_data=case_data,
         decision_id=decision_id,
+        lead_gen_housing=result.get("lead_gen_housing"),
     )
 
 
@@ -1270,7 +1317,10 @@ class AssessCaseView(APIView):
             "third_party_contribution": (income_data.get("third_party_contribution", 0) or 0) / 100.0,
             "property": {
                 "owns_property": property_data.get("owns_property", False),
-                "property_value": (property_data.get("property_value") or 0) / 100.0 if property_data.get("property_value") is not None else 0.0,
+                # None means "value not recorded" and must stay None: the
+                # engine's equity rules then report "could not be completed"
+                # rather than treating the home as worth £0.
+                "property_value": (property_data.get("property_value") or 0) / 100.0 if property_data.get("property_value") is not None else None,
                 "mortgage_balance": (
                     (property_data.get("mortgage_balance") or 0) / 100.0
                     or sum(
@@ -1281,6 +1331,17 @@ class AssessCaseView(APIView):
                     )
                 ),
                 "equity": (property_data.get("equity") or 0) / 100.0 if property_data.get("equity") is not None else 0.0,
+                # False only when Aryza holds no mortgage record AND no secured
+                # creditor supplied a balance (see the fallback above).
+                "mortgage_balance_known": bool(
+                    property_data.get("mortgage_balance_known", True)
+                    or any(
+                        (cr.get("type") or cr.get("creditor_type") or "").lower()
+                        in {"mortgage", "secured", "secured_loan", "second_charge"}
+                        and float(cr.get("balance") or 0) > 0
+                        for cr in (case_data_obj.creditors or [])
+                    )
+                ),
             },
             "vehicle": {
                 "has_vehicle": vehicle_data.get("has_vehicle", False),
@@ -1332,6 +1393,7 @@ class AssessCaseView(APIView):
                 credit_report_id=request.data.get("credit_report_id"),
                 creditor_rows=request.data.get("creditor_rows") or [],
                 dmp_checklist_raw=request.data.get("dmp_checklist") or {},
+                solution_checklist_raw=request.data.get("solution_checklist") or {},
             )
         except AryzaCaseNotFoundError:
             return error_response(
@@ -1492,6 +1554,8 @@ def _creditor_to_dict(creditor):
         "termination_risk_if_vehicle_on_finance": creditor.termination_risk_if_vehicle_on_finance,
         "conditional_voter": creditor.conditional_voter,
         "conditional_voter_min_dividend_pence": creditor.conditional_voter_min_dividend_pence,
+        "young_account_months": creditor.young_account_months,
+        "young_account_min_dividend_pence": creditor.young_account_min_dividend_pence,
         "open_banking_access": creditor.open_banking_access,
         "fraud_claim_risk": creditor.fraud_claim_risk,
         "last_reviewed": creditor.last_reviewed.isoformat() if creditor.last_reviewed else None,
@@ -1513,7 +1577,8 @@ _CREDITOR_WRITABLE_FIELDS = [
     'requires_grant_overpayment_only', 'vehicle_arrears_repossession_months',
     'fees_cap_percentage', 'min_di_for_fees_pence',
     'termination_risk_if_vehicle_on_finance', 'conditional_voter',
-    'conditional_voter_min_dividend_pence', 'open_banking_access', 'fraud_claim_risk',
+    'conditional_voter_min_dividend_pence', 'young_account_months', 'young_account_min_dividend_pence',
+    'open_banking_access', 'fraud_claim_risk',
     'blocked_until_cleared', 'blocked_reason', 'last_reviewed',
 ]
 

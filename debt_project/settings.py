@@ -182,8 +182,19 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Security Headers for Non-HTTPS environments
 SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 # Ensure cookies and sessions work on non-HTTPS if needed (though not used for JWT)
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', False)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', False)
+
+# Behind an HTTPS reverse proxy (e.g. the internal *.appform.co.uk domain):
+# list the https:// origin(s) here so Django admin / session-auth form posts
+# pass the CSRF origin check, and set BEHIND_HTTPS_PROXY=True so Django trusts
+# the proxy's X-Forwarded-Proto header. Both unset = served directly over HTTP.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
+    if o.strip()
+]
+if env_bool('BEHIND_HTTPS_PROXY', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),

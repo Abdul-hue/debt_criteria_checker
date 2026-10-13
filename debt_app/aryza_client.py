@@ -951,17 +951,31 @@ class AryzaClient:
                 row = cursor.fetchone()
                 if row and (row[0] is not None or row[1] is not None):
                     mortgage_total = row[0] or 0
-                    property_value = row[1] or 0
-                    
+                    property_value = row[1]  # None when no valuation is recorded
+
                     case.property["owns_property"] = True
                     case.property["mortgage_balance"] = self._pence(mortgage_total)
-                    case.property["property_value"] = self._pence(property_value)
-                    
-                    # Calculate equity in pence
-                    case.property["equity"] = case.property["property_value"] - case.property["mortgage_balance"]
-                    
+                    # No slam_mortgage row is NOT proof the home is owned
+                    # outright. The balance stays 0 for the rules that already
+                    # read it, but the equity-vs-HMRC check (TIG-15.4) must
+                    # know the 0 was not recorded.
+                    case.property["mortgage_balance_known"] = row[0] is not None
+                    # A mortgage with no recorded valuation is a property of
+                    # UNKNOWN value, not a £0 property. Keep None so the
+                    # equity rules report "could not be completed" instead of
+                    # computing a negative equity from a zero.
+                    case.property["property_value"] = (
+                        self._pence(property_value) if property_value is not None else None
+                    )
+
+                    # Equity in pence (only when the value is known)
+                    case.property["equity"] = (
+                        case.property["property_value"] - case.property["mortgage_balance"]
+                        if case.property["property_value"] is not None else None
+                    )
+
                     logger.debug(f"Property data fetched for {clientid}: value={case.property['property_value']}, mortgage={case.property['mortgage_balance']}")
-                    self._audit(case, "slam_property/mortgage", "FOUND", f"Value: £{property_value}, Mortgage: £{mortgage_total}")
+                    self._audit(case, "slam_property/mortgage", "FOUND", f"Value: £{property_value if property_value is not None else 'unknown'}, Mortgage: £{mortgage_total}")
                 else:
                     # No property data found in either table
                     case.property["owns_property"] = False
@@ -1071,6 +1085,27 @@ class AryzaClient:
                     self._audit(case, "iva_factfind_have_you_ever_had_an_ivas", "FOUND", f"Reason: {ff_row[0]}")
                 else:
                     self._audit(case, "iva_factfind_have_you_ever_had_an_ivas", "EMPTY", "No previous IVA in factfind")
+
+                # 2b. The factfind's own yes/no answer. A "yes" counts even with
+                #     no detail row; no answer at all is recorded as unanswered
+                #     (previous_iva_answered=False) so the engine can ask the
+                #     caseworker to confirm instead of silently assuming "no".
+                cursor.execute(
+                    "SELECT factfind_financial_have_you_ever_had_an_iva FROM iva_factfind "
+                    "WHERE clientid = %s AND factfind_financial_have_you_ever_had_an_iva IS NOT NULL LIMIT 1",
+                    [clientid]
+                )
+                answer_row = cursor.fetchone()
+                if answer_row is not None and answer_row[0]:
+                    case.flags["previous_iva"] = True
+                    self._audit(case, "iva_factfind (previous IVA answer)", "FOUND", "Answered yes")
+                elif answer_row is not None:
+                    self._audit(case, "iva_factfind (previous IVA answer)", "FOUND", "Answered no")
+                else:
+                    self._audit(case, "iva_factfind (previous IVA answer)", "EMPTY", "Question not answered")
+                case.flags["previous_iva_answered"] = bool(
+                    answer_row is not None or case.flags.get("previous_iva")
+                )
                 
                 # 3. factfind_vulnerability — schema-absent in this Aryza instance
                 # vulnerability_flags defaults to {} / vulnerability_claimed defaults to False

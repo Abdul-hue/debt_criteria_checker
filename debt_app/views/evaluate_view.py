@@ -185,6 +185,9 @@ class EvaluateCaseView(APIView):
             "property_value": (case_data_obj.property.get("property_value") or 0) / 100.0 if case_data_obj.property.get("property_value") else None,
             "mortgage_balance": (case_data_obj.property.get("mortgage_balance") or 0) / 100.0 if case_data_obj.property.get("mortgage_balance") else None,
             "equity": (case_data_obj.property.get("equity") or 0) / 100.0 if case_data_obj.property.get("equity") else None,
+            # False when Aryza has no mortgage record: TIG-15.4 must not read
+            # that as a £0 mortgage (same contract as AssessCaseView).
+            "mortgage_balance_known": bool(case_data_obj.property.get("mortgage_balance_known", True)),
         }
 
         # Fallback: if Aryza has no mortgage balance, read from uploaded credit report
@@ -203,6 +206,7 @@ class EvaluateCaseView(APIView):
                         )
                         if total_mortgage > 0:
                             property_dict["mortgage_balance"] = total_mortgage / 100.0
+                            property_dict["mortgage_balance_known"] = True
                             logger.info(
                                 "Mortgage balance £%s enriched from credit report for %s",
                                 total_mortgage / 100.0, aryza_ref

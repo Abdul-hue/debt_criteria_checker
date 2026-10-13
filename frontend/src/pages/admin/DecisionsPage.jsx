@@ -28,6 +28,20 @@ function DecisionBadge({ decision }) {
   )
 }
 
+/**
+ * Status for the card badge and the status filter. A saved recommendation of
+ * REVIEW_REQUIRED (the engine's VAT-vs-DRO conflict) is always Needs Review,
+ * whatever overall_status says; everything else keeps the existing mapping.
+ */
+function decisionStatusOf(decision) {
+  const isReviewRequired = [decision.decision_output, decision.result_json].some((output) => {
+    const solution = output?.recommended_solution
+    return typeof solution === 'object' && solution?.code === 'REVIEW_REQUIRED'
+  })
+  if (isReviewRequired) return 'REFERRED'
+  return decision.result_json?.decision || (decision.passes_all_hard_blocks ? 'ELIGIBLE' : 'INELIGIBLE')
+}
+
 function StatBar({ result }) {
   if (!result || !result.criteria_results) return null
   
@@ -66,7 +80,7 @@ function DecisionCard({ decision, onView, onDelete, isAdmin }) {
   // Extract reference from result_json if available (Change 3)
   const aryzaRef = decision.result_json?.application_id || decision.aryza_reference || '—'
   const solution = decision.result_json?.recommended_solution?.label || decision.recommended_solution || '—'
-  const decisionStatus = decision.result_json?.decision || (decision.passes_all_hard_blocks ? 'ELIGIBLE' : 'INELIGIBLE')
+  const decisionStatus = decisionStatusOf(decision)
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all group cursor-pointer" onClick={() => onView(decision)}>
@@ -141,7 +155,7 @@ export default function DecisionsPage() {
       (d.triggered_by ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (d.result_json?.application_id ?? '').toLowerCase().includes(search.toLowerCase())
 
-    const decisionStatus = d.result_json?.decision || (d.passes_all_hard_blocks ? 'ELIGIBLE' : 'INELIGIBLE')
+    const decisionStatus = decisionStatusOf(d)
     const matchesFilter = filterType === 'ALL' || decisionStatus === filterType
 
     return matchesSearch && matchesFilter

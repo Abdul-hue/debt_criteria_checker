@@ -11,6 +11,10 @@ vi.mock('../../hooks/useUsers', () => ({
   useDeleteUser: vi.fn(),
   useCreateUser: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useUpdateUser: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useUpdateUserDepartment: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+}))
+vi.mock('../../hooks/useDepartments', () => ({
+  useDepartments: vi.fn(() => ({ data: [], isLoading: false })),
 }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../../hooks/useToast', () => ({

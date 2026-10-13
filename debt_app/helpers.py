@@ -319,8 +319,13 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'klarna uk ltd': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'klarna pay later and pay in 3': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'klarna bank ab pay later and pay in 3': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    # Zilch (buy-now-pay-later). Seen on real cases as "Zilch", "ZILCH
+    # TECHNOLOGY LIMITED" and "Zilch Technology LTD"; normalisation strips
+    # "limited"/"ltd", so the second key is the normalised form. The row is
+    # created from Excel Criteria/General_Creditors.md with stance UNKNOWN
+    # until the sheet owner confirms it (2026-10-13).
     'zilch': 'Zilch',
-    'zilch technology limited': 'Zilch',
+    'zilch technology': 'Zilch',
     # Zable is a trading name of Lendable — not its own CreditorCriteria row.
     # (Previously 'zable' pointed to the unrelated 'NewDay' and was silently
     # shadowed by 'lendable limited t/a zable' pointing to a non-existent
@@ -387,6 +392,20 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'west sussex & surrey credit union limited t/a boom community bank': 'Boom Credit Union ALSO known as East Sussex Credit Union Ltd t/a Wave Community Bank:',
     'department for work & pensions (dwp)': 'DWP',
     'hm revenue & customs': 'HM Revenue & Customs',
+    # "HMRC" is what Aryza sends. Workbook evidence (October 2026): GENERAL
+    # CREDITOR row 174 is named "HM Revenue & Customs" and its own notes call
+    # the creditor "HMRC" ("HMRC majority - MUST NOT have a deduction..."),
+    # and the TIG Criteria sheet states the HMRC rules under "HMRC". The short
+    # name therefore maps to that row, never to "HMRC - benefits overpayments".
+    # Added 2026-10-13 on the user's instruction; consequence: such cases take
+    # the row's Will Consider stance and its notes flag instead of "unknown".
+    'hmrc': 'HM Revenue & Customs',
+    # O2: the workbook's GENERAL CREDITOR row is "O2 UK" (Do Not Vote). Aryza
+    # sends "O2 (UK)" and credit reports "O2 Uk Limited"; normalisation strips
+    # the "(UK)" / "UK" / "Limited" suffixes from all of them (and from the row
+    # name) to "o2", which no row or alias carried, so every O2 debt was
+    # unidentified. Added 2026-10-13 on the user's instruction (case 415929).
+    'o2': 'O2 UK',
     # Northridge Finance is Santander Consumer Finance's motor-finance brand,
     # not its own CreditorCriteria row (a migration once added it as a
     # trading_name on that row, but trading_names is reset to [] by every
@@ -398,7 +417,6 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'advanced payment solutions ltd t/a cashplus bank': 'Cashplus',
     'zempler bank limited': 'Cashplus',
     'ccc debt management': 'CCC Debt Management',
-    'united trust bank limited': 'United Trust Bank',
     'anderson brookes': 'Anderson Brookes',
     'credit4 limited': 'Credit4',
     'travis perkins plc': 'Travis Perkins',

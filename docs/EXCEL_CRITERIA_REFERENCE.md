@@ -1,7 +1,9 @@
 # TIP CRITERIA & VOTING HISTORY — Rules Reference
 
-Source of truth: `TIP CRITERIA & VOTING HISTORY.xlsx`
+Source of truth: `TIP CRITERIA & VOTING HISTORY.xlsx` (dated copies and the update procedure live in `docs/criteria-source/`; the markdown the app reads is generated from the workbook by `manage.py export_excel_criteria`).
 All rules implemented in `debt_app/criteria_engine.py` must match this document exactly.
+
+Last workbook update: **2026-10-12**. Evolve was retired, three Watch rules were removed and the HMRC equity rule moved to a 100% house valuation; see the sections below.
 
 ---
 
@@ -42,6 +44,7 @@ HMRC debts are treated differently from commercial creditors:
 6. National Insurance: check if Class 2/4 are included or separate
 7. HMRC rarely accepts IVAs with ongoing trading — seek specific confirmation
 8. Antecedent transactions to HMRC (e.g., preference payments) are a hard reject
+9. Equity: HMRC will reject if the client's property equity exceeds the HMRC debt, with the property valued at **100%** (not the 85% used by every other equity check). Confirmed by the sheet owner 2026-10-12 as HMRC-only. Engine rule TIG-15.4.
 
 ### Council Majority Rules
 - A council creditor can swing the 75% majority — always assess council votes first
@@ -76,8 +79,6 @@ Rules applied by WATCH (WPM) when voting on an IVA proposal. WATCH is a creditor
 | Rule | Trigger | Note |
 |------|---------|------|
 | 6-year payoff | IVA term would require >6 years to repay | Not viable — bankruptcy may pay more |
-| Bankruptcy dividend higher | Estimated bankruptcy dividend exceeds IVA dividend | WATCH will reject in favour of bankruptcy |
-| Equity exceeds debt | Client has equity > total unsecured debt (at 85% LTV) | Client should sell asset to repay |
 | Antecedent transactions | Any preferential payments in look-back period | Hard reject — potential clawback |
 | Car finance last 3 months | New HP/finance taken in last 3 months | Treat as recent spend; reject |
 
@@ -85,7 +86,6 @@ Rules applied by WATCH (WPM) when voting on an IVA proposal. WATCH is a creditor
 | Rule | Trigger | Note |
 |------|---------|------|
 | Single-lender rule | WATCH is the only creditor or all others are <£500 | Reject — no benefit of IVA over DMP |
-| 3-month spending reject | Excessive spend on luxury/non-essential items in last 3 months | Evidenced by bank statements |
 | IVA previously proposed | Prior IVA on record | Must be consistent — any inconsistency = reject |
 | Gambling as main cause | Gambling identified as primary cause of debt | Require 3 months clean bank statements |
 
@@ -96,6 +96,17 @@ Rules applied by WATCH (WPM) when voting on an IVA proposal. WATCH is a creditor
 | Age 80+ | Client is 80 or older | WATCH will abstain (do not vote) |
 | Car value >£9k | Client vehicle valued over £9,000 | Downgrade to lower solution or require equity |
 | HP payments >£400/month | Hire purchase payments exceed £400/month | Flag for modification clause |
+
+### Removed 2026-10-12
+Taken out of the workbook and confirmed by the sheet owner as no longer used. The rule switches are turned off through the criteria change workflow; the code stays so a rollback is possible.
+
+| Former rule | Engine rule |
+|-------------|-------------|
+| Bankruptcy dividend higher than IVA dividend | WATCH-22.3 (was already off: the payload never carried a bankruptcy return) |
+| Equity exceeds debt (85% LTV) | WATCH-22.4 |
+| Any spending within 3 months | WATCH-22.6 |
+
+The general equity check (TIG-16) is for non-WPM cases only, as the TIG sheet says, so WATCH cases now have no equity check. That is intended.
 
 ---
 
@@ -123,15 +134,9 @@ Date-gating is implemented in `detect_representatives()`.
 
 ---
 
-## Sheet: Evolve Criteria
+## Sheet: Evolve Criteria (retired 2026-10-12)
 
-Rules applied by EVOLVE when voting on an IVA proposal. EVOLVE is a creditor representative.
-
-### Hard Reject Rules
-| Rule | Trigger | Note |
-|------|---------|------|
-| Equity exceeds debt | Client equity > total unsecured debt at **85% LTV** | Stricter LTV than general (which uses 100%) |
-| Single-lender rule | EVOLVE creditors represent essentially all the debt | Same logic as WATCH single-lender |
+The sheet was removed from the workbook and the sheet owner confirmed "Evolve don't exist anymore". Evolve is no longer a creditor representative: its rules (EVOLVE-01 equity at 85% LTV, EVOLVE-02 single lender, EVOLVE-03 vulnerability evidence) are switched off through the criteria change workflow, the EVOLVE section is no longer exported to `Which_Representative_Criteria.md`, and the creditors that were mapped to it (Mint, NatWest, Octopus Energy, Shell Energy, TSB, Ulster Bank, Updraft and others) move to no representative. The code stays so a rollback is possible.
 
 ---
 
@@ -155,12 +160,12 @@ Minimum dividend requirements (pence per £1) for specific creditors. If the est
 | Funding Circle | 30p | |
 | Funding Corp | 50p | |
 | Glenside Finance | 25p | |
-| Guarantor My Loan | 50p | |
+| Guarantor My Loan | 100p (was 50p until 2026-10-12) | |
 | Hull & East Yorkshire Credit Union | 60p | |
 | Medway Council | 25p minimum | Subject to review |
 | Ratesetter | 25p | If account >6 months old; 50p if <6 months old |
 | Reading Council | 60p | |
-| Shell Energy | Evolve criteria apply | Shell follows EVOLVE rules — check representative |
+| Shell Energy | (none) | Workbook still says "evolve criteria", but Evolve was retired 2026-10-12 |
 | South East Water | 40p | |
 | Specialist Motor Finance | 50p | |
 | Transave Credit Union | 60p | Account must be ≥3 months old |
@@ -174,11 +179,12 @@ Minimum dividend requirements (pence per £1) for specific creditors. If the est
 
 ## Sheet: Which Representative
 
-Assigns each creditor to a representative body (WATCH/TIX/EVOLVE/EVERYDAY LOANS). Used by `detect_representatives()` with date-gating.
+Assigns each creditor to a representative body (WATCH/TIX/EVERYDAY LOANS; EVOLVE until 2026-10-12). Used by `detect_representatives()` with date-gating.
 
 ### WATCH (WPM) Creditors (selection of key ones)
 - Monzo — WATCH from **30/04/2024** (date-gated)
 - La Redoute — WATCH from **16/07/2025** (date-gated)
+- Scottish Power — added to the WATCH list 2026-10-12 (its General Creditor stance moved from DO NOT VOTE to Accept, "see Watch criteria")
 - Most high-street banks and major card issuers
 
 ### TIX Creditors
@@ -186,9 +192,8 @@ Assigns each creditor to a representative body (WATCH/TIX/EVOLVE/EVERYDAY LOANS)
 - Creation Financial
 - UKAR / Whistletree / Computershare / Landmark — **deregistered 30/06/2023**
 
-### EVOLVE Creditors
-- Barclaycard
-- Other creditors as listed in the sheet
+### EVOLVE Creditors (retired 2026-10-12)
+- No longer exported. See "Sheet: Evolve Criteria" above.
 
 ### EVERYDAY LOANS Creditors
 - Everyday Loans (standalone representative)
@@ -223,6 +228,28 @@ Voting behaviour for ~200+ individual creditors. Key statuses:
 
 **Bamboo Loans**
 - `reject_if_never_made_payment = True` — if client has never made a payment to Bamboo, they will reject
+
+**Admiral Loans** (workbook 2026-10-12)
+- `account_age_months = 6` (was 3) — "running cases: 6 months or older"
+- `reject_if_second_iva = True` — "REJECT IF PREVIOUS IVA"; the engine's flag fires on any previous IVA
+
+**Loans by Mal** (workbook 2026-10-12)
+- `account_age_months = 3` — under 3 months is a reject
+- `young_account_months = 6`, `young_account_min_dividend_pence = 40` — "if under 6 months but older than 3 months - has to 40p/£". These two fields are new: when both are set, an account younger than `young_account_months` must meet the higher dividend (exactly that many months old counts as not younger); an unknown account age is flagged (`CREDITOR-YOUNG-ACCOUNT-DIV-UNVERIFIED`) and checked against the standard minimum, never assumed young.
+
+**Ratesetter** (confirmed 2026-10-13)
+- `min_dividend_pence = 25`, `young_account_months = 6`, `young_account_min_dividend_pence = 50` — "25p; if under 6 months old it 50p". Exactly six months old is the standard 25p.
+- `account_age_months = None` — the previous 6-month reject was a stand-in for the 50p tier and contradicted the sheet (a young loan needs 50p, it is not refused). Proposed through the change workflow alongside the tier.
+
+**HM Revenue & Customs** (property valuation, confirmed 2026-10-12)
+- TIG-15.4 compares available equity at **100%** of the property value (`property_value - mortgage_balance`) with the HMRC balance. A property with a mortgage but no recorded valuation reaches the engine as "value unknown" (not £0), so the rule reports "could not be completed" instead of passing silently (pipeline fix 2026-10-13).
+- The row's `reject_if_equity_exceeds_debt` flag was the generic per-creditor check at 85% against total unsecured debt. The sheet owner decided (2026-10-13) it is superseded: the HMRC draft switches it off in the same request that switches TIG-15.4 on, and the seeder no longer sets it. Other equity rules that remain: TIG-16 (general flag, non-WPM cases only, not HMRC-specific), WATCH-22.4 and EVOLVE-01 (both being switched off). Aryza sends the name "HMRC". Since 2026-10-13 it is an alias of the "HM Revenue & Customs" row, on the workbook's own evidence (GENERAL CREDITOR row 174 is "HM Revenue & Customs" and its notes call the creditor "HMRC"; the TIG sheet states the HMRC rules under "HMRC"). Those cases now take the row's Will Consider stance and its notes flag instead of resolving as unknown; "HMRC - benefits overpayments" is a separate row and is not matched. TIG-15.x rules match by name and are unaffected.
+
+### Unconfirmed stance (`status = UNKNOWN`, added 2026-10-13)
+A creditor whose stance the sheet owner has not confirmed is stored with status UNKNOWN. The engine reports "no recorded standing position", flags `CREDITOR-STANCE-UNCONFIRMED`, and never counts it as an acceptance; the majority logic treats it as a vote that could go either way. Used for:
+- the seven creditors that lost the retired Evolve representative and appear nowhere else in the workbook: Mint, NatWest, NatWest Bank, Royal Bank of Scotland, The Royal Bank of Scotland Plc, TSB Bank, Ulster Bank. (Octopus Energy and Updraft keep the General sheet's Accept. Shell Energy keeps Accept: the user confirmed on 2026-10-13 that it is the sheet's "Shell Energy Retail Limited (NOW OCTOPUS)" row; the draft deactivates that duplicate row (kept, not deleted). Note that "Shell Energy Retail Limited" as a raw name resolves to Octopus Energy, whose trading names migration 0030 seeded with it (the sheet says "NOW OCTOPUS"); both records are Accept, so the outcome is the same either way. Barclaycard moves to WATCH, where the Which Representative sheet lists it.)
+- Zilch (buy-now-pay-later), which appears on real cases but not in the workbook: a row exists for name matching only (aliases `zilch`, `zilch technology`; trading names Zilch Technology Limited / LTD) until the sheet owner gives a stance.
+Do not run `fix_unknown_creditor_statuses`: its Rule 1 converts UNKNOWN to ACCEPT for represented rows, which is exactly the default this status exists to prevent.
 
 **Commsave Credit Union**
 - Special voting behaviour — check notes in seed data
@@ -327,7 +354,7 @@ Some council tax debts are billed by county councils that route the IVA vote to 
 | TIG Criteria | `assess_case()` TIG rule block | `GlobalCriteria` |
 | Watch Criteria | `assess_case()` WATCH rule block | `GlobalCriteria`, `CreditorCriteria` |
 | TIX Criteria | Recent spend checks, `_check_shop_direct()` | `CreditorCriteria` |
-| Evolve Criteria | `assess_case()` EVOLVE rule block | `GlobalCriteria` |
+| Evolve Criteria (retired 2026-10-12) | `assess_case()` EVOLVE rule block, switched off | `GlobalCriteria` |
 | Dividends | `_compute_dividend_analysis()` | `CreditorCriteria.min_dividend_pence`, `CouncilRule.min_dividend_pence` |
 | Which Representative | `detect_representatives()` | `CreditorCriteria.representative` |
 | GENERAL CREDITOR | `_check_creditor_individual()` | `CreditorCriteria` (all flags) |

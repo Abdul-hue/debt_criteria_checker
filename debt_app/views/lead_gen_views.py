@@ -31,15 +31,19 @@ from debt_app.aryza_client import (
     fetch_sfs_household,
 )
 from debt_app.helpers import get_user_department
-from debt_app.models import CreditReport, LeadGenCheck
+from debt_app.models import CreditReport, GlobalCriteria, LeadGenCheck
 from debt_app.permissions import HasEnabledFeature
 from debt_app.services.criteria_versioning import current_criteria_version, get_code_version
 from debt_app.services.lead_gen import (
+    ACTIVITY_COUNT_KEYS,
     LEAD_GEN_DEPARTMENT,
+    case_figures,
     display_client_name,
     estimate_disposable_income,
     lead_gen_income_missing,
     lead_gen_dmp_inputs,
+    lead_gen_solution_inputs,
+    without_vat_answers,
     summarise_activity,
     to_lead_gen_result,
 )
@@ -151,19 +155,44 @@ class LeadGenCheckView(APIView):
 
         # 3. Shared assessment, Lead Gen context, no persistent side effects.
         dmp_creditor_rows, dmp_checklist_raw = lead_gen_dmp_inputs(request.data.get("dmp_checklist"))
+        solution_checklist = lead_gen_solution_inputs(request.data.get("solution_checklist"))
+        # The active SFS: its rent feeds the £399 rule and, with the household,
+        # the estimated disposable income below. A failed read only leaves
+        # rent unrecorded and the estimate unavailable.
         try:
-            outcome = criteria_views.run_standalone_assessment(
+            household = fetch_sfs_household(case_obj.clientid) if case_obj.clientid else None
+        except Exception:
+            logger.exception("[LEAD GEN] SFS household read failed for %s", reference)
+            household = {"status": "ERROR"}
+
+        def assess(checklist_raw):
+            return criteria_views.run_standalone_assessment(
                 reference,
                 user=user,
                 credit_report_id=credit_report_id,
                 creditor_rows=dmp_creditor_rows,
-                dmp_checklist_raw=dmp_checklist_raw,
+                dmp_checklist_raw=checklist_raw,
+                solution_checklist_raw=solution_checklist,
                 case_data_obj=case_obj,
+                sfs_household=household,
                 source_department_override=LEAD_GEN_DEPARTMENT,
                 persist_source_department=False,
                 save_decision=False,
             )
-            lead_gen = to_lead_gen_result(outcome, income_missing=lead_gen_income_missing(case_obj))
+
+        try:
+            outcome = assess(dmp_checklist_raw)
+            hmrc_is_creditor = bool(outcome.response_body.get("hmrc_is_creditor"))
+            # The VAT question is only offered for a case with an HMRC creditor.
+            # A VAT tick on any other case (stale screen, raw API call) would
+            # still force a DMP in the engine, so it is dropped and re-assessed.
+            if not hmrc_is_creditor and without_vat_answers(dmp_checklist_raw) != dmp_checklist_raw:
+                logger.warning("[LEAD GEN] VAT answers ignored for %s: no HMRC creditor", reference)
+                outcome = assess(without_vat_answers(dmp_checklist_raw))
+            income_missing = lead_gen_income_missing(case_obj)
+            rule_titles = dict(GlobalCriteria.objects.values_list("rule_key", "rule_name"))
+            lead_gen = to_lead_gen_result(outcome, income_missing=income_missing, rule_titles=rule_titles)
+            figures = case_figures(outcome.case_data, income_missing=income_missing)
         except Exception:
             logger.exception("[LEAD GEN] assessment failed for %s", reference)
             rec = _record(user, reference, "ENGINE_ERROR", error_code="ENGINE_ERROR",
@@ -182,7 +211,7 @@ class LeadGenCheckView(APIView):
             user, reference, LeadGenCheck.STATUS_OK,
             iva_outcome=lead_gen["iva"]["code"],
             dmp_outcome=lead_gen["dmp"]["code"],
-            dro_referral=lead_gen["dro"] is not None,
+            dro_referral=lead_gen["dro"]["code"] == "REFER",
             overall_outcome=lead_gen["overall"]["code"],
             engine_recommended_solution=str(outcome.engine_recommended_solution or ""),
             reason_codes=lead_gen["reason_codes"] + lead_gen["evidence_codes"]
@@ -196,7 +225,6 @@ class LeadGenCheckView(APIView):
         # outcome above and never fed back into it; a failure only makes the
         # estimate unavailable.
         try:
-            household = fetch_sfs_household(case_obj.clientid) if case_obj.clientid else None
             estimated_di = estimate_disposable_income(household, (case_obj.income or {}).get("total"))
             if estimated_di["available"]:
                 # Aryza's own non-monthly figures behind the converted monthly income.
@@ -222,13 +250,19 @@ class LeadGenCheckView(APIView):
             "overall": lead_gen["overall"],
             "iva": lead_gen["iva"],
             "dmp": lead_gen["dmp"],
+            "dmp_notes": lead_gen["dmp_notes"],
+            "hmrc_is_creditor": hmrc_is_creditor,
             "dro": lead_gen["dro"],
+            "bankruptcy": lead_gen["bankruptcy"],
             "reasons": lead_gen["reasons"],
+            "iva_reasons": lead_gen["iva_reasons"],
+            "dmp_reasons": lead_gen["dmp_reasons"],
             "review_reasons": lead_gen["review_reasons"],
             "evidence_required_later": lead_gen["evidence_required_later"],
             "warnings": lead_gen["warnings"],
             "credit_report": credit_report,
             "estimated_disposable_income": estimated_di,
+            "case_figures": figures,
             "criteria_version": rec.criteria_version if rec else None,
         }, status=status.HTTP_200_OK)
 
@@ -288,10 +322,7 @@ class LeadGenActivityView(APIView):
         start, end = _london_day_bounds(day_from, day_to)
         checks = list(LeadGenCheck.objects.filter(checked_at__gte=start, checked_at__lt=end))
         rows = summarise_activity(checks)
-        totals = {k: sum(r[k] for r in rows) for k in (
-            "cases_checked", "iva_potential", "iva_needs_review", "dmp_potential",
-            "dro_referral", "no_solution", "failed_attempts",
-        )}
+        totals = {k: sum(r[k] for r in rows) for k in ACTIVITY_COUNT_KEYS}
         return Response({
             "date_from": day_from.isoformat(),
             "date_to": day_to.isoformat(),

@@ -334,7 +334,16 @@ function ChangeDetail({ id }) {
             </p>
             {(data.trial_summary.changed || []).slice(0, 50).map((c) => (
               <details key={c.aryza_reference} className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                <summary className="cursor-pointer text-sm font-medium text-slate-800">Case {c.aryza_reference}</summary>
+                <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                  Case {c.aryza_reference}
+                  {c.warnings?.length ? <span className="ml-2 text-xs font-semibold text-amber-700">Check before relying on this</span> : null}
+                </summary>
+                {c.snapshot_saved_at && (
+                  <p className="mt-2 text-xs text-slate-500">Last assessed {formatDayTime(c.snapshot_saved_at, ' · ')}</p>
+                )}
+                {(c.warnings || []).map((w, i) => (
+                  <p key={i} className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">{w}</p>
+                ))}
                 <ul className="mt-2 space-y-1 text-xs text-slate-700">
                   {Object.entries(c.differences).map(([k, d]) => (
                     <li key={k}><span className="font-semibold">{k}</span>: {fmt(d.before)} → {fmt(d.after)}</li>

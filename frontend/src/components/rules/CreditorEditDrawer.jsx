@@ -166,6 +166,7 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
               <option value="WILL_CONSIDER">WILL_CONSIDER</option>
               <option value="DO_NOT_VOTE">DO_NOT_VOTE</option>
               <option value="CONDITIONAL_VOTER">CONDITIONAL_VOTER</option>
+              <option value="UNKNOWN">UNKNOWN — stance not yet confirmed</option>
             </select>
             {errors.status && <p className="text-xs text-red-500 mt-1">{errors.status.message}</p>}
           </div>
@@ -187,18 +188,61 @@ export default function CreditorEditDrawer({ creditor, onClose, readOnly }) {
           </div>
 
           <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Min Dividend (pence)</label>
-            <input 
-              type="number" 
-              step="1" 
+            <label htmlFor="min_dividend_pence" className="block text-xs font-medium text-gray-600 mb-1">Standard minimum dividend (pence in the £)</label>
+            <input
+              id="min_dividend_pence"
+              type="number"
+              step="1"
               min="0"
-              {...register('min_dividend_pence', { 
-                setValueAs: v => (v === '' || v === null || isNaN(v)) ? null : parseInt(v, 10) 
-              })} 
+              {...register('min_dividend_pence', {
+                setValueAs: v => (v === '' || v === null || isNaN(v)) ? null : parseInt(v, 10)
+              })}
               disabled={readOnly}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-500"
             />
+            <p className="text-[11px] text-gray-400 mt-1">Applies to every account unless a younger-account minimum below overrides it.</p>
             {errors.min_dividend_pence && <p className="text-xs text-red-500 mt-1">{errors.min_dividend_pence.message}</p>}
+          </div>
+
+          {/* Age-dependent minimum: a higher dividend while the account is younger than N months */}
+          <div className="mb-4 p-3 rounded-md border border-gray-200 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-700 mb-2">Younger-account minimum dividend</p>
+            <p className="text-[11px] text-gray-500 mb-3">
+              Optional. Accounts younger than the threshold must meet this higher minimum instead of the standard one
+              (for example Ratesetter: 25p standard, 50p while the loan is under 6 months old). Set both fields or leave both blank.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="young_account_months" className="block text-xs font-medium text-gray-600 mb-1">Account age threshold (months)</label>
+                <input
+                  id="young_account_months"
+                  type="number"
+                  step="1"
+                  min="1"
+                  {...register('young_account_months', {
+                    setValueAs: v => (v === '' || v === null || isNaN(v)) ? null : parseInt(v, 10)
+                  })}
+                  disabled={readOnly}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-500"
+                />
+                {errors.young_account_months && <p className="text-xs text-red-500 mt-1">{errors.young_account_months.message}</p>}
+              </div>
+              <div>
+                <label htmlFor="young_account_min_dividend_pence" className="block text-xs font-medium text-gray-600 mb-1">Younger-account minimum (pence in the £)</label>
+                <input
+                  id="young_account_min_dividend_pence"
+                  type="number"
+                  step="1"
+                  min="0"
+                  {...register('young_account_min_dividend_pence', {
+                    setValueAs: v => (v === '' || v === null || isNaN(v)) ? null : parseInt(v, 10)
+                  })}
+                  disabled={readOnly}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-500"
+                />
+                {errors.young_account_min_dividend_pence && <p className="text-xs text-red-500 mt-1">{errors.young_account_min_dividend_pence.message}</p>}
+              </div>
+            </div>
           </div>
 
           <div className="mb-4">

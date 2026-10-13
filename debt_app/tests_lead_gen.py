@@ -73,7 +73,7 @@ class LeadGenInterpretationTests(SimpleTestCase):
         self.assertEqual(r["iva"]["code"], "POTENTIALLY_SUITABLE")
         self.assertEqual(r["dmp"]["code"], "POTENTIALLY_SUITABLE")
         self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")
-        self.assertIsNone(r["dro"])
+        self.assertNotEqual(r["dro"]["code"], "REFER")
         self.assertEqual(r["reasons"], [])
 
     def test_flags_mean_needs_review(self):
@@ -81,7 +81,8 @@ class LeadGenInterpretationTests(SimpleTestCase):
                        rule_titles={"TIG-18": "Recent spending review"})
         self.assertEqual(r["iva"]["code"], "NEEDS_REVIEW")
         self.assertEqual(r["iva"]["label"], "IVA — Potentially suitable, needs review")
-        self.assertEqual(r["review_reasons"][0], {"code": "TIG-18", "text": "Recent spending review — needs checking"})
+        self.assertEqual(r["review_reasons"][0],
+                         {"code": "TIG-18", "text": "Recent spending review — needs checking", "detail": "m"})
         self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")
 
     def test_non_voting_unsecured_creditor_means_needs_review(self):
@@ -102,16 +103,28 @@ class LeadGenInterpretationTests(SimpleTestCase):
         r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-01", "Debt £4,100 is too low")])
         self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")
         self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")  # DMP still works
-        self.assertEqual(r["reasons"][0], {"code": "TIG-01", "text": "Minimum debt — criteria not met"})
+        self.assertEqual(r["reasons"][0], {"code": "TIG-01", "text": "Minimum debt — criteria not met",
+                                           "detail": "Debt £4,100 is too low"})
 
-    def test_dmp_rejected_uses_figure_free_text(self):
-        dmp = {"status": "DMP_REJECTED", "reasons": [
-            "The customer's total debt is £2,500.00, which is at or below the £3,000.00 minimum ..."
-        ], "notes": []}
+    def test_dmp_rejected_headline_is_figure_free_and_detail_is_engine_text(self):
+        engine_text = "The customer's total debt is £2,500.00, which is at or below the £3,000.00 minimum ..."
+        dmp = {"status": "DMP_REJECTED", "reasons": [engine_text], "notes": []}
         r = _interpret(dmp_eligibility=dmp)
         self.assertEqual(r["dmp"]["code"], "NOT_SUITABLE")
-        self.assertEqual(r["dmp_reasons"][0]["code"], "DMP-MIN-DEBT")
-        self.assertNotIn("2,500", json.dumps(r))
+        reason = r["dmp_reasons"][0]
+        self.assertEqual(reason["code"], "DMP-MIN-DEBT")
+        self.assertNotIn("2,500", reason["text"])
+        self.assertEqual(reason["detail"], engine_text)
+
+    def test_forced_dro_detail_quotes_lead_gen_figure_and_threshold(self):
+        r = _interpret(engine_solution="FORCED_DRO_LG", lead_gen_disposable_income=250.0)
+        detail = r["iva_reasons"][0]["detail"]
+        self.assertIn("£250.00", detail)
+        self.assertIn("£399.00", detail)
+
+    def test_reason_without_engine_message_has_no_detail(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-01", "")])
+        self.assertIsNone(r["reasons"][0]["detail"])
 
     def test_neither_does_not_meet_criteria_with_ordered_reasons(self):
         dmp = {"status": "DMP_REJECTED", "reasons": ["The customer's total debt is £10.00, ..."], "notes": []}
@@ -124,6 +137,122 @@ class LeadGenInterpretationTests(SimpleTestCase):
         # Engine order, capped at 3 for display; every code kept for the record.
         self.assertEqual([x["code"] for x in r["reasons"]], ["TIG-01", "TIG-02", "CREDITOR-BLOCKED"])
         self.assertEqual(r["reason_codes"], ["TIG-01", "TIG-02", "CREDITOR-BLOCKED", "TIG-21.2", "DMP-MIN-DEBT"])
+
+    def test_iva_and_dmp_reasons_are_not_capped(self):
+        dmp = {"status": "DMP_REJECTED", "reasons": ["The customer's total debt is £10.00, ..."], "notes": []}
+        r = _interpret(engine_solution="IVA_NOT_VIABLE",
+                       hard_blocks=[_hb("TIG-01"), _hb("TIG-02"), _hb("CREDITOR-BLOCKED"), _hb("TIG-21.2")],
+                       dmp_eligibility=dmp)
+        self.assertEqual([x["code"] for x in r["iva_reasons"]], ["TIG-01", "TIG-02", "CREDITOR-BLOCKED", "TIG-21.2"])
+        # The combined list stops at 3 IVA reasons; the DMP reason is still sent on its own.
+        self.assertNotIn("DMP-MIN-DEBT", [x["code"] for x in r["reasons"]])
+        self.assertEqual([x["code"] for x in r["dmp_reasons"]], ["DMP-MIN-DEBT"])
+
+    def test_flags_are_listed_when_iva_is_not_suitable(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-01")],
+                       flags=[_flag("BPO-DEBT", "Change the creditor in Aryza")],
+                       rule_titles={"TIG-01": "Minimum debt", "BPO-DEBT": "Debt listed under a debt collector"})
+        self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")
+        self.assertEqual(r["review_reasons"], [{
+            "code": "BPO-DEBT", "text": "Debt listed under a debt collector — needs checking",
+            "detail": "Change the creditor in Aryza",
+        }])
+        self.assertNotIn("BPO-DEBT", r["reason_codes"])  # a flag never becomes a failure reason
+
+    def test_open_banking_checks_are_one_line_after_the_real_issues(self):
+        no_ob = "There is no open banking data loaded, so the recent spending check could not be completed."
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS", flags=[
+            _flag("TIG-18", no_ob),
+            _flag("TIG-16", "No valuation is recorded."),
+            _flag("TIX-04", "Open banking data was not available, so the HP payment could not be checked."),
+            _flag("WATCH-22.10", "Open banking data was not available, so the HP payment could not be checked."),
+        ], rule_titles={"TIG-18": "Recent spending review", "TIG-16": "Equity exceeds liabilities",
+                        "TIX-04": "TIX vehicle HP payment"})
+        self.assertEqual(r["iva"]["code"], "NEEDS_REVIEW")
+        self.assertEqual([x["code"] for x in r["review_reasons"]], ["TIG-16", "OPEN-BANKING-NOT-AVAILABLE"])
+        ob = r["review_reasons"][1]
+        self.assertEqual(ob["text"], "3 checks need open banking data — check bank statements manually")
+        self.assertIn("Recent spending review; TIX vehicle HP payment; WATCH-22.10.", ob["detail"])
+
+    def test_single_open_banking_check_wording(self):
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS",
+                       flags=[_flag("TIG-18", "There is no open banking data loaded, so ...")])
+        self.assertEqual(r["review_reasons"][0]["text"],
+                         "1 check needs open banking data — check bank statements manually")
+
+    def test_open_banking_flag_with_real_data_is_listed_on_its_own(self):
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS",
+                       flags=[_flag("TIG-18", "Spend of £3,000 over two months exceeds 2x income.")])
+        self.assertEqual([x["code"] for x in r["review_reasons"]], ["TIG-18"])
+
+    def test_engine_open_banking_wording_is_pinned(self):
+        """Every engine rule's no-open-banking message must be recognised."""
+        from debt_app.engine import criteria as eng
+        case = {"has_open_banking": False, "vehicle_hp_monthly": 0.0, "creditors": [], "gold_transactions": [],
+                "total_income": 2000, "monthly_income": 2000}
+        results = []
+        for fn in (eng._tig_18, eng._tig_19, eng._tig_20, eng._tix_01):
+            try:
+                results.append(fn(dict(case)))
+            except (KeyError, TypeError):
+                pass
+        results.append(eng._hp_monthly_rule(dict(case), "TIX-04", "", 250))
+        no_data = [r for r in results if r.triggered and "open banking" in r.message.lower()]
+        self.assertGreaterEqual(len(no_data), 2)
+        for r in no_data:
+            self.assertTrue(lead_gen._needs_open_banking(r), r.message)
+
+    def test_shop_direct_account_age_is_listed_once(self):
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS",
+                       flags=[_flag("TIG-19.1", "Age could not be verified."), _flag("TIX-02", "Age not confirmed.")],
+                       rule_titles={"TIG-19.1": "Shop Direct account age"})
+        self.assertEqual(r["review_reasons"], [{
+            "code": "TIG-19.1", "text": "Shop Direct account age — needs checking", "detail": "Age could not be verified.",
+        }])
+
+    def test_tix_account_age_alone_is_still_listed(self):
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS", flags=[_flag("TIX-02", "Age not confirmed.")])
+        self.assertEqual([x["code"] for x in r["review_reasons"]], ["TIX-02"])
+
+    def test_tix_account_age_hard_block_is_never_merged(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIX-02", "Account is 3 months old.")],
+                       flags=[_flag("TIG-19.1", "Age could not be verified.")])
+        self.assertIn("TIX-02", [x["code"] for x in r["iva_reasons"]])
+
+    def test_impossible_majority_makes_iva_not_suitable(self):
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS",
+                       flags=[_flag("MAJORITY-IMPOSSIBLE", "Only £2,109.00 of support could be reached."),
+                              _flag("BPO-DEBT", "Change the creditor in Aryza")])
+        self.assertEqual(r["iva"]["code"], "NOT_SUITABLE")
+        self.assertEqual(r["iva_reasons"], [{
+            "code": "MAJORITY-IMPOSSIBLE", "text": "The required creditor vote cannot be reached",
+            "detail": "Only £2,109.00 of support could be reached.",
+        }])
+        self.assertEqual([x["code"] for x in r["review_reasons"]], ["BPO-DEBT"])
+        self.assertIn("MAJORITY-IMPOSSIBLE", r["reason_codes"])
+        self.assertEqual(r["dmp"]["code"], "POTENTIALLY_SUITABLE")
+        self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")  # DMP still works
+
+    def test_impossible_majority_and_no_dmp_does_not_meet_criteria(self):
+        dmp = {"status": "DMP_REJECTED", "reasons": ["The customer's total debt is £10.00, ..."], "notes": []}
+        r = _interpret(engine_solution="IVA_WITH_CONDITIONS", dmp_eligibility=dmp,
+                       flags=[_flag("MAJORITY-IMPOSSIBLE")])
+        self.assertEqual(r["overall"]["code"], "DOES_NOT_MEET_CRITERIA")
+
+    def test_impossible_majority_follows_the_other_iva_blockers(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-01")],
+                       flags=[_flag("MAJORITY-IMPOSSIBLE")])
+        self.assertEqual([x["code"] for x in r["iva_reasons"]], ["TIG-01", "MAJORITY-IMPOSSIBLE"])
+
+    def test_forced_dro_with_impossible_majority_keeps_the_dro(self):
+        r = _interpret(engine_solution="FORCED_DRO_LG", lead_gen_disposable_income=250.0,
+                       flags=[_flag("MAJORITY-IMPOSSIBLE")])
+        self.assertEqual(r["overall"]["code"], "DRO_REFER")
+        self.assertEqual([x["code"] for x in r["iva_reasons"]], ["FORCED_DRO_LG", "MAJORITY-IMPOSSIBLE"])
+
+    def test_evidence_stage_flag_is_not_listed_for_review(self):
+        r = _interpret(engine_solution="IVA_NOT_VIABLE", hard_blocks=[_hb("TIG-01")], flags=[_flag("TIG-05")])
+        self.assertEqual(r["review_reasons"], [])
 
     def test_forced_dro_is_shown_separately_not_as_failure(self):
         r = _interpret(engine_solution="FORCED_DRO_LG", hard_blocks=[_hb("TIG-02")])
@@ -182,7 +311,7 @@ class LeadGenInterpretationTests(SimpleTestCase):
 
     def test_forced_dro_with_missing_income_becomes_a_fact_find_warning(self):
         r = _interpret(engine_solution="FORCED_DRO_LG", hard_blocks=[_hb("TIG-02")], income_missing=True)
-        self.assertIsNone(r["dro"])
+        self.assertNotEqual(r["dro"]["code"], "REFER")
         self.assertNotEqual(r["overall"]["code"], "DRO_REFER")
         # Agreed: other criteria (here DMP) still give "Potentially suitable", with the warning.
         self.assertEqual(r["overall"]["code"], "POTENTIALLY_SUITABLE")
@@ -377,11 +506,46 @@ class LeadGenCheckEndpointTests(_LeadGenFixture):
         for forbidden_text in ("Alpha Bank", "Beta Loans", "6,000", "4,500", "600000", "Golden Client"):
             self.assertNotIn(forbidden_text, raw)
         self.assertEqual(set(body), {
-            "success", "check_id", "aryza_reference", "client", "checked_at", "overall", "iva", "dmp", "dro",
-            "reasons", "review_reasons", "evidence_required_later", "warnings", "credit_report",
+            "success", "check_id", "aryza_reference", "client", "checked_at", "overall", "iva", "dmp", "dmp_notes", "hmrc_is_creditor", "dro", "bankruptcy",
+            "reasons", "iva_reasons", "dmp_reasons", "review_reasons", "evidence_required_later", "warnings",
+            "credit_report",
             "estimated_disposable_income",
+            "case_figures",
             "criteria_version",
         })
+
+    def test_response_shows_the_figures_the_criteria_used(self):
+        body = self._check(self._good_case("LG-FIG")).json()
+        self.assertEqual(body["case_figures"], {
+            "total_unsecured_debt": 10_500.0,
+            "monthly_income": 2_500.0,
+            "monthly_expenditure": 1_800.0,
+            "disposable_income": 700.0,
+        })
+
+    def test_figures_not_recorded_are_none_not_zero(self):
+        body = self._check(self._good_case("LG-FIG0", income_pence=0, expenditure_pence=0)).json()
+        self.assertIsNone(body["case_figures"]["monthly_income"])
+        self.assertIsNone(body["case_figures"]["monthly_expenditure"])
+
+    def test_failed_reasons_carry_the_engine_explanation(self):
+        case = _case("LG-WHY", [_creditor("Alpha Bank", 150_000), _creditor("Beta Loans", 100_000)],
+                     income_pence=250_000, expenditure_pence=180_000)
+        body = self._check(case).json()
+        tig01 = next(r for r in body["reasons"] if r["code"] == "TIG-01")
+        self.assertNotIn("2,500", tig01["text"])
+        self.assertIn("£2,500.00", tig01["detail"])
+        dmp = next(r for r in body["reasons"] if r["code"] == "DMP-MIN-DEBT")
+        self.assertIn("£2,500.00", dmp["detail"])
+
+    def test_reason_headline_uses_the_rule_title_not_the_rule_id(self):
+        GlobalCriteria.objects.update_or_create(
+            rule_key="TIG-01", defaults={"criteria_set": "TIG", "rule_name": "Minimum debt level",
+                                         "severity": "hard_block", "is_active": True})
+        case = _case("LG-TITLE", [_creditor("Alpha Bank", 150_000), _creditor("Beta Loans", 100_000)])
+        body = self._check(case).json()
+        tig01 = next(r for r in body["iva_reasons"] if r["code"] == "TIG-01")
+        self.assertEqual(tig01["text"], "Minimum debt level — criteria not met")
 
     # ---- errors -------------------------------------------------------------
 
@@ -598,7 +762,7 @@ class LeadGenFinalVerificationTests(_LeadGenFixture):
                 body = self._check(case).json()
                 self.assertNotEqual(body["overall"]["code"], "DRO_REFER")
                 self.assertEqual(body["overall"]["code"], "POTENTIALLY_SUITABLE")  # via DMP, with the warning
-                self.assertIsNone(body["dro"])
+                self.assertNotEqual(body["dro"]["code"], "REFER")
                 self.assertEqual(body["warnings"], [{"code": "INCOME-NOT-RECORDED",
                                                      "text": "Income not recorded — check the fact find"}])
                 rec = LeadGenCheck.objects.get(aryza_reference=ref)
@@ -619,7 +783,7 @@ class LeadGenFinalVerificationTests(_LeadGenFixture):
         self.assertEqual(low["overall"]["code"], "DRO_REFER")
         self.assertEqual(low["warnings"], [])
         high = self._check(self._good_case("LG-HIGH", income_pence=250_000)).json()
-        self.assertIsNone(high["dro"])
+        self.assertNotEqual(high["dro"]["code"], "REFER")
         self.assertEqual(high["warnings"], [])
 
     def test_supplied_document_failure_is_not_hidden(self):
@@ -655,8 +819,9 @@ class LeadGenFinalVerificationTests(_LeadGenFixture):
         self.assertEqual(resp.status_code, 200, resp.content)
         raw = resp.content.decode()
         self.assertEqual(resp.json()["overall"]["code"], "DOES_NOT_MEET_CRITERIA")
-        for secret in ("Hidden Road", "SECRETNAME", "Alpha Bank", "Beta Loans", "ALPHA BANK",
-                       "2,500", "1,800", "1,500", "£3,000", "£6,000", "£100", "399", "Golden Client"):
+        # Case figures are shown on purpose (case_figures / reason detail);
+        # credit report identity and creditor names are not.
+        for secret in ("Hidden Road", "SECRETNAME", "Alpha Bank", "Beta Loans", "ALPHA BANK", "Golden Client"):
             self.assertNotIn(secret, raw, secret)
 
 

@@ -1,0 +1,599 @@
+OLD: 2026-08-21 TIP CRITERIA & VOTING HISTORY.xlsx
+NEW: 2026-10-12 TIP CRITERIA & VOTING HISTORY.xlsx
+
+== Sheets ==
+  REMOVED sheet: Evolve Criteria
+
+== GENERAL CREDITOR (344 -> 358 named rows) ==
+  added 18, removed 4, changed 27
+  + 1st Stop Personal Loans / Oplo | WILL CONSIDER - UPDATED 15/07, POINTS THEY WILL CONSIDER: Age of Debt.
+  + 24/7 Moneybox / Active Securities | Do not vote - Will only submit a POD
+  + 3 Mobile
+  + 365 Business Finance Ltd | Last Trial TIG32156 - Matthew Butler - rejected 18.11.22
+  + 3J Finance
+  + A Shade Greener Boilers | Reject all IVA’s regardless of vulnerabilities of the client. Avoid if possible
+  + Auto Lend | Will Consider | Follow lendable criteria as a rule, but could take action against HP even if up to date, please c... | 07/09/2026
+  + Clevr Money (Blackpool, Fylde & Wyre Credit Union Ltd) | REJECT | confirmed company policy to reject all IVAs 07.06.23. Rejected in November 2023. ZAID AGREED TRIA... | 13/8/24
+  + CARMOOLA | DO NOT VOTE - UNLESS REJECTING SEE>>>> | CARMOOLA – REQUIRED A 3 WAY CALL TO CONFIRM THEY HAVE RECEIVED THE VEHICLE AND THE CAR IS NOW UNS... | 23.09.26
+  + Drafty.co.uk | Accept
+  + Faughanvale Credit Union | REJECT | confirmed CREDIT UNION POLICY TO REJECT IVAS - OFFERED 100P/£ REJECTED THIS- 07.09.26 | 07/09/2026
+  + Federal Capital | REJECT | REJECT ALL IVAS | 01.05.26
+  + Match the Cash t/a Guarantor My Loan (Match the Cash trading name) also trader as 'Sharemyloan' S... | Will consider | will consider 50p/£ min div TIG17904 22/10/2021 // I&E has to match loan application, they are on... | 25/08/2026
+  + Hillingdon Credit Union - SEE LONDON COMMUNITY CREDIT UNION | REJECT | Reject (last trials TIP4267, TIP5367) - REJECTED TIG17000 25/09/2021 - AGREED TRIAL CAM - KIRSTY ...
+  + Knowsley Mutual Credit Union | REJECT | AGREED TRIAL 05/04/2023 TL-765156 Miss Michaela Cattrell REJECTION - AUGUST 2026
+  + Lewisham Plus Bromley Credit Union: | REJECT | confirmed credit union policy to reject IVAS 07.05.26 | 07.05.26
+  + Oldham Credit Union | REJECT | CREDIT UNION POLICY TO REJECT ALL IVAS
+  + WALSAVE CREDIT UNION | REJECT | NOT FOR PROFIT - MEMBERS SAVINGS - POLICY TO REJECT ALL IVAS. | 13.05.26
+  - Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd) | REJECT | confirmed company policy to reject all IVAs 07.06.23. Rejected in November 2023. ZAID AGREED TRIA... | 13/8/24
+  - Match the Cash t/a Guarantor My Loan (Match the Cash trading name) | Will consider | will consider 50p/£ min div TIG17904 22/10/2021 // I&E has to match loan application, they are on... | 28/11/24
+  - Hillingdon Credit Union | REJECT | Reject (last trials TIP4267, TIP5367) - REJECTED TIG17000 25/09/2021 - AGREED TRIAL CAM - KIRSTY ...
+  - Knowsley Credit Union | REJECT | AGREED TRIAL 05/04/2023 TL-765156 Miss Michaela Cattrell
+  ~ 1st Class Credit Union
+      col 3: 'c'
+           -> ''
+  ~ Admiral Loans
+      col 3: 'running cases: 3 months or older, no CCJ, no AOE - updated 10.01.25'
+           -> 'running cases: 6 months or older, no CCJ, no AOE - REJECT IF PREVIOUS IVA CONFIRMED THIS 24.08.26'
+      col 4: '24/09/24'
+           -> '24/08/2026'
+  ~ Amber Home Loans
+      col 3: '15/09/2016 CONFIRM REJECT'
+           -> ''
+  ~ Anglian Water
+      col 3: 'debtrecoverystm@anglianwater.co.uk'
+           -> 'Anglian Water Customer Services <custservice@anglianwater.co.uk>'
+  ~ Bamboo
+      col 2: 'REJECT'
+           -> 'Will Consider'
+      col 3: 'IF LOAN IS LESS THAN 3 MONTHS OLD AT TIME OF SIGNING PROPOSAL WILL REJECT! IF NEVER MADE A PAYMENT WILL REJECT- IF CAN REPAY DEBTS IN LESS THAN 96 MONTHS REJ...'
+           -> 'IF LOAN IS LESS THAN 3 MONTHS OLD AT TIME OF SIGNING PROPOSAL WILL REJECT! IF NEVER MADE A PAYMENT WILL REJECT- IF CAN REPAY DEBTS IN LESS THAN 96 MONTHS REJ...'
+  ~ Blues and Twos credit union
+      col 3: 'art'
+           -> ''
+  ~ Bradford District Credit Union
+      col 3: 'REJECTED LAST CASE TIG41053 - CARL WILSON 22/08/2023. over 6 months ago last rejection so jaime agreed trail Natasha Harrison, #75395 - DIDNT VOTE'
+           -> 'REJECTED LAST CASE TIG41053 - CARL WILSON 22/08/2023. over 6 months ago last rejection so jaime agreed trail Natasha Harrison, #75395 - DIDNT VOTE agreed ano...'
+      col 4: '25/4/24'
+           -> '05/08/2026'
+  ~ Co-op Credit Union
+      col 3: 'confirmed 18/10/2021 - TIG17605 REJECTED - DO NOT RE PROPOSE jaime agreed trail TIG50155 - Corina Anghelescu -REJECTED THIS 30.07.24 - agreed trial Dean Shaw...'
+           -> 'confirmed 18/10/2021 - TIG17605 REJECTED - DO NOT RE PROPOSE jaime agreed trail TIG50155 - Corina Anghelescu -REJECTED THIS 30.07.24 - agreed trial Dean Shaw...'
+  ~ Everyday Loans
+      col 2: 'Will Consider'
+           -> 'REJECT'
+  ~ Fintern limited / Abound - NOT WPM
+      col 2: 'REJECT'
+           -> 'DO NOT VOTE'
+      col 3: 'MUST BE OVER 6 MONTHS OLD (they have access to open banking and obtain the last 6 months bank statements, they review everyline and say where client could ha...'
+           -> 'MUST BE OVER 3 to 6 MONTHS OLD (they have access to open banking and may obtain the last 6 months bank statements, they review everyline and say where client...'
+      col 4: ''
+           -> '07/09/2026'
+  ~ Great Western Credit Union
+      col 2: 'Will consider'
+           -> 'REJECT'
+      col 3: 'Accepted x4 / rejected x1 (REJECT RECENT SPEND 3 MONTHS UPDATED 17.01.25)'
+           -> 'Accepted x4 / rejected x1 (REJECT RECENT SPEND 3 MONTHS UPDATED 17.01.25) - REJECTED LAST 2 CASES AND NOT RESPSONDED TO COUNTER OFFERS. IF ANOTHER REJECTION ...'
+      col 4: '17.01.25'
+           -> '09/10/2026'
+  ~ Hastings Direct Loans
+      col 2: 'Accept'
+           -> 'DO NOT VOTE'
+      col 3: 'amended criteria from will consider to accept no mods past 6 votes recieved in June 2025 alone have been accept no mods will reject if can be repayed in 10 y...'
+           -> ''
+      col 4: '26/06/25'
+           -> ''
+  ~ Leeds City Credit Union
+      col 4: '01/12/2024'
+           -> '19.02.26'
+  ~ Loans by Mal
+      col 3: 'case by case basis WILL REJECT IF LESS THAN 3 MONTHS AND IF APPLICATION DOES NOT MATCH OUR I&E ALSO REJECT IF DEBTS CAN BE REPAID IN 84 MONTHS recoveries@loa...'
+           -> 'case by case basis WILL REJECT IF LESS THAN 3 MONTHS AND IF APPLICATION DOES NOT MATCH OUR I&E ALSO REJECT IF DEBTS CAN BE REPAID IN 84 MONTHS recoveries@loa...'
+      col 4: '06/12/2025'
+           -> '28/09/2026'
+  ~ London Mutual Credit Union
+      col 3: 'were pod only for a while, now rejecting again (updated) 04.04.25 72918'
+           -> 'were pod only for a while, now rejecting again (updated) 04.04.25 72918, last rejected 111845 (23/03/2026)'
+      col 4: '04.04.25'
+           -> '24/03/2026'
+  ~ NEFirst Credit Union
+      col 3: 'x3 cases proposed as of May 2024 rejected all. Do put forward if we cannot outweigh'
+           -> 'x3 cases proposed as of May 2024 rejected all. Do put forward if we cannot outweigh - they also offer loans deducted at wages as a payroll partner - this wou...'
+      col 4: '29/5/24'
+           -> '13.03.26'
+  ~ Partners Credit Union
+      col 2: 'DO NOT VOTE'
+           -> 'REJECT'
+      col 3: 'do not put forward if majority we cannot adhere to there fees caps. For us to consider accepting the IVA, the dividend would need to be upwards of 65p/£1, th...'
+           -> 'confirmed 12/03/2026 - reject ALL ivas "We are happy to work with the debtor to discuss a more amicable solution for both parties. We are a non-profit co-ope...'
+      col 4: '18/06/25'
+           -> '03/12/2026'
+  ~ Penny Post Credit Union
+      col 3: 'REJECTED 05/09/2021 - did not vote on last case. Agreed trail 20.03.23 name tbc - - - REJECTED TIG35821 KEVIN BALL 13.04.23 no cases on voting behaviour Agre...'
+           -> 'REJECTED 05/09/2021 - did not vote on last case. Agreed trail 20.03.23 name tbc - - - REJECTED TIG35821 KEVIN BALL 13.04.23 no cases on voting behaviour Agre...'
+      col 4: '16.02.26'
+           -> '02.07.26'
+  ~ PennyBurn Credit Union
+      col 3: 'REJECT ALL IVAS (TRIAL CONFIRMED REJECTED 01/10/2021) TIG16930 agreed trial 13.06.22 Mr James Jennings - rejected - AGREED TRIAL 17.02.23 - TIG35039 Miss Mar...'
+           -> 'REJECT ALL IVAS (TRIAL CONFIRMED REJECTED 01/10/2021) TIG16930 agreed trial 13.06.22 Mr James Jennings - rejected - AGREED TRIAL 17.02.23 - TIG35039 Miss Mar...'
+      col 4: '30/6/25'
+           -> '03.07.26'
+  ~ Plend
+      col 2: 'REJECT'
+           -> 'Accept'
+      col 3: 'UPDATED 05.09.23 / old criteria trail agreed Simona Latko 62153 they rejected this for £6k but we could outweigh with a additonal wpm debt so case was approv...'
+           -> 'ACCEPTED 03/03/2026 / 06/03/2026 / 12/03/2026'
+      col 4: '28/1/25'
+           -> '19/03/26'
+  ~ Plane Saver Credit Union
+      col 3: "Confirmed 13/12/2021 reject ALL IVA's, last trial 29/03/2022. TRIAL AGREED WITH KATIE (CLEARPATH) 24/07/2023 - trial agreed with Chu 08.01.24 - moragwa Moasa..."
+           -> "Confirmed 13/12/2021 reject ALL IVA's, IF CLIENT IS EMPLOYED IN AVIATION - WILL IMPACT EMPLOYEMENT EXAMPLES: ARMED FORCES, AIRLINES, ENGINEERS FOR PLANES ETC..."
+      col 4: '17/5/24'
+           -> '16.07.26'
+  ~ Propensio Finance Limited
+      col 3: 'THEY OFFER LOANS FOR HOME IMPROVEMENTS FOR HOMEOWNERS SO WOULD ALWAYS REFER A CHARGING ORDER.'
+           -> 'THEY OFFER LOANS FOR HOME IMPROVEMENTS FOR HOMEOWNERS SO WOULD ALWAYS REFER A CHARGING ORDER. trial agreed for caravan shortfall 09/06/26'
+  ~ Salad Money
+      col 3: 'never accepted an IVA. - put pod only in majority of the time but if they do vote they will reject and will never overturn. Worth trying a case'
+           -> 'never accepted an IVA. - will reject and will never overturn.'
+      col 4: '15/07/25'
+           -> '23.02.26'
+  ~ Scottish Power
+      col 2: 'DO NOT VOTE'
+           -> 'Accept'
+      col 3: 'CANNOT GET A VOTE SINCE COVID'
+           -> 'SEE WATCH CRITERIA'
+      col 4: ''
+           -> '07/09/2026'
+  ~ Startline Motor Finance
+      col 2: 'DO NOT VOTE'
+           -> 'can get a vote if chased'
+      col 4: '14/06/24'
+           -> '10.08.26'
+  ~ TBI Financial Services
+      col 3: 'REJECT ALL CASES!! Will not consider an IVA regardless of situation . DO NOT GO OF THE VOTING BEHAVIOUR AS THESE ARE BEING SOLD TO TBI FROM BAMBOO AFTER THE ...'
+           -> 'REJECT ALL CASES!! Will not consider an IVA regardless of situation . DO NOT GO OF THE VOTING BEHAVIOUR AS THESE ARE BEING SOLD TO TBI FROM BAMBOO AFTER THE ...'
+      col 4: '17/09/24'
+           -> '17/09/25'
+  ~ Quickly Finance
+      col 3: 'b'
+           -> ''
+
+== Councils (362 -> 360 named rows) ==
+  added 2, removed 4, changed 84
+  + Copeland Borough Council FORMS PART OF CUMBERLAND COUNCIL AS OF JAN 2026 | Reject | 03.08.23 - confirmed - As a council, collectively we always refuse IVAs
+  + Oxford City Council | REJECT | LAST REJECTED APRIL 26 - AGREED TRIAL OCTOBER 26 | 05/10/2026
+  - Aylesbury Vale District Council | DO NOT VOTE | last trial 16/09/21 - TIG16827 - wont consider any offers or vulnerabilities. trail agreed 18/06/... | 8/12/23
+  - Copeland Borough Council | Reject | 03.08.23 - confirmed - As a council, collectively we always refuse IVAs
+  - East Lindsey District Council | DO NOT VOTE | REJECT WHERE THEY CAN GET AOE - TIG22719 - REJECTION 17.02.22 TIG23170 28.02.22 TRIAL AGREED WITH... | 27/11/23
+  - rth | no voting history | 14/2/24
+  ~ Basildon Borough Council
+      col 2: 'DO NOT VOTE'
+           -> 'REJECT'
+      col 3: 'jaime emailed CouncilTaxRecovery@basildon.gov.uk on 30/01 to ask if the council vote - confirmed DO NOT VOTE 31/01/25 amended criteria was down as will consi...'
+           -> 'jaime emailed CouncilTaxRecovery@basildon.gov.uk on 30/01 to ask if the council vote - confirmed DO NOT VOTE 31/01/25 amended criteria was down as will consi...'
+      col 4: '31/1/25'
+           -> '01/09/2026'
+  ~ Blackpool Council
+      col 3: 'STARTED TO REJECT AGAIN 15.05.25 - 75132 Stewart'
+           -> 'STARTED TO REJECT AGAIN 15.05.25 - 75132 Stewart TRIAL AGREED 23/09/2026'
+      col 4: '12/01/2021'
+           -> '23/09/2026'
+  ~ Blaenau Gwent
+      col 3: 'Rejected the last 4 cases 02/12/2021 // Trail agreed 22/09/2022 - TIG31200 Adrian Mafteiu - REJECTED 11.10.2022. Rejected 21.2.23. DO NOT PUT FORWARD IF WE C...'
+           -> 'Rejected the last 4 cases 02/12/2021 // Trail agreed 22/09/2022 - TIG31200 Adrian Mafteiu - REJECTED 11.10.2022. Rejected 21.2.23. DO NOT PUT FORWARD IF WE C...'
+      col 4: '10/08/2024'
+           -> '24/08/2026'
+  ~ Bournemouth + Christ Chucrch + Poole Council (BCP)
+      col 3: 'REJECTED 29/7/21 (trial agreed 11/3/22 Mark smith -357180). did not vote on moc TIG20865 which was approved. Did not vote on case TIG33966 which was due on 2...'
+           -> 'REJECTED 29/7/21 (trial agreed 11/3/22 Mark smith -357180). did not vote on moc TIG20865 which was approved. Did not vote on case TIG33966 which was due on 2...'
+  ~ Bridgend Council
+      col 3: 'DO NOT PUT FORWARD - REJECT EVERYTHING MAY/JUNE/JULY/AUG /SEPT/OCT/NOV 2025'
+           -> 'DO NOT PUT FORWARD - REJECT EVERYTHING MAY/JUNE/JULY/AUG /SEPT/OCT/NOV/DEC 2025 JAN/FEB/MARCH/APRIL/MAY 2026'
+      col 4: '25/6/24'
+           -> '16.05.26'
+  ~ Buckinghamshire Distict Council
+      col 3: '50P/£ MINIMUM DIV TIG8284 - 18/12 - if joint account and sole IVA will only submit a pod. WILL REJECT ALL IF CUSTOMER EMPLOYED AS CAN APPLY AOE 18/05/21 TRAI...'
+           -> '50P/£ MINIMUM DIV TIG8284 - 18/12 - if joint account and sole IVA will only submit a pod. WILL REJECT ALL IF CUSTOMER EMPLOYED AS CAN APPLY AOE 18/05/21 TIG4...'
+      col 4: '24/06/25'
+           -> '04/10/2026'
+  ~ Calderdale Borough Council
+      col 3: 'REJECT, COUNCIL TAX, RENT ARREARS, PCNS, CARE COSTS - WONT CONSIDER VULNERABILITY - MOST RECENT TRIALS TIG17023 / TIG17015 09/2021 REJECTED WILL REFUSE ANY I...'
+           -> 'REJECT, COUNCIL TAX, RENT ARREARS, PCNS, CARE COSTS - WONT CONSIDER VULNERABILITY - MOST RECENT TRIALS TIG17023 / TIG17015 09/2021 REJECTED WILL REFUSE ANY I...'
+  ~ Cannock Chase District Council
+      col 3: 'REJECTED CASE ON 4/05/23 TIG36219 / REJECTED CASE ON 25/05/23 TIG36920 / REJECTED CASE ON 24/07/23 TIG39564 - rejected TIG40112 - 11.08.23 trail agreed with ...'
+           -> 'REJECTED CASE ON 4/05/23 TIG36219 / REJECTED CASE ON 25/05/23 TIG36920 / REJECTED CASE ON 24/07/23 TIG39564 - rejected TIG40112 - 11.08.23 trail agreed with ...'
+      col 4: '10/08/2024'
+           -> '24/09/2026'
+  ~ Carmarthenshire Council
+      col 3: 'REJECT ALL IVA PUBLIC FUNDS TRAIL AGREED 15.04.24 - Heather Davies, #77348 LAST REJECTED 12.06.25 - 80789 (RE CONFIRMED PUBLIC FUNDS WILL NOT ACCEPT AN IVA)'
+           -> 'REJECT ALL IVA PUBLIC FUNDS TRAIL AGREED 15.04.24 - Heather Davies, #77348 LAST REJECTED 03.12.25 - 104053 (RE CONFIRMED PUBLIC FUNDS WILL NOT ACCEPT AN IVA)'
+      col 4: '07/04/2025'
+           -> '03.12.25'
+  ~ Central Bedfordshire Council
+      col 3: 'x2 accepted July and Nov 2021 + 1 did not vote - updated 1/12/21 rejected TIG28438 - Suzanne Clarke 20/06/2022. TIG48390 Part time employed - May 2024 refusi...'
+           -> 'x2 accepted July and Nov 2021 + 1 did not vote - updated 1/12/21 rejected TIG28438 - Suzanne Clarke 20/06/2022. TIG48390 Part time employed - May 2024 refusi...'
+      col 4: '11.02.26'
+           -> '04/09/2026'
+  ~ Charnwood Borough Council
+      col 3: 'rejected £26k debt level on 5/03 TIG9555 / authorised trail 19/08/21 REJECTED / trail agreed by tom 17/03/22 TIG 24035, REJECTED - 11.10.23 TIG42713- ELLE PR...'
+           -> 'rejected £26k debt level on 5/03 TIG9555 / authorised trail 19/08/21 REJECTED / AGREED TRIAL 09.10.26 trail agreed by tom 17/03/22 TIG 24035, REJECTED - 11.1...'
+      col 4: '05.02.26'
+           -> '03/12/2026'
+  ~ Cheltenham Borough Council
+      col 2: 'Accept'
+           -> 'Reject'
+      col 3: 'on case Julia Spahiu 85197 voted to accept no mods. Tracey Lords submits the proxy and pod'
+           -> 'on case Julia Spahiu 85197 voted to accept no mods. Tracey Lords submits the proxy and pod 11.06.26 118617 Cristiano Silva Goncalves - REJECTED - Please note...'
+  ~ Cheshire East council (same as cheshire west & chester Council)
+      col 3: 'will never accept any IVA. REJECTED AS RECENT AS 15/3/24'
+           -> 'will never accept any IVA. REJECTED AS RECENT AS 15/3/24 / agreed trial 29/09/26 - 50p/£ employed'
+      col 4: '31/05/22'
+           -> '29/09/2026'
+  ~ Cheshire West and Chester Council
+      col 3: 'REJECTED 14/07 + 21/07 WE DID A TRAIL IN JULY DID NOT GO AHEAD. TOOK OUR IP TO COURT WILL NEVER GO WITH AN IVA. DEBRA AGREED ANOTHER TRIAL AGREED 5/11 - LISA...'
+           -> 'REJECTED 14/07 + 21/07 WE DID A TRAIL IN JULY DID NOT GO AHEAD. TOOK OUR IP TO COURT WILL NEVER GO WITH AN IVA. DEBRA AGREED ANOTHER TRIAL AGREED 5/11 - LISA...'
+      col 4: '28/10/2025'
+           -> '20/05/2026'
+  ~ Crawley Borough Council
+      col 3: 'trail case TIG31153 - Kelly Forrest this was rejected in September 2022. DO NOT put forward if majority Tom agreed a trail 25/11/22 as all parking fines. NO ...'
+           -> 'trail case TIG31153 - Kelly Forrest this was rejected in September 2022. DO NOT put forward if majority Tom agreed a trail 25/11/22 as all parking fines. NO ...'
+      col 4: '16/10/24'
+           -> '13/04/2026'
+  ~ Croydon (london borough of croydon)
+      col 3: '13 cases put forward since December 2021 - only rejected 1 case - DID not vote on other 12. REJECTED 09.01.23 TIG33732 HAD AOE already. updated 5/6/24 reject...'
+           -> '13 cases put forward since December 2021 - only rejected 1 case - DID not vote on other 12. REJECTED 09.01.23 TIG33732 HAD AOE already. updated 5/6/24 reject...'
+      col 4: '02/06/2026'
+           -> '29/06/2026'
+  ~ Cumberland council
+      col 4: '14/05/24'
+           -> '17/04/2026'
+  ~ Doncaster Borough Council
+      col 3: '(COUNCIL TAX, PCN’s, Overpayment of Housing Benefit and Council Tax Support) Accept if unemployed PROPOSE AT 50P/£ Reject if employed as AOE can be applied -...'
+           -> '(COUNCIL TAX, PCN’s, Overpayment of Housing Benefit and Council Tax Support) Accept if unemployed PROPOSE AT 50P/£ Reject if employed as AOE can be applied -...'
+      col 4: '25/06/25'
+           -> '04/09/2026'
+  ~ Durham County Council
+      col 3: 'Trail 07/10/2021 - rejected! - TIG18891 - rejected this 20/10/21 (LINDSEY DURAGE TRIAL AGREED AS AOE FOR NON IVA PARTNER IN PLACE GETTING 100P/£) rejected th...'
+           -> 'Trail 07/10/2021 - rejected! - TIG18891 - rejected this 20/10/21 (LINDSEY DURAGE TRIAL AGREED AS AOE FOR NON IVA PARTNER IN PLACE GETTING 100P/£) rejected th...'
+      col 4: '11/10/2025'
+           -> '23/07/2026'
+  ~ East Cambridgeshire District Council
+      col 3: 'REJECTED 15/11/21 TIG19229 - confirmed will not consider IVAs. Trial Agreed 5/6/24 Josh Greenley, #93085 case was approved council provided a pod after meeti...'
+           -> 'REJECTED 15/11/21 TIG19229 - confirmed will not consider IVAs. Trial Agreed 5/6/24 Josh Greenley, #93085 case was approved council provided a pod after meeti...'
+      col 4: '11/05/2025'
+           -> '16/07/2026'
+  ~ East Riding Yorkshire Council
+      col 3: 'tig49258 REJ - WILL NOT RECONSIDER EVEN 100P/£ AS THEY CAN GET DEBT BACK IN LESS THAN HALF THE TIME THROUGH AOE. benefit only case so will apply to the benef...'
+           -> 'tig49258 REJ - WILL NOT RECONSIDER EVEN 100P/£ AS THEY CAN GET DEBT BACK IN LESS THAN HALF THE TIME THROUGH AOE. benefit only case so will apply to the benef...'
+      col 4: '04.04.25'
+           -> '29/06/2026'
+  ~ East Staffordshire Borough Council
+      col 3: 'REJECTED 89544 Lauren Bagnall - 01/09/2025'
+           -> 'REJECTED 89544 Lauren Bagnall - 01/09/2025 - REJECTED 117769 - wilox 20/05/2026 - "it is the Local Authority’s policy to reject IVA proposals that do not pro...'
+      col 4: '09/01/2025'
+           -> '20/05/2026'
+  ~ East Suffolk Council (COVERS Breckland / East Cambs / Fenland + West Suffolk) ) email address counciltaxadmin@angliarevenues.gov.uk
+      col 3: 'must be 50p/£ BUT Council Majority - MUST NOT have a deduction from income or benefits (will reject) . OLDER CRITERIA Feb 2024 Jaime agreed trail at less the...'
+           -> 'must be 50p/£ BUT Council Majority - MUST NOT have a deduction from income or benefits (will reject) . OLDER CRITERIA Feb 2024 Jaime agreed trail at less the...'
+      col 4: '01/07/2025'
+           -> '07/09/2026'
+  ~ Fenland District Council (COVERS Breckland / East Cambs / Fenland + West Suffolk) ) email address counciltaxadmin@angliarevenues.gov.uk
+      col 3: 'w'
+           -> ''
+  ~ Gateshead Borough Council
+      col 3: 'Will apply an AOE if employed ( reject EMPLOYED CASES)- most recent cases have been ok (updated 02/07/2025) 1ST ACCEPTED 33P/£ 2ND DID NOT VOTE ON 23P/£ 3RD ...'
+           -> 'Will apply an AOE if employed ( reject EMPLOYED CASES)- most recent cases have been ok (updated 02/07/2025) 1ST ACCEPTED 33P/£ 2ND DID NOT VOTE ON 23P/£ 3RD ...'
+      col 4: '16/07/25'
+           -> '07/09/2026'
+  ~ Gravesham Borough Council
+      col 3: 'REJECTED - TIG21350 22/12/2021 rejected March 22, May 22 and June 22. TRAIL AGREED 17/1/23 TL-712561 - BUT THIS NEVER WENT AHEAD - DEB AGREED NEW TRAIL 26/04...'
+           -> 'REJECTED - TIG21350 22/12/2021 rejected March 22, May 22 and June 22. TRAIL AGREED 17/1/23 TL-712561 - BUT THIS NEVER WENT AHEAD - DEB AGREED NEW TRAIL 26/04...'
+      col 4: '10/03/2025'
+           -> '21/09/2026'
+  ~ Hartlepool Borough Council
+      col 3: 'UPDATED FROM DO NOT VOTE: 12.12.25 "CANNOT ACCEPT AN IVA Council Tax is a statutory debt that we have a duty to collect"'
+           -> 'UPDATED FROM DO NOT VOTE: 12.12.25 "CANNOT ACCEPT AN IVA Council Tax is a statutory debt that we have a duty to collect" 07/09/2026 - Council Tax is public m...'
+      col 4: '12.12.25'
+           -> 'zxxxxxxxxxzaxxaxxxvbbbbbvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvbbbbb vvvvvvvvv vvvvvvvvvvvvvvvvvvvvvvvvvbzzvb'
+  ~ Hyndburn Borough Council
+      col 3: 'Rejected TIG21035 20/04/2022 - "ABLE TO RECOVER DEBT QUICKER VIA OTHER METHODS" Trail agreed 16450 Cheryl Elliott 13/06/23 - REJECTED TIG38299 PROCTOR - 20.0...'
+           -> 'Rejected TIG21035 20/04/2022 - "ABLE TO RECOVER DEBT QUICKER VIA OTHER METHODS" Trail agreed 16450 Cheryl Elliott 13/06/23 - REJECTED TIG38299 PROCTOR - 20.0...'
+      col 4: '30/5/25'
+           -> '07/10/2026'
+  ~ Ipswich Borough Council
+      col 3: "ACCEPTED NO MODS TIG18301 - £5K 18/10/21 REJECTED THREE TIMES SINCE NICHOLAS SHELTON, IOAN RADUCAN AND JESSICA DAY! UPDATED TO REJECT 13/12/2021 tom ok'd a t..."
+           -> "ACCEPTED NO MODS TIG18301 - £5K 18/10/21 REJECTED THREE TIMES SINCE NICHOLAS SHELTON, IOAN RADUCAN AND JESSICA DAY! UPDATED TO REJECT 13/12/2021 tom ok'd a t..."
+      col 4: '11/06/2024'
+           -> '05/01/2026'
+  ~ Folkestone & Hythe District Council
+      col 3: 'TIG28744 JUNE 2022 REJECTED was not a majority never went back as could outweigh. Agreed case where council is majority will go back if they reject TIG30024 ...'
+           -> 'TIG28744 JUNE 2022 REJECTED was not a majority never went back as could outweigh. Agreed case where council is majority will go back if they reject TIG30024 ...'
+      col 4: '16.12.25'
+           -> '29/09/2026'
+  ~ Isle of Anglesey County Council
+      col 3: 'WILL NOT Consider any case even vulnerability - updated 17/11/21 all voting behaviour shows this Amar - Trail agreed 05/01/2022 as did not vote on the last m...'
+           -> 'WILL NOT Consider any case even vulnerability - updated 17/11/21 all voting behaviour shows this Amar - Trail agreed 05/01/2022 as did not vote on the last m...'
+      col 4: '18/11/2025'
+           -> '09/11/2026'
+  ~ Knowsley Borough Council
+      col 3: 'DO NOT PUT ANY CASE FORWARD WITH THIS AS A MAJ 19/10/22 WILL NOT Consider any case even vulnerability, even 100p/£!!!! - updated 04/09/2024. Came in post ema...'
+           -> 'DO NOT PUT ANY CASE FORWARD WITH THIS AS A MAJ 19/10/22 WILL NOT Consider any case even vulnerability, even 100p/£!!!! - updated 04/09/2024. Came in post ema...'
+      col 4: '26.01.26'
+           -> '25/09/2026'
+  ~ Lincoln City Council (ON SYSTEM AS CITY OF LINCOLN) / West + East Lindsey (emails come from Revenues Admin (System) <Revenues.Admin@pspsl.co.uk>)
+      col 3: "REJECT DO NOT ACCEPT IVA'S - LAST REJECTED April 2022 (TIG26723) Trail agreed with zain 28/02/23 TL-739744 TIG35248 Miss Josefa Kingston (west lindsey) - CON..."
+           -> "REJECT DO NOT ACCEPT IVA'S - LAST REJECTED April 2022 (TIG26723) Trail agreed with zain 28/02/23 TL-739744 TIG35248 Miss Josefa Kingston (west lindsey) - CON..."
+      col 4: '30/7/25'
+           -> '13/04/2026'
+  ~ London Borough of Brent
+      col 3: 'REJECTED CASE TIG18785 MOC DUE 4/11/21 - Thank you for your email. We are rejecting the IVA and not accepting any offer. UPDATED ON 20/10/21 DID NOT VOTE ON ...'
+           -> 'REJECTED CASE TIG18785 MOC DUE 4/11/21 - Thank you for your email. We are rejecting the IVA and not accepting any offer. UPDATED ON 20/10/21 DID NOT VOTE ON ...'
+      col 4: '30/7/25'
+           -> '07/07/2026'
+  ~ Luton Borough Council
+      col 2: 'DO NOT VOTE'
+           -> 'Reject'
+      col 3: 'UPDATED ON BACK OF NO VOTES SINCE 2024'
+           -> 'REJECTED 18/08/26 - CONFIRMED PUBLIC PURSE, DUTY TO PAY STATATORY BILLS WONT CONSIDER - on the one case they accepted we couldnt proceed as capped fees at 10%'
+      col 4: '05.02.26'
+           -> '18/08/2026'
+  ~ Malvern Hills District Council
+      col 3: 'TRIAL tig19927 - ELLIS - CONFIRMED WILL NOT CONSIDER ANY OFFER 25.11.2021 - agreed trial - CHLOE BROOKS TIG38152 CPI CASE 01.06.23 (EXTREMELY VULNERABLE) REJ...'
+           -> 'TRIAL tig19927 - ELLIS - CONFIRMED WILL NOT CONSIDER ANY OFFER 25.11.2021 - agreed trial - CHLOE BROOKS TIG38152 CPI CASE 01.06.23 (EXTREMELY VULNERABLE) REJ...'
+      col 4: '30/5/25'
+           -> '16/04/2026'
+  ~ Manchester City Council
+      col 3: 'Donna at council advised 16/02/2023 will only accept £100p or close to 100p TIG36454 Phillips, Jennifer Bernadette - REJECTED 23.05.23 RETURN WAS 39P/£ - OLD...'
+           -> 'Donna at council advised 16/02/2023 will only accept £100p or close to 100p TIG36454 Phillips, Jennifer Bernadette - REJECTED 23.05.23 RETURN WAS 39P/£ - OLD...'
+      col 4: '06/05/2025'
+           -> '15.05.26'
+  ~ Mid Devon District Council
+      col 2: 'Will Consider'
+           -> 'DO NOT VOTE'
+  ~ Mid Suffolk District Council
+      col 3: 'ACCEPT UNEMPLOYED - accepted august 2021 - REJECT EMPLOYED AS CAN GET AOE - TIG22747 - REJECTED 17.02.22 case going ahead in July Luke Smy 50855 as no traile...'
+           -> 'ACCEPT UNEMPLOYED - accepted august 2021 - REJECT EMPLOYED AS CAN GET AOE - TIG22747 - REJECTED 17.02.22 case going ahead in July Luke Smy 50855 as no traile...'
+  ~ Milton Keynes Council
+      col 3: 'Reject for council tax and housing benefit overpayments! DO NOT put forward if majority - 01.06.23 Amal Galaal, #20605 - trail agreed LTongue did a call RE V...'
+           -> 'Reject for council tax and housing benefit overpayments! DO NOT put forward if majority - 01.06.23 Amal Galaal, #20605 - trail agreed LTongue did a call RE V...'
+      col 4: '29/07/25'
+           -> '01.07.2026'
+  ~ Newcastle City Council
+      col 2: 'Will Consider'
+           -> 'DO NOT VOTE'
+  ~ Newport City Council
+      col 3: 'accepted in May 2021 / did not vote October 2021 / Rejected Jan 2022 - tom ok for case tig23747 REJECTED!! 01/03 / REJECTED TIG22295 - 100% BACK ONLY - confi...'
+           -> 'accepted in May 2021 / did not vote October 2021 / Rejected Jan 2022 - tom ok for case tig23747 REJECTED!! 01/03 / REJECTED TIG22295 - 100% BACK ONLY - confi...'
+  ~ North Northamptonshire (inc wellingborough)
+      col 3: 'been POD only since Oct 2025'
+           -> 'been POD only since Oct 2025 agreed trial 17.03.26 agreed trial - danny manning with darren for phoenix 11/09 / claire leach - agreed trial 28/09 / agreed tr...'
+      col 4: 'CHANGED TO REJECTION 06.03.25'
+           -> '29/09/2026'
+  ~ North Somerset Council
+      col 3: ''
+           -> 'n-somersetctax@liberata.com'
+  ~ Northumberland County Council
+      col 3: 'UPDATED CRITERIA ON BACK OF TIG29276 // As we would be able to collect 100p in the £ for our debt, if we were to reconsider our vote, the final dividend woul...'
+           -> 'UPDATED CRITERIA ON BACK OF TIG29276 // As we would be able to collect 100p in the £ for our debt, if we were to reconsider our vote, the final dividend woul...'
+      col 4: '20/05/025'
+           -> '05/08/2026'
+  ~ Oldham Borough Council
+      col 2: 'Accept'
+           -> 'Will Consider'
+      col 3: 'x3 rejected. / x3 acceptance. Tom agreed to update this criteria no cases are to be put forward with anything less then 50p/£ dividend on 23/2/23 update 2/3/...'
+           -> 'x3 rejected. / x3 acceptance. Tom agreed to update this criteria no cases are to be put forward with anything less then 50p/£ dividend on 23/2/23 update 2/3/...'
+      col 4: '28/08/25'
+           -> ''
+  ~ Pendle Borough Council
+      col 2: 'DO NOT VOTE'
+           -> 'REJECT'
+      col 3: ''
+           -> 'reject if had previous failed IVA - do not vote previously'
+      col 4: ''
+           -> '16/03/26'
+  ~ Preston City Council
+      col 3: 'POD ONLY RECIEVED 28/04 // 6/06 // 4/07'
+           -> 'POD ONLY RECIEVED 28/04 // 6/06 // 4/07 REJECTED 114083 - 01.04.26 AS THEY ALREADY HAD AN AOE COMING OFF WAGES'
+      col 4: '30/07/25'
+           -> '01.04.26'
+  ~ Reading Borough Council
+      col 3: '60p/£ minimum div to accept DEBRA AGREED REDUCED DIV OF 33P/£ TRIAL CHLOE THORN - 64194 03.10.24 UPSOLD AT MOC TO 70P/£!! 28/02/023'
+           -> '60p/£ minimum div to accept - STILL NEED 60P/£ MARCH 2026 DEBRA AGREED REDUCED DIV OF 33P/£ TRIAL CHLOE THORN - 64194 03.10.24 UPSOLD AT MOC TO 70P/£!! 28/02...'
+      col 4: '24/06/25'
+           -> '03/12/2026'
+  ~ Rotherham Metropolitan Borough Council
+      col 3: 'vote via trust ledger rejected rejected everything rejected x12 last cases - zaid agreed trial on 93856 - amber howells - rejected this - confirmed they dont...'
+           -> 'vote via trust ledger rejected rejected everything rejected x12 last cases - zaid agreed trial on 93856 - amber howells - rejected this - confirmed they dont...'
+  ~ Rugby Borough Council
+      col 3: 'REJECTED ON Melissa Seymour, #108207 - CONFIRMED WILL NOT ACCEPT ANY COUNTER OFFER'
+           -> 'REJECTED ON Melissa Seymour, #108207 - CONFIRMED WILL NOT ACCEPT ANY COUNTER OFFER last rejected 19.05.26'
+      col 4: '15/11/23'
+           -> '18.08.26'
+  ~ Rushcliffe Borough Council
+      col 3: 'VOTED TO REJECT on 14/11/24 no votes since'
+           -> 'VOTED TO REJECT on 14/11/24 - LAST REJECTED 29/06/2026'
+      col 4: '18/06/25'
+           -> '21/09/2026'
+  ~ Sefton Borough Council
+      col 3: 'did not vote on case TIG32710 but voted to accept TIG33507 no mods - Ian Beaumont <Ian.Beaumont@sefton.gov.uk> voted on 07/11/2024 Natasha Brockhurst 100p/£ ...'
+           -> 'did not vote on case TIG32710 but voted to accept TIG33507 no mods - Ian Beaumont <Ian.Beaumont@sefton.gov.uk> voted on 07/11/2024 Natasha Brockhurst 100p/£ ...'
+      col 4: '14/08/25'
+           -> '30/09/2026'
+  ~ Sheffield City Council
+      col 3: 'treated the same for both council tax and rent arrears only one ever accepted was client to tried to commit suicide when bailiffs arrived! DO NOT PUT FORWARD...'
+           -> 'treated the same for both council tax and rent arrears only one ever accepted was client to tried to commit suicide when bailiffs arrived! DO NOT PUT FORWARD...'
+      col 4: '28.07.25'
+           -> '26/03/2026'
+  ~ Shropshire Council
+      col 2: 'Reject sole accounts (if account is joint will not vote - updated 10.08.21 - Spoke to Sue Jones) if account is joint and both parties entering IVA will rejec...'
+           -> 'Reject sole IVAS unless the council account is joint will not vote - updated 10.08.21 - Spoke to Sue Jones) if account is joint and both parties entering IVA...'
+      col 3: 'REJECT ALL IVAS UNLESS 100P/£ IS ACHEIVED, LAST UPDATED 26/03/2021 & 31/03/2021. Reject sole accounts (if account is joint and only one entering IVA will not...'
+           -> 'REJECT ALL IVAS UNLESS 100P/£ IS ACHEIVED, LAST UPDATED 26/03/2021 & 31/03/2021. Reject sole accounts (if account is joint and only one entering IVA will not...'
+      col 4: '18/07/2025'
+           -> '01/04/2026'
+  ~ South Kesteven District Council
+      col 3: 'REJECT ALL IVAS/ TRIALS DONE 11/2020 AND 02/2021 DO NOT PUT THROUGH IF MAJORITY (agreed trial 27.04 TL-406211 Miss Jayne Edgeley). A CASE WAS PUT FORWARD IN ...'
+           -> 'REJECT ALL IVAS/ TRIALS DONE 11/2020 AND 02/2021 DO NOT PUT THROUGH IF MAJORITY (agreed trial 27.04 TL-406211 Miss Jayne Edgeley). A CASE WAS PUT FORWARD IN ...'
+      col 4: '29/1/25'
+           -> '29/09/2026'
+  ~ South Tyneside Borough Council
+      col 3: 'REJECTED CASE TIG34064 - JOINT COUNCIL TAX RECIEVED IN THE POST ON 26/01/23 REJECTED CASE TIG34581 - CONFIRMED WILL NOT RECONSIDER. THEY VOTE IN THE POST. up...'
+           -> 'REJECTED CASE TIG34064 - JOINT COUNCIL TAX RECIEVED IN THE POST ON 26/01/23 REJECTED CASE TIG34581 - CONFIRMED WILL NOT RECONSIDER. THEY VOTE IN THE POST. up...'
+      col 4: '08/08/2025'
+           -> '17/09/2026'
+  ~ St Helens Borough Council
+      col 2: 'Will Consider'
+           -> 'Reject'
+      col 3: 'change to will consider try to get highest div possible 50p/£ ideally (as per vote for moc on 25/4/25 Julie Larrigan) mods was Reduced costs/increased contri...'
+           -> 'St Helens - only time they accept is if they can be outweighed. Confirm "alternate means of recovery" DO NOT PUT FORWARD IF MAJORITY!!'
+      col 4: '06/06/2025'
+           -> '09/10/2026'
+  ~ Stafford Borough Council + Cannock Council (work together)
+      col 3: 'TRAILED AGREED 11/04 AS NOT VOTED ON LAST CASE Brian Mcormack TIG26533 - ALSO GOT REJECTED 27.04.22 TIG36219 - PARKER ADAM & HANNAH - MOC OUTCOME 4/05/23 - D...'
+           -> 'last rejected 28/07/2026'
+      col 4: '30/06/25'
+           -> '28/07/2026'
+  ~ Stroud District Council
+      col 3: 'Agreed a trial November 25, as nothing in mailbox since 2022'
+           -> 'Agreed a trial SEPTEMBER 2026 - nothing in mailbox since 2021.'
+  ~ Sunderland City Council
+      col 3: 'will not consider any IVA confirmed 13/10/2021 Debra Agreed trail Rachel Dolan REJECTED THIS 13/10/2021! DO NOT PUT FORWARD update rejected every case put fo...'
+           -> 'will not consider any IVA confirmed 13/10/2021 Debra Agreed trail Rachel Dolan REJECTED THIS 13/10/2021! DO NOT PUT FORWARD update rejected every case put fo...'
+      col 4: '23.01.26'
+           -> '19/08/2026'
+  ~ Swindon Borough Council
+      col 3: 'REJECT AS HAVE ALTERNATIVE MEANS OF RECOVERY - 12.09.24 rejected case 3.12.24. J checked again 17/07/25'
+           -> 'REJECT AS HAVE ALTERNATIVE MEANS OF RECOVERY - 12.09.24 rejected case 3.12.24. J checked again 17/07/25 agreed trial 27.04.26 - NEVER WENT FORWARD. AGREED AN...'
+      col 4: '17/07/25'
+           -> '05/05/2026'
+  ~ Tameside Borough Council
+      col 2: 'DO NOT VOTE'
+           -> 'Reject'
+      col 3: 'CONFIRMED POD ONLY 30/09/21'
+           -> 'Started to vote via horfields - rejecting updated 31.03.26'
+      col 4: '19/9/24'
+           -> '31/03/2026'
+  ~ Tamworth Borough
+      col 3: 'do not vote as of august 2022 - REJECTED TIG43906 - CONOR HIBBERT - 13/11/23 - rejected TIG47661 - 17/06/2024 TRIAL AGREED BY MIKE CARR 27/10/24 last time re...'
+           -> 'do not vote as of august 2022 - REJECTED TIG43906 - CONOR HIBBERT - 13/11/23 - rejected TIG47661 - 17/06/2024 TRIAL AGREED BY MIKE CARR 27/10/24 last time re...'
+  ~ Telford and Wrekin Borough Council
+      col 3: '27/07 DID NOT VOTE / ACCEPTED 07/09 + 25/11, will reject if has an AOE in place!! REJECTED 03.05.24 - 09.12.24 - WILL NOT ACCEPT A SECOND IVA IF FIRST ONE FA...'
+           -> '27/07 DID NOT VOTE / ACCEPTED 07/09 + 25/11, will reject if has an AOE in place!! REJECTED 03.05.24 - 09.12.24 - WILL NOT ACCEPT A SECOND IVA IF FIRST ONE FA...'
+      col 4: '10/03/2025'
+           -> '11.08.26'
+  ~ Tewkesbury Borough Council
+      col 3: 'PREVIOUSLY DO NOT VOTE, accept 100p 18/07/2024 tig60211 Thu 08/08/2024 confirmed 100p/£ but spoke with case assessment agreed trail on a div high as possible...'
+           -> 'PREVIOUSLY DO NOT VOTE, accept 100p 18/07/2024 tig60211 Thu 08/08/2024 confirmed 100p/£ but spoke with case assessment agreed trail on a div high as possible...'
+      col 4: '06/12/2025'
+           -> '06/10/2026'
+  ~ Thanet District Council
+      col 2: 'Accept'
+           -> 'DO NOT VOTE'
+      col 3: 'ACCEPTED - £5.6K NO MODS, TIG9755 09/03/2021'
+           -> 'ACCEPTED - £5.6K NO MODS, TIG9755 09/03/2021 (chased several times and the SLA is 13 weeks return on mailbox)'
+  ~ The Vale of Glamorgan Council
+      col 3: 'Housing Benefit Overpayment Department and the Council tax Department wish to vote for the rejection have other means of debt recovery TRAIL AGREED AS DID NO...'
+           -> 'Housing Benefit Overpayment Department and the Council tax Department wish to vote for the rejection have other means of debt recovery TRAIL AGREED AS DID NO...'
+  ~ Torbay Council
+      col 3: 'updated 18/07/2024 - CLIENT MET CRITERIA FOR DRO'
+           -> 'updated 18/07/2024 - CLIENT MET CRITERIA FOR DRO TRIAL AGREED 02/07/2026 - GOT APPROVED BUT COUNCIL NOW APPEALING NON NOTIFIED- STILL REJECTING'
+      col 4: ''
+           -> '08/12/2026'
+  ~ Tunbridge Wells Borough Council (emails come from Mid KenT)
+      col 3: 'TIG49378 - moc outcome 10/06/24 TIG49259 - rejected for 10K 10.06.24 TIG49259 - rejected for nearly £11k wouldnt accept 100p/£. 06.06.24 agreed trail with mi...'
+           -> 'TIG49378 - moc outcome 10/06/24 TIG49259 - rejected for 10K 10.06.24 TIG49259 - rejected for nearly £11k wouldnt accept 100p/£. 06.06.24 agreed trail with mi...'
+  ~ Walsall Borough Council
+      col 3: '4 cases put forward not voted on any, REJECTED TIG38359 - 12.07.23 AND TIG40174 - 07.08.23 do not put forward Mel looked into this thinks the rejections migh...'
+           -> '4 cases put forward not voted on any, REJECTED TIG38359 - 12.07.23 AND TIG40174 - 07.08.23 do not put forward Mel looked into this thinks the rejections migh...'
+      col 4: '29/12/2025'
+           -> '22/09/2026'
+  ~ Waltham Forest
+      col 3: 'LAST REJECTED 02/2021 + 6/07/21 -- REJECTED TIG20203 - 11/2021 (REJECTED trial 10/02/2022 for Mohamed Touati TIG22485 - HB over payment & PCN & COUNCIL TAX) ...'
+           -> 'LAST REJECTED 02/2021 + 6/07/21 -- REJECTED TIG20203 - 11/2021 (REJECTED trial 10/02/2022 for Mohamed Touati TIG22485 - HB over payment & PCN & COUNCIL TAX) ...'
+  ~ Waverley Borough Council
+      col 2: 'Reject'
+           -> 'DO NOT VOTE'
+      col 3: 'TIG21489 - 4/1/22 - TIG29348 - Rejected 01.07.22 TIG41069 - rejected 01.09.23 - update criteria to reject'
+           -> 'updated as no votes since 2023'
+      col 4: '09/04/2023'
+           -> '27/07/2026'
+  ~ West Berkshire Council
+      col 3: '01635 519520 - spoke to Clare Stewart Senior Manager - they reject all IVAs as they have no ability to accept - Trial agreed 19/01/2022 - Amal Kadri - pod on...'
+           -> '01635 519520 - spoke to Clare Stewart Senior Manager - they reject all IVAs as they have no ability to accept - Trial agreed 19/01/2022 - Amal Kadri - pod on...'
+      col 4: '21/03/25'
+           -> '15.06.26'
+  ~ West Northamptonshire Council
+      col 3: 'The rejection of the IVA proposed is in line with our current procedures. We have a responsibility to collect the Council Tax on behalf of West Northants Cou...'
+           -> 'The rejection of the IVA proposed is in line with our current procedures. We have a responsibility to collect the Council Tax on behalf of West Northants Cou...'
+      col 4: '16.12.25'
+           -> '24/09/2026'
+  ~ West Devon Borough Council
+      col 3: ''
+           -> 'WILL REJECT IF ALREADY HAVE AN AOE IN PLACE (CONFIRMED WITH CASE 111379 - 12/03/2026)'
+      col 4: ''
+           -> '03/12/2026'
+  ~ WESTMORLAND & FURNESS COUNCIL
+      col 3: 'rejected on 92357 Victoria Stewart 17.09.25 - even 100p/£ (emails from ian.culman@westmorlandandfurness.gov.uk trial agreed 16.02.26 as pod only since nov 2025'
+           -> 'rejected on 92357 Victoria Stewart 17.09.25 - even 100p/£ (emails from ian.culman@westmorlandandfurness.gov.uk trial agreed 16.02.26 as pod only since nov 20...'
+      col 4: '16.02.26'
+           -> '21/09/2026'
+  ~ West Suffolk
+      col 3: 'confirmed on TIG19159 - Norton - wont consider IVAs 23.11.21 - and TIG25260 05/04/2022 Rejected. trail agreed 11/05/23 784083 Miss Jaimie Spurling TRAIL AGRE...'
+           -> 'confirmed on TIG19159 - Norton - wont consider IVAs 23.11.21 - and TIG25260 05/04/2022 Rejected. trail agreed 11/05/23 784083 Miss Jaimie Spurling TRAIL AGRE...'
+      col 4: '02/10/2026'
+           -> '10/02/2026'
+  ~ Winchester City Council
+      col 3: 'changed to reject from will consider 5/8/24 trail being agreed by zaid 14/05/25'
+           -> 'changed to reject from will consider 5/8/24 trail being agreed by zaid 14/05/25 - WAS REJECTED AGREED NEW TRIAL 19.03.26'
+  ~ Windsor and Maidenhead Borough Council
+      col 3: 'Insolvency@rbwm.gov.uk'
+           -> ''
+  ~ Wirral Borough Council
+      col 3: 'BACK TO REJECTING AS OF 14/07/2025 X3 CASES - OFFERED 100P ON 82987 REJECTED THIS (2 APPRPVED DECEMBER 2025 50P/£)'
+           -> 'BACK TO REJECTING AS OF 14/07/2025 X3 CASES - OFFERED 100P ON 82987 REJECTED THIS (2 APPRPVED DECEMBER 2025 50P/£) MOST RECENT REJECTION 03/09/2026 - FOR A R...'
+      col 4: '14/07/2025'
+           -> '21/09/2026'
+  ~ Wolverhampton City Council
+      col 3: 'EMPLOYED: reject if client is earning above AOE income (400 a month) - confirmed 13.05.22 x2 cases accepted both unemployed 23/02/23 tom willing to trail an ...'
+           -> 'EMPLOYED: reject if client is earning above AOE income (400 a month) - confirmed 13.05.22 x2 cases accepted both unemployed 23/02/23 tom willing to trail an ...'
+      col 4: '08/07/2025'
+           -> '09/09/2026'
+  ~ Worcester City Council
+      col 2: 'Accept'
+           -> 'Will Consider'
+  ~ Wyre Forest District Council
+      col 3: 'minimum div 50p/£ - x3 rejected under this div / x2 accepted with 50p/£ + 65p/£. Tom agreed trail CPI case 11/12/23 TIG44245. - rejected this as get get thei...'
+           -> 'minimum div 50p/£ - x3 rejected under this div / x2 accepted with 50p/£ + 65p/£. Tom agreed trail CPI case 11/12/23 TIG44245. - rejected this as get get thei...'
+  ! 'Ashford Borough Council' appears 1 time(s) in old, 2 in new
+  ! 'Suffolk Coastal District Council' appears 1 time(s) in old, 2 in new
+
+== County Councils (24 -> 23 named rows) ==
+  added 0, removed 1, changed 1
+  - Mon 28/07/2025 12:10 | Doesnt deal with council tax, Its is dealt with by the district councils. | Sevenoaks District - 01732 227000 - option 5 Borough of Dartford - 01322 343 434 Gravesham - Reje...
+  ~ Buckinghamshire County Council
+      col 2: '50P/£ MINIMUM DIV TIG8284 - 18/12 - if joint account and sole IVA will only submit a pod.'
+           -> ''
+
+== Dividends (26 -> 26 named rows) ==
+  added 0, removed 0, changed 1
+  ~ Guarantor My Loan
+      col 2: '50p'
+           -> '100P/£'
+
+== Which Representative ==
+  TIX: 47 -> 47; added none; removed none
+  (WATCH) WPM: 286 -> 287; added ['Scottish Power']; removed none
+  EVOLVE: 5 -> 5; added none; removed none
+  EVERYDAY LOANS: 3 -> 3; added none; removed none
+
+== TIG Criteria ==
+  + HMRC - WILL REJECT if more equity than their debt (100% HOUSE VALUATION)
+  - HMRC - WILL REJECT if more equity than their debt.
+
+== Watch Criteria ==
+  - Will reject IVA if Bankruptcy dividend is higher than IVA
+  - Will reject IVA if equity is greater than debt
+  - Will reject (on all accounts) if any spending within 3 months
+
+== TIX Criteria ==
+  unchanged

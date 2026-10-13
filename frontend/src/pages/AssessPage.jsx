@@ -4,6 +4,7 @@ import CriteriaReport from '../components/criteria/CriteriaReport'
 import EmptyState from '../components/shared/EmptyState'
 import { useAssessCase } from '../hooks/useAssessCase'
 import { isPrivateParkingOperator, creditorRowKey } from '../lib/dmpRowSelections'
+import { DEFAULT_SOLUTION_CHECKLIST } from '../components/criteria/SolutionOptions'
 import { Search } from 'lucide-react'
 
 // Case-level DMP checklist fields (Part 4 of the Aryza-only DMP redesign) —
@@ -34,6 +35,8 @@ export default function AssessPage() {
   // Per-creditor-row DMP dropdown selections, keyed by a stable row key
   // (creditor_name + debt_type_normalised) -> selection value string.
   const [creditorRowSelections, setCreditorRowSelections] = useState({})
+  // Advisor answers for the DRO / Bankruptcy questions Aryza has no data for.
+  const [solutionChecklist, setSolutionChecklist] = useState(DEFAULT_SOLUTION_CHECKLIST)
 
   const { runAssessment: recalculate } = useAssessCase()
 
@@ -76,6 +79,12 @@ export default function AssessPage() {
   const handleResult = (data, creditReportId) => {
     setAssessmentResult(data)
     const runParams = { aryza_reference: data.aryza_reference, credit_report_id: creditReportId }
+    // Answers belong to one customer — a different case starts unanswered.
+    // Re-running the same case keeps them and re-applies them below.
+    const sameCase = lastRunParams?.aryza_reference === runParams.aryza_reference
+    const answers = sameCase ? solutionChecklist : DEFAULT_SOLUTION_CHECKLIST
+    const hasAnswers = Object.values(answers).some((a) => a !== null)
+    setSolutionChecklist(answers)
     setLastRunParams(runParams)
 
     // Clear any stale VAT ticks from a previous (different) case — the parent
@@ -100,12 +109,13 @@ export default function AssessPage() {
     })
     setCreditorRowSelections(defaults)
 
-    if (Object.keys(defaults).length > 0) {
+    if (Object.keys(defaults).length > 0 || hasAnswers) {
       runRecalculation({
         aryza_reference: runParams.aryza_reference,
         credit_report_id: runParams.credit_report_id,
         dmp_checklist: dmpChecklist,
         creditor_rows: Object.values(defaults),
+        solution_checklist: answers,
       })
     }
   }
@@ -124,6 +134,20 @@ export default function AssessPage() {
       credit_report_id: lastRunParams.credit_report_id,
       dmp_checklist: dmpChecklist,
       creditor_rows: Object.values(next).filter((r) => r.value),
+      solution_checklist: solutionChecklist,
+    })
+  }
+
+  const handleSolutionAnswerChange = (field, value) => {
+    const next = { ...solutionChecklist, [field]: value }
+    setSolutionChecklist(next)
+    if (!lastRunParams) return
+    runRecalculation({
+      aryza_reference: lastRunParams.aryza_reference,
+      credit_report_id: lastRunParams.credit_report_id,
+      dmp_checklist: dmpChecklist,
+      creditor_rows: Object.values(creditorRowSelections).filter((r) => r.value),
+      solution_checklist: next,
     })
   }
 
@@ -180,6 +204,8 @@ export default function AssessPage() {
               creditorRowSelections={creditorRowSelections}
               onRowSelectionChange={handleRowSelectionChange}
               isRecalculating={isRecalculating}
+              solutionAnswers={solutionChecklist}
+              onSolutionAnswerChange={handleSolutionAnswerChange}
             />
           </div>
         )}

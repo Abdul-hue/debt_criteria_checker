@@ -1,24 +1,23 @@
 # Which Representative
 
+> Source: `2026-10-12 TIP CRITERIA & VOTING HISTORY.xlsx` — sheet `Which Representative` — exported 2026-10-13 by `manage.py export_excel_criteria`. Regenerate with that command rather than editing rows by hand; rows added by hand are kept on regeneration and listed at the end.
+
 ## (WATCH) WPM
 - 1:Many
 - 1:Many - TD
 - AA (Bank of Ireland) - IVA
 - AA (Bank of Ireland) - TD
-- AA Bank of Ireland
-- AO - IVA
-- AO - TD
 - Abound - IVA or TD
 - Additions - IVA or TD
-- Akinika
 - Akinika / Kent Reliance (previously One Savings Bank) - IVA
 - Akinika / Kent Reliance (previously One Savings Bank) - TD
 - Amazon - IVA
 - Amazon - TD
 - Antelope Loans Funding Ltd
+- AO - IVA
+- AO - TD
 - Apex Credit Management (now Cabot) - IVA
 - Apex Credit Management (now Cabot) - TD
-- Aqua
 - Aqua - IVA
 - Aqua - TD
 - Arcadia - IVA
@@ -27,14 +26,9 @@
 - Argos - TD
 - Argos Mastercard - IVA
 - Argos Mastercard - TD
-- Arrow Global
 - Arrow Global Massey Ltd- IVA or BKY
 - Arrow Global Massey Ltd- TD or DAS or SEQ
 - Asset Link Capital
-- BHS Mastercard - IVA
-- BHS Mastercard - TD
-- BIP
-- BIP - TD
 - Bamboo Ltd
 - Barclaycard (including cards below) - IVA
 - Barclaycard (including cards below) - TD
@@ -42,9 +36,12 @@
 - Barclaycard Amazon - TD
 - Barclaycard Motor Loans - IVA
 - Barclaycard Motor Loans - TD
-- Barclays Direct
 - Barclays Partner Finance (also known as Clydesdale Financial Services) - IVA
 - Barclays Partner Finance (also known as Clydesdale Financial Services) - TD
+- BHS Mastercard - IVA
+- BHS Mastercard - TD
+- BIP
+- BIP - TD
 - Blackhorse - Blackhorse Finance - IVA
 - Blackhorse - Blackhorse Finance - TD
 - Blackhorse - Honda Motorcycle Finance - IVA
@@ -67,19 +64,17 @@
 - Blackhorse - United Dominions Trust Ltd - TD
 - Burton Menswear - IVA
 - Burton Menswear - TD
-- CYBG
-- CYBG (Clydesdale Bank) - previously National Australia Group - IVA
-- CYBG (Clydesdale Bank) - previously National Australia Group - TD
-- CYBG (Yorkshire Bank) - previously National Australia Group - IVA
-- CYBG (Yorkshire Bank) - previously National Australia Group - TD
-- Cabot Financial
 - Cabot Financial (including DLC) - IVA
 - Cabot Financial (including DLC) - TD
 - CapQuest Investments Ltd
 - Choice - IVA or TD
-- DFS Loan
+- CYBG (Clydesdale Bank) - previously National Australia Group - IVA
+- CYBG (Clydesdale Bank) - previously National Australia Group - TD
+- CYBG (Yorkshire Bank) - previously National Australia Group - IVA
+- CYBG (Yorkshire Bank) - previously National Australia Group - TD
 - Debenhams - IVA
 - Debenhams - TD
+- DFS Loan
 - Dorothy Perkins - IVA
 - Dorothy Perkins - TD
 - Droyds
@@ -87,7 +82,6 @@
 - Empire (SDG) - IVA or TD
 - Evans - IVA
 - Evans - TD
-- Fluid
 - Fluid - IVA
 - Fluid - TD
 - Fortis Lease UK
@@ -96,6 +90,8 @@
 - Great Universal - IVA or TD
 - Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - IVA
 - Grove / TTI SPC CarVal (including previous Egg Loans /Britannica Recovery) - TD
+- Harvey Nichols - IVA
+- Harvey Nichols - TD
 - HBOS - AA (HBOS) - IVA
 - HBOS - AA (HBOS) - TD
 - HBOS - Aqua (HBOS) - IVA
@@ -118,14 +114,14 @@
 - HBOS - Cheltenham & Gloucester (Mortgage Shortfall) - TD
 - HBOS - GE Capital Loans - IVA
 - HBOS - GE Capital Loans - TD
-- HBOS - HBOS - IVA
-- HBOS - HBOS - TD
-- HBOS - HSPF - IVA
-- HBOS - HSPF - TD
 - HBOS - Halifax (Mortgage Shortfall) - IVA
 - HBOS - Halifax (Mortgage Shortfall) - TD
 - HBOS - Halifax - IVA
 - HBOS - Halifax - TD
+- HBOS - HBOS - IVA
+- HBOS - HBOS - TD
+- HBOS - HSPF - IVA
+- HBOS - HSPF - TD
 - HBOS - Intelligent Finance - IVA
 - HBOS - Intelligent Finance - TD
 - HBOS - Marbles (HBOS) - IVA
@@ -138,21 +134,21 @@
 - HBOS - St James PB (HBOS) - TD
 - HBOS - The Mortgage Business (Mortgage Shortfall) - IVA
 - HBOS - The Mortgage Business (Mortgage Shortfall) - TD
-- Harvey Nichols - IVA
-- Harvey Nichols - TD
 - Hilton Honours Visa - IVA
 - Hilton Honours Visa - TD
-- Hoist Financial
 - House of Frazer - IVA
 - House of Frazer - TD
 - IDEM / Paragon / Moorgate- IVA
 - IDEM / Paragon / Moorgate- TD
 - IDR Finance UK Ltd
+- Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO
+- Ikano D2C Loan
 - IKEA Home Card
 - IKEA IFC
 - IKEA Limited
-- Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO
-- Ikano D2C Loan
+- incl. La Redoute
+- incl. Link Financial Outsourcing
+- incl. New Look Card
 - Intercontinental Hotel Group Visa - IVA
 - Intercontinental Hotel Group Visa - TD
 - Intrum UK Ltd (previously 1st Credit) - IVA or BKY
@@ -166,16 +162,13 @@
 - Kays - IVA or TD
 - Kent Reliance / Akinika (previously One Savings Bank) - IVA
 - Kent Reliance / Akinika (previously One Savings Bank) - TD
-- LC Asset - IVA & BKY
-- LC Asset - TD
-- LR UK
-- LR UK (Retail) Limited
 - La Redoute - IVA or TD or BKY or DAS or SEQ or DRO
-- Lantern
 - Lantern Debt Recovery Limited - IVA or BKY
 - Lantern Debt Recovery Limited - TD or DAS or SEQ
 - Laura Ashley - IVA
 - Laura Ashley - TD
+- LC Asset - IVA & BKY
+- LC Asset - TD
 - Link Financial - IVA
 - Link Financial - TD
 - Littlewoods (SDG) - IVA or TD
@@ -183,25 +176,21 @@
 - Littlewoods - IVA or TD
 - Littlewoods - TD
 - Littlewoods Debt Collections - IVA or TD
-- Lloyds
 - Lloyds - Create (Wealth Management) Card - IVA
 - Lloyds - Create (Wealth Management) Card - TD
+- Lloyds - Lloyds (Mortgage Shortfall) - IVA
+- Lloyds - Lloyds (Mortgage Shortfall) - TD
 - Lloyds - LTSB Airmiles Duo Card - IVA
 - Lloyds - LTSB Airmiles Duo Card - TD
 - Lloyds - LTSB American Express Private Banking Card - IVA
 - Lloyds - LTSB American Express Private Banking Card - TD
 - Lloyds - LTSB Business Card - IVA
 - Lloyds - LTSB Business Card - TD
-- Lloyds - Lloyds (Mortgage Shortfall) - IVA
-- Lloyds - Lloyds (Mortgage Shortfall) - TD
-- Lloyds Bank
 - Lloyds Banking Group (Including the Companies/Brands above) - BKY/SEQ
 - Lloyds Banking Group (Including the Companies/Brands below) - IVA
 - Lloyds Banking Group (Including the Companies/Brands below) - TD
-- MBNA
-- MBNA - Bankruptcy and TD
-- MBNA - IVA
-- Marbles
+- LR UK
+- LR UK (Retail) Limited
 - Marbles - IVA
 - Marbles - TD
 - Marlin Financial - IVA
@@ -209,15 +198,15 @@
 - Marlin ME IV (prev NRAM 6319) - IVA
 - Marlin ME IV (prev NRAM 6319) - TD
 - Marshall Ward - IVA or TD
+- MBNA - Bankruptcy and TD
+- MBNA - IVA
 - Miss Selfridge - IVA
 - Miss Selfridge - TD
-- Monzo
 - Monzo Bank
 - Moorgate Loan Servicing (now IDEM) - IVA
 - Moorgate Loan Servicing (now IDEM) - TD
 - Morgan Stanley - IVA
 - Morgan Stanley - TD
-- Nationwide Building Society
 - Nationwide Building Society - IVA
 - Nationwide Building Society - TD
 - Nationwide Recovery (SDG) - IVA or TD
@@ -234,34 +223,30 @@
 - Orange - CREDIT CARD ONLY - TD
 - Outfit - IVA
 - Outfit - TD
-- PCO Holdco Sarl - IVA
-- PCO Holdco Sarl - TD
-- PRA (Portfolio Recovery Associates) - IVA
-- PRA (Portfolio Recovery Associates) - TD
 - Paragon / IDEM / Moorgate- IVA
 - Paragon / IDEM / Moorgate- TD
+- PCO Holdco Sarl - IVA
+- PCO Holdco Sarl - TD
 - Post Office incl Post Office Fin Svs (Bank of Ireland) - IVA
 - Post Office incl Post Office Fin Svs (Bank of Ireland) - TD
+- PRA (Portfolio Recovery Associates) - IVA
+- PRA (Portfolio Recovery Associates) - TD
 - Principles Card (loans taken out from 2006 onwards)
 - Priority Club Rewards Visa - IVA
 - Priority Club Rewards Visa - TD
 - Pulse - IVA
 - Pulse - TD
 - Redcats UK
+- Scottish Power
 - ScS Loan
 - Shop Direct Finance Company - IVA or TD
 - Shop Direct Financial Services - IVA or TD
 - Sky Card - IVA
 - Sky Card - TD
-- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - IVA
-- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - TD
-- TUI /Thompson - IVA
-- TUI /Thomson - TD
 - Target / Elderbridge (previously First Plus UKSL and Swancastle) - IVA
 - Target / Elderbridge (previously First Plus UKSL and Swancastle) - TD
 - Tesco Bank
 - Thames Water
-- The Co-operative Bank
 - The Co-operative Bank - IVA
 - The Co-operative Bank - TD
 - The Very Group - IVA or TD
@@ -271,6 +256,10 @@
 - Topman - TD
 - Topshop - IVA
 - Topshop - TD
+- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - IVA
+- TTI SPC CarVal / Grove (including previous Egg Loans /Britannica Recovery) - TD
+- TUI /Thompson - IVA
+- TUI /Thomson - TD
 - Very (SDG) - IVA or TD
 - Very - IVA or TD
 - Vision Express
@@ -279,24 +268,45 @@
 - Warehouse Card
 - Zopa - IVA or BKY
 - Zopa - TD or SEQ
-- incl. La Redoute
-- incl. Link Financial Outsourcing
-- incl. New Look Card
+
+### Kept from the previous file (not in the workbook)
+- AA Bank of Ireland
+- Akinika
+- Aqua
+- Arrow Global
+- Barclays Direct
+- CYBG
+- Cabot Financial
+- Fluid
+- Hoist Financial
+- Lantern
+- Lloyds
+- Lloyds Bank
+- MBNA
+- Marbles
+- Monzo
+- Nationwide Building Society
+- The Co-operative Bank
+- Cash Euro Net
+- Mint
+- NatWest
+- NatWest Bank
+- Royal Bank of Scotland
+- TSB Bank
+- The Royal Bank of Scotland Plc
+- Ulster Bank
+- Virgin Money (Loan) WPM
 
 ## TIX
 - 118 Money
 - Alliance & Leicester
-- Aquis
 - Argos Card Services
 - Argos Mastercard
-- Barclays
 - Barclays Bank
-- Blemain
 - Blue Motor Finance
 - British Gas
 - Capital One
 - Carval
-- Creation
 - Creation Consumer Finance
 - Creation Financial Services
 - Debitas
@@ -306,60 +316,52 @@
 - Granite (Vanquis)
 - Grattan
 - HFC Bank
-- HSBC
 - Hitachi
 - Home Retail Group
-- JD Williams
+- HSBC
 - John Lewis Partnership
 - Kaleidoscope
-- Laser
 - Laser UK
 - Lendable
-- Littlewoods
-- Littlewoods.com
 - Lombard
 - Look Again
-- Lowell
 - Lowell Financial
 - Marks & Spencer
 - Moneybarn
-- NewDay
 - Opus
 - Paypal Europe Ltd
-- SAV Credit
-- SSE
 - Sainsburys Bank
 - Santander
 - Santander Cards
 - Santander Consumer Finance
-- Shop Direct
+- SAV Credit
 - Shop Direct Group
 - Southern Electric
+- SSE
 - Style Financial Services
-- Sygma
 - Sygma Bank Limited
 - TTI Finance
 - UKAR
 - Vanquis Bank
-- Very
 - Welcome Financial Services Ltd
 - Wonga
 
-## EVOLVE
-- Barclaycard
-- Mint
-- NatWest
-- NatWest Bank
-- Octopus Energy
-- Royal Bank of Scotland
-- Shell Energy
-- TSB Bank
-- The Royal Bank of Scotland Plc
-- Ulster Bank
-- Updraft
+### Kept from the previous file (not in the workbook)
+- Aquis
+- Barclays
+- Blemain
+- Creation
+- JD Williams
+- Laser
+- Littlewoods
+- Littlewoods.com
+- Lowell
+- NewDay
+- Shop Direct
+- Sygma
+- Very
 
 ## EVERYDAY LOANS
 - ALWAYS USE THE CURRENT BALANCE NOT TOTAL PAYABLE
 - GEORGE BANCO
 - TRUST II
-

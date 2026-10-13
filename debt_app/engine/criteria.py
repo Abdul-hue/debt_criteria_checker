@@ -30,9 +30,13 @@ Creditor representative lookup is done once in assess_case() and passed in.
 # CREDITOR-FRAUD-CLAIM-RISK         — fraud claim risk noted; caseworker review required (informational)
 # CREDITOR-RECENT-SPEND-REJECT      — creditor rejects recent spend; matching transaction(s) found within N months
 # CREDITOR-RECENT-SPEND-UNVERIFIED  — creditor requires no recent spend but no transaction data in payload
+# CREDITOR-YOUNG-ACCOUNT-DIV-UNVERIFIED — creditor wants a higher dividend for young accounts; account age unknown (flag)
+#                                     (a verified young account simply raises the DIVIDEND-CHECK threshold)
 # CREDITOR-MANUAL-CHECK-REQUIRED    — criteria_notes is non-empty; caseworker must read and apply manually
+# CREDITOR-STANCE-UNCONFIRMED       — row exists but its stance is UNKNOWN; confirm with the criteria owner (flag, never an acceptance)
 
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -63,6 +67,9 @@ class RuleResult:
 # ---------------------------------------------------------------------------
 
 WATCH_HP_MONTHLY_CAP = 400  # WATCH criteria: HP > £400/month is a flag (TIX uses £250)
+
+# Lead Gen auto-DRO: lead_gen_disposable_income below this (£/month) forces a DRO.
+LEAD_GEN_DRO_DI_THRESHOLD = 399
 
 # A case with this share (or more) of total debt owed to UNIDENTIFIED creditors
 # is referred for manual review — the majority/assessment cannot be relied upon
@@ -706,6 +713,10 @@ def _parse_case(case_json: dict) -> dict:
     if property_value is None:
         property_value = case_json.get("property_value")
 
+    # Whether the mortgage balance was actually recorded. Absent key = True
+    # (older payloads and snapshots keep their behaviour); the CAT payload sets
+    # False when Aryza has no mortgage record at all.
+    mortgage_balance_known = bool(mortgage_details) or bool(prop_data.get("mortgage_balance_known", True))
     if mortgage_details:
         mortgage_balance = sum(_parse_amount(m.get("balance", 0)) for m in mortgage_details)
     else:
@@ -723,6 +734,11 @@ def _parse_case(case_json: dict) -> dict:
     if mortgage_monthly_payment is not None:
         mortgage_monthly_payment = _parse_amount(mortgage_monthly_payment)
 
+    # Monthly rent from the active SFS (Lead Gen £399 rule only). None = not recorded.
+    rent_monthly = case_json.get("rent_monthly")
+    if rent_monthly is not None:
+        rent_monthly = _parse_amount(rent_monthly)
+
     available_equity = 0.0
     if has_property and property_value is not None:
         available_equity = _parse_amount(property_value) - mortgage_balance
@@ -739,6 +755,13 @@ def _parse_case(case_json: dict) -> dict:
         previous_iva = any(
             e.get("category") == "previous_iva" for e in evidence_ledger
         ) or case_json.get("flags", {}).get("previous_iva", False)
+
+    # Only an explicit False means "the case does not record an answer"; an
+    # absent key (older payloads / snapshots, hand-built cases) is not flagged.
+    previous_iva_unanswered = (
+        not previous_iva
+        and (case_json.get("flags") or {}).get("previous_iva_answered") is False
+    )
 
     previous_iva_failed_reason = (
         case_json.get("previous_iva_failed_reason")
@@ -899,7 +922,9 @@ def _parse_case(case_json: dict) -> dict:
         "property_value": property_value,          # TODO: missing from payload
         "available_equity": available_equity,       # None until property_value added
         "mortgage_balance": mortgage_balance,
+        "mortgage_balance_known": mortgage_balance_known,
         "mortgage_monthly_payment": mortgage_monthly_payment,
+        "rent_monthly": rent_monthly,
         # Client
         "client_age": client_age,
         # Gambling
@@ -944,6 +969,7 @@ def _parse_case(case_json: dict) -> dict:
         "bankruptcy_return": case_json.get("bankruptcy_return"),
         # Flags derived from other sources
         "previous_iva": previous_iva,
+        "previous_iva_unanswered": previous_iva_unanswered,
         "previous_iva_failed_reason": previous_iva_failed_reason,
         "has_vehicle": case_json.get("has_vehicle", False),
         # Assessment date (for date-gated rules)
@@ -1529,6 +1555,23 @@ def _tig_12(c: dict) -> RuleResult:
     return _pass("TIG-12", "A signed letter confirming the third-party contribution is on file.")
 
 
+def _previous_iva_unconfirmed(c: dict) -> RuleResult:
+    """PREVIOUS-IVA-UNCONFIRMED: the case does not record whether the customer
+    has ever had an IVA. Rules and creditors that depend on it (TIG-13, Admiral
+    and other 'reject if previous IVA' creditors and councils) would otherwise
+    read the missing answer as "no"."""
+    if not c.get("previous_iva_unanswered"):
+        return _pass("PREVIOUS-IVA-UNCONFIRMED", "The case records whether the customer has had a previous IVA.")
+    return RuleResult(
+        rule_id="PREVIOUS-IVA-UNCONFIRMED", severity="flag", triggered=True,
+        message=(
+            "The case does not record whether the customer has ever had an IVA. The caseworker must confirm "
+            "this with the customer before proposing: some creditors and councils reject a customer who has "
+            "had one, and a previous IVA needs its termination report."
+        ),
+    )
+
+
 def _tig_13(c: dict) -> RuleResult:
     """TIG-13: Previous IVA requires termination report."""
     if not c["previous_iva"]:
@@ -1600,10 +1643,30 @@ def _tig_15_3(c: dict) -> RuleResult:
     return _pass("TIG-15.3", "The customer's tax return is on file, confirming their self-assessment submissions are up to date.")
 
 
+def _valid_amount(value):
+    """float(value) when it is a real, finite figure; None otherwise (missing,
+    blank, unparseable, NaN, infinity). Unlike _parse_amount this never turns
+    bad data into 0."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    return amount if math.isfinite(amount) else None
+
+
 def _tig_15_4(c: dict) -> RuleResult:
-    """TIG-15.4: Available property equity > HMRC debt balance."""
-    # EXCEL_CRITERIA_REFERENCE.md — stub replaced;
-    # triggered=True without evaluation is misleading
+    """TIG-15.4: Available property equity > HMRC debt balance.
+
+    TIG sheet: "HMRC - WILL REJECT if more equity than their debt (100% HOUSE
+    VALUATION)". available_equity is property value (100%, no LTV haircut)
+    minus the mortgage balance, from _parse_case (or the credit-report
+    cross-check when it corrects the mortgage). Rejects only when equity is
+    strictly greater than the HMRC balance. A missing, zero, negative or
+    unreadable valuation, or an unreadable / negative mortgage balance, is
+    reported as "could not be completed" — never evaluated as a real figure.
+    """
     if not c["hmrc_is_creditor"]:
         return _pass("TIG-15.4", "HMRC is not one of the customer's creditors, so this check does not apply.")
     if c["available_equity"] is None:
@@ -1611,6 +1674,36 @@ def _tig_15_4(c: dict) -> RuleResult:
             rule_id="TIG-15.4", severity="info", triggered=False,
             message="This check could not be completed because no property value has been entered for the customer.",
         )
+    if c.get("has_property"):
+        property_value = _valid_amount(c.get("property_value"))
+        mortgage_balance = _valid_amount(c.get("mortgage_balance"))
+        if property_value is None or property_value <= 0 or mortgage_balance is None or mortgage_balance < 0:
+            return RuleResult(
+                rule_id="TIG-15.4", severity="info", triggered=False,
+                message=(
+                    "This check could not be completed because the property value or mortgage balance "
+                    "recorded for the customer is missing or not a valid amount. Please check the "
+                    "figures on the case."
+                ),
+            )
+        if not c.get("mortgage_balance_known", True):
+            # No mortgage record: equity is at most the full property value.
+            # If even that does not exceed the HMRC balance, the answer is
+            # certain; otherwise it depends on a mortgage nobody has recorded.
+            if property_value <= c["hmrc_balance"]:
+                return _pass(
+                    "TIG-15.4",
+                    f"The customer's property is valued at £{property_value:,.2f}, which does not exceed the "
+                    f"£{c['hmrc_balance']:,.2f} owed to HMRC, so their equity cannot exceed it either.",
+                )
+            return RuleResult(
+                rule_id="TIG-15.4", severity="info", triggered=False,
+                message=(
+                    "This check could not be completed because no mortgage balance is recorded for the "
+                    "customer's property. Please confirm whether the property has a mortgage and record "
+                    "the balance (or confirm it is owned outright) so HMRC's position can be assessed."
+                ),
+            )
     if c["available_equity"] > c["hmrc_balance"]:
         return RuleResult(
             rule_id="TIG-15.4", severity="hard_block", triggered=True,
@@ -1984,9 +2077,12 @@ def _tig_16(c: dict) -> RuleResult:
     So this is: equity > total debt (liabilities), a FLAG requiring a reason —
     NOT a flat £5,000 hard block (the old £5,000 figure had no Excel basis and
     was hard-rejecting any homeowner with >£5k equity even when their debt far
-    exceeded it). WPM/WATCH cases are excluded here because WATCH-22.4 already
-    evaluates equity-vs-debt (at 85% LTV) for them; Eversheds and all other
-    non-WATCH cases are covered by this rule.
+    exceeded it). WPM/WATCH cases are excluded (the sheet scopes this rule to
+    NON-WPM); Eversheds and all other non-WATCH cases are covered by this rule.
+    WATCH-22.4 used to evaluate equity-vs-debt (at 85% LTV) for WATCH cases;
+    the workbook retired it (sheet owner, 2026-10-12), so while it is switched
+    off a WATCH case has no equity-vs-debt rule and the message must not point
+    to one.
     """
     has_property = c.get("has_property", False)
 
@@ -2012,9 +2108,16 @@ def _tig_16(c: dict) -> RuleResult:
             )
         equity = pv - c["mortgage_balance"]
         liabilities = c["total_debt"]
+        if "WATCH-22.4" in (c.get("_disabled_rules") or ()):
+            message = (
+                "This is a WATCH case. This check only applies to cases that are not WATCH cases, "
+                "and WATCH no longer has a rule comparing property equity with the debt."
+            )
+        else:
+            message = "This is a WATCH case, so the equity in the property is assessed under the WATCH equity rule instead of this check."
         return _pass(
             "TIG-16",
-            "This is a WATCH case, so the equity in the property is assessed under the WATCH equity rule instead of this check.",
+            message,
             threshold=liabilities,
             actual_value=equity,
         )
@@ -2430,6 +2533,63 @@ def _tig_21_5(c: dict) -> RuleResult:
     )
 
 
+def _name_words(s: str) -> str:
+    """Lowercase, punctuation -> spaces, padded so ' marston ' is a whole-word test."""
+    return " " + " ".join(re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split()) + " "
+
+
+def _matching_debt_collector(name: str, collectors: list) -> Optional[str]:
+    """Return the collector whose name/alias appears as whole words in `name`.
+
+    "Marston Holdings Ltd" matches "Marston"; "Abmarston" does not.
+    """
+    words = _name_words(name)
+    for collector_name, patterns in collectors:
+        if any(p.strip() and p in words for p in patterns):
+            return collector_name
+    return None
+
+
+def _bpo_debt(c: dict) -> RuleResult:
+    """BPO-DEBT: a debt listed under a debt collector (BPO) is not the actual debt.
+
+    Flag only (never a block). The caseworker changes the creditor name in
+    Aryza to the debt provider and uploads POD from that provider — the next
+    assessment then evaluates the real creditor and the flag clears.
+    Collectors come from the DebtCollector table, pre-fetched into
+    c["_debt_collectors"] by _assess_case_impl. Checks both the matched name
+    and the original Aryza name, since alias resolution can replace one with
+    the other.
+    """
+    collectors = c.get("_debt_collectors") or []
+    hits = []
+    for cr in c.get("creditors", []):
+        collector = (
+            _matching_debt_collector(cr.get("original_name") or "", collectors)
+            or _matching_debt_collector(cr.get("name") or "", collectors)
+        )
+        if collector:
+            hits.append((cr, collector))
+    if not hits:
+        return _pass("BPO-DEBT", "No debts are listed under a debt collector.")
+
+    lines = []
+    for cr, collector in hits:
+        name = cr.get("original_name") or cr.get("name")
+        lines.append(
+            f"The debt listed as '{name}', balance £{cr['balance']:,.0f}, is with {collector}, a debt collector, "
+            "not the company the debt is owed to. Change the creditor name in Aryza to the actual debt provider "
+            "and upload proof of debt from that provider, not from the collector."
+        )
+    return RuleResult(
+        rule_id="BPO-DEBT",
+        severity="flag",
+        triggered=True,
+        message="\n".join(lines),
+        creditors=[cr.get("original_name") or cr.get("name") for cr, _ in hits],
+    )
+
+
 # ---------------------------------------------------------------------------
 # WATCH RULES — run only when WATCH is a creditor
 # ---------------------------------------------------------------------------
@@ -2450,11 +2610,24 @@ def _watch_22_1(c: dict) -> RuleResult:
 
 
 WATCH_22_2_DI_FACTOR = 0.83
-WATCH_22_2_THRESHOLD = 72.0
+WATCH_22_2_THRESHOLD_MORTGAGE = 72.0     # 6 years — client has a mortgage
+WATCH_22_2_THRESHOLD_NO_MORTGAGE = 60.0  # 5 years — no mortgage
+
+
+def _watch_22_2_has_mortgage(c: dict) -> bool:
+    """A mortgage counts only on an owned property — a bare mortgage_balance can
+    come from a secured creditor typed as 'mortgage' (e.g. HP) in Aryza."""
+    if not c.get("has_property"):
+        return False
+    return (
+        _parse_amount(c.get("mortgage_balance") or 0) > 0
+        or _parse_amount(c.get("mortgage_monthly_payment") or 0) > 0
+    )
 
 
 def _watch_22_2(c: dict) -> RuleResult:
-    """WATCH-22.2: total_debt / (disposable_income * 0.83) — hard block if <= 72 months."""
+    """WATCH-22.2: total_debt / (disposable_income * 0.83) — hard block if <= 72 months
+    (client has a mortgage) or <= 60 months (no mortgage)."""
     di = c["disposable_income"]
     total_debt = c["total_debt"]
     if total_debt <= 0:
@@ -2462,17 +2635,25 @@ def _watch_22_2(c: dict) -> RuleResult:
     if di <= 0:
         return _pass("WATCH-22.2", "Disposable income is zero or negative — cannot calculate payoff duration.")
 
+    if _watch_22_2_has_mortgage(c):
+        threshold, term = WATCH_22_2_THRESHOLD_MORTGAGE, "6-year"
+        basis = "client has a mortgage"
+    else:
+        threshold, term = WATCH_22_2_THRESHOLD_NO_MORTGAGE, "5-year"
+        basis = "client has no mortgage"
+
     actual = total_debt / (di * WATCH_22_2_DI_FACTOR)
-    if actual <= WATCH_22_2_THRESHOLD:
+    if actual <= threshold:
         return RuleResult(
             rule_id="WATCH-22.2", severity="hard_block", triggered=True,
             message=(
                 f"WATCH-22.2 breached: total debt / (disposable income x {WATCH_22_2_DI_FACTOR}) = {actual:.1f} months, "
-                f"which is at or below the 6-year ({WATCH_22_2_THRESHOLD:.0f} months) payoff threshold. WATCH is expected to reject the IVA."
+                f"which is at or below the {term} ({threshold:.0f} months) payoff threshold ({basis}). "
+                f"WATCH is expected to reject the IVA."
             ),
-            threshold=WATCH_22_2_THRESHOLD, actual_value=actual,
+            threshold=threshold, actual_value=actual,
         )
-    return _pass("WATCH-22.2", f"Total debt / (DI x {WATCH_22_2_DI_FACTOR}) = {actual:.1f} months — exceeds 6-year threshold ({WATCH_22_2_THRESHOLD:.0f} months), WATCH-22.2 not triggered.")
+    return _pass("WATCH-22.2", f"Total debt / (DI x {WATCH_22_2_DI_FACTOR}) = {actual:.1f} months — exceeds {term} threshold ({threshold:.0f} months, {basis}), WATCH-22.2 not triggered.")
 
 
 def _watch_22_3(c: dict) -> RuleResult:
@@ -3453,6 +3634,11 @@ def _build_creditor_reason(criteria, cr: dict, case: dict) -> str:
     dividend_parts = []
     if criteria.min_dividend_pence is not None:
         dividend_parts.append(f"The minimum dividend for this creditor is {criteria.min_dividend_pence}p in the pound.")
+    if criteria.young_account_months is not None and criteria.young_account_min_dividend_pence is not None:
+        dividend_parts.append(
+            f"Accounts under {criteria.young_account_months} months old need at least "
+            f"{criteria.young_account_min_dividend_pence}p in the pound."
+        )
     if criteria.conditional_voter:
         cv = criteria.conditional_voter_min_dividend_pence
         if cv is not None:
@@ -3657,17 +3843,41 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
         reject_level = False
 
         min_div = criteria.min_dividend_pence
+        min_div_note = ""
+
+        # General Creditor: a higher minimum dividend while the account is
+        # young (e.g. Loans by Mal: 40p/£ when the loan is 3-6 months old).
+        # The account age comes from the credit report; an unknown age is
+        # flagged for the caseworker, never assumed to be young.
+        young_months = criteria.young_account_months
+        young_div = criteria.young_account_min_dividend_pence
+        if young_months is not None and young_div is not None:
+            _age = cr.get("account_age_months")
+            if _age is None:
+                findings.append({
+                    "code": "CREDITOR-YOUNG-ACCOUNT-DIV-UNVERIFIED",
+                    "reason": (
+                        f"{name} requires at least {young_div}p/£ while the account is under "
+                        f"{young_months} months old; the account age could not be verified from "
+                        "the credit report — confirm before proposing"
+                    ),
+                    "severity": "flag",
+                })
+            elif _age < young_months and (min_div is None or young_div > min_div):
+                min_div = young_div
+                min_div_note = f" (account is {_age} month(s) old, under {young_months} months)"
+
         if min_div is not None and min_div > 0:
             if estimated_dividend_pence >= min_div:
                 findings.append({
                     "code": "DIVIDEND-CHECK-PASS",
-                    "reason": f"Minimum dividend met: {estimated_dividend_pence}p/£ ≥ {min_div}p/£",
+                    "reason": f"Minimum dividend met: {estimated_dividend_pence}p/£ ≥ {min_div}p/£{min_div_note}",
                     "severity": "pass",
                 })
             else:
                 findings.append({
                     "code": "DIVIDEND-CHECK-FAIL",
-                    "reason": f"Minimum dividend NOT met: {estimated_dividend_pence}p/£ < {min_div}p/£",
+                    "reason": f"Minimum dividend NOT met: {estimated_dividend_pence}p/£ < {min_div}p/£{min_div_note}",
                     "severity": "flag",
                 })
 
@@ -3742,6 +3952,15 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
                 "reason": f"{name} rejects clients with a prior IVA",
             })
             reject_level = True
+        elif criteria.reject_if_second_iva and case.get("previous_iva_unanswered"):
+            findings.append({
+                "code": "CREDITOR-SECOND-IVA-UNCONFIRMED",
+                "reason": (
+                    f"{name} rejects customers who have had a previous IVA, and the case does not record "
+                    "whether this customer has had one. Confirm before proposing."
+                ),
+                "severity": "flag",
+            })
 
         # General Creditor: CCJ reject — has_ccj is sourced from the credit report
         # (Experian Public Information / Aryza "CCJs and Insolvencies") by
@@ -3925,6 +4144,20 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
         else:
             effective_status = _STATUS_NORMALISE.get(criteria.status, criteria.status)
 
+        # A row whose stance is recorded as UNKNOWN (e.g. a creditor that lost
+        # its representative body and has no confirmed stance, or a creditor
+        # added for matching only). The caseworker must confirm with the sheet
+        # owner; the engine never treats it as an acceptance.
+        if effective_status == "UNKNOWN" and not reject_level:
+            findings.append({
+                "code": "CREDITOR-STANCE-UNCONFIRMED",
+                "reason": (
+                    f"{name}: this creditor's position on IVA proposals has not been confirmed — "
+                    "check with the criteria owner before proposing."
+                ),
+                "severity": "flag",
+            })
+
         canonical = criteria.creditor_name
 
         # Build a per-creditor audit description covering every check the engine
@@ -3981,7 +4214,7 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
             ),
             (
                 criteria.reject_if_second_iva,
-                "CREDITOR-SECOND-IVA-REJECT", None,
+                "CREDITOR-SECOND-IVA-REJECT", "CREDITOR-SECOND-IVA-UNCONFIRMED",
                 "CREDITOR-SECOND-IVA-PASS",
                 f"{criteria.creditor_name}: no previous IVA — condition satisfied."
             ),
@@ -4860,7 +5093,7 @@ def _derive_recommended_solution(
         _dro_forced = (
             case.get("source_department") == "Lead Generation"
             and _lg_di is not None
-            and _lg_di < 399
+            and _lg_di < LEAD_GEN_DRO_DI_THRESHOLD
         )
         if _vat_forced and _dro_forced:
             logger.warning(
@@ -5323,6 +5556,12 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         # An explicit UNKNOWN vote — could flip either way once identified.
         return (pos.get("effective_status") or "").upper() == "UNKNOWN"
 
+    def _stance_unconfirmed(pos: dict) -> bool:
+        # Matched to a creditor record whose stance is recorded as UNKNOWN (e.g.
+        # an ex-Evolve creditor): identified, but its position is unconfirmed.
+        # Still an unknown vote — only the wording for the caseworker differs.
+        return any(f.get("code") == "CREDITOR-STANCE-UNCONFIRMED" for f in (pos.get("findings") or []))
+
     if all_positions:
         # Name-based fallback sets, used ONLY for positions with no
         # _creditor_idx (councils' canonical name differs from the raw
@@ -5330,6 +5569,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         # mainly for hand-built positions in tests).
         yes_names: set = set()
         unknown_names: set = set()
+        unconfirmed_names: set = set()
         all_positioned_names: set = set()
         for pos in name_positions:
             names = [n for n in _names_from_position(pos) if n]
@@ -5338,6 +5578,8 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                 yes_names.update(names)
             elif _is_unknown(pos):
                 unknown_names.update(names)
+                if _stance_unconfirmed(pos):
+                    unconfirmed_names.update(names)
 
         def _creditor_names(c):
             return [n for n in (c.get("creditor_name"), c.get("original_name"), c.get("name")) if n]
@@ -5348,6 +5590,12 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
         # JSON-safe for the /api/v1/assess/ payload consumed by the CA tool.
         def _display_name(c):
             return (c.get("original_name") or c.get("name") or c.get("creditor_name") or "").strip() or "Unnamed creditor"
+
+        def _unknown_entry(c, unconfirmed):
+            entry = {"name": _display_name(c), "balance": float(c["crm_balance"] or 0)}
+            if unconfirmed:
+                entry["stance_unconfirmed"] = True
+            return entry
 
         voting_debt = Decimal("0")
         unknown_debt = Decimal("0")
@@ -5370,7 +5618,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                     voting_debt += c["crm_balance"]
                 elif _is_unknown(pos):
                     unknown_debt += c["crm_balance"]
-                    unknown_creditors.append({"name": _display_name(c), "balance": float(c["crm_balance"] or 0)})
+                    unknown_creditors.append(_unknown_entry(c, _stance_unconfirmed(pos)))
                 continue
             names = _creditor_names(c)
             if any(n in yes_names for n in names):
@@ -5379,7 +5627,7 @@ def _compute_majority_analysis(case: dict, positions: list, council_positions: l
                 # Explicit UNKNOWN, or a creditor with no position at all:
                 # excluded from voting_debt, but tracked as a could-flip balance.
                 unknown_debt += c["crm_balance"]
-                unknown_creditors.append({"name": _display_name(c), "balance": float(c["crm_balance"] or 0)})
+                unknown_creditors.append(_unknown_entry(c, any(n in unconfirmed_names for n in names)))
     else:
         # No positions computed — treat the whole book as unidentified, not as yes.
         voting_debt = Decimal("0")
@@ -5431,6 +5679,31 @@ def _format_unknown_creditor_list(entries: list, limit: int = 8) -> str:
     if remaining > 0:
         parts.append(f"and {remaining} other{'s' if remaining != 1 else ''}")
     return ", ".join(parts)
+
+
+def _describe_unknown_creditors(entries: list) -> tuple:
+    """(who, action) wording for the creditors behind unknown_debt.
+
+    A creditor the engine could not identify and a matched creditor whose
+    stance is recorded as UNKNOWN are both unknown votes, but the caseworker
+    does different things about them: identify the first, confirm the
+    position of the second. Unidentified-only wording is unchanged.
+    """
+    entries = entries or []
+    unidentified = [e for e in entries if not e.get("stance_unconfirmed")]
+    unconfirmed = [e for e in entries if e.get("stance_unconfirmed")]
+    if not unconfirmed:
+        names = _format_unknown_creditor_list(unidentified)
+        return ("creditor(s) who have not yet been identified" + (f": {names}" if names else ""),
+                "identify these creditor(s)")
+    confirm_names = _format_unknown_creditor_list(unconfirmed)
+    if not unidentified:
+        return (f"creditor(s) whose position on IVA proposals has not been confirmed: {confirm_names}",
+                "confirm these creditors' positions with the criteria owner")
+    names = _format_unknown_creditor_list(unidentified)
+    return (f"creditor(s) who have not yet been identified ({names}) or whose position on IVA "
+            f"proposals has not been confirmed ({confirm_names})",
+            "identify these creditor(s) and confirm the positions of the others with the criteria owner")
 
 
 def calculate_estimated_dividend_pence(case: dict) -> int:
@@ -5736,6 +6009,7 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
         logger.warning("[PROPERTY CROSSCHECK] Case 1: Aryza empty, CR has mortgage. Setting has_property=True, balance=£%s", cr_mortgage_balance)
         c["has_property"] = True
         c["mortgage_balance"] = cr_mortgage_balance
+        c["mortgage_balance_known"] = True
         # No property valuation signal exists in credit report data — only the debt
         # balance is present. Explicitly set property_value to None so the
         # [RULE-CANNOT-EVALUATE] path in equity rules fires correctly rather than
@@ -5785,6 +6059,7 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
                 "case file" if aryza_mortgage_balance >= cr_mortgage_balance else "credit report"
             )
             c["mortgage_balance"] = higher
+            c["mortgage_balance_known"] = True
             # Recompute available_equity with the corrected balance where property
             # value is known; leave None if property_value is absent.
             pv = c.get("property_value")
@@ -6204,6 +6479,283 @@ def _evaluate_dmp_eligibility(c: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Multi-solution eligibility (IVA / DRO / Bankruptcy / DMP)
+# ---------------------------------------------------------------------------
+# Source: "Debt Solution Criteria" document (2026-10-12). A customer can be
+# eligible for more than one solution; each is assessed independently and the
+# advisor sees them side by side. This is informational output only — it does
+# NOT change recommended_solution, dmp_eligibility or any IVA rule.
+#
+# Agreed with the user 2026-10-12:
+#   - Criteria Aryza holds no data for (assets/savings, England & Wales
+#     connection, current insolvency, previous DRO) are advisor-confirmed
+#     questions (solution_checklist). Unanswered -> NEEDS_REVIEW, never a
+#     silent pass or a block.
+#   - DMP affordability = disposable income above £0.
+#   - DRO vehicle limit uses the net value (value minus vehicle HP balance).
+
+DRO_MAX_DEBT = 50000
+DRO_MAX_SURPLUS = 75
+DRO_MAX_ASSETS = 2000
+DRO_MAX_VEHICLE = 4000
+BANKRUPTCY_FEE = 680
+
+SOLUTION_ELIGIBLE = "ELIGIBLE"
+SOLUTION_NEEDS_REVIEW = "NEEDS_REVIEW"
+SOLUTION_NOT_ELIGIBLE = "NOT_ELIGIBLE"
+
+# Advisor-answered questions. Each is tri-state: True / False / None (not answered).
+SOLUTION_CHECKLIST_FIELDS = (
+    "assets_over_2000",          # assets and savings worth more than £2,000
+    "england_wales_connection",  # lived or worked in England/Wales in the last 3 years
+    "currently_insolvent",       # currently bankrupt, under an interim order or in an IVA
+    "dro_in_last_6_years",       # had a DRO in the last 6 years
+)
+
+
+def _sanitize_solution_checklist(raw: Optional[dict]) -> dict:
+    """Keep only the known fields; anything that isn't a real bool is 'not answered'."""
+    raw = raw or {}
+    return {
+        field: raw.get(field) if isinstance(raw.get(field), bool) else None
+        for field in SOLUTION_CHECKLIST_FIELDS
+    }
+
+
+def _solution(code: str, label: str, reasons: list, to_confirm: list, notes: list) -> dict:
+    if reasons:
+        status = SOLUTION_NOT_ELIGIBLE
+    elif to_confirm:
+        status = SOLUTION_NEEDS_REVIEW
+    else:
+        status = SOLUTION_ELIGIBLE
+    return {
+        "code": code,
+        "label": label,
+        "status": status,
+        "reasons": reasons,
+        "to_confirm": to_confirm,
+        "notes": notes,
+    }
+
+
+def _income_recorded(c: dict) -> bool:
+    # £0 total income almost always means the fact find is incomplete, not a
+    # genuine zero income (see TIG-02) — so surplus-based checks can't be trusted.
+    return float(c.get("total_income") or 0) > 0
+
+
+def _evaluate_iva_solution(hard_blocks, flags, creditor_positions) -> dict:
+    # Pure IVA view — case=None skips the forced VAT/DRO routes, which are
+    # about the overall recommendation, not about IVA itself.
+    iva_code = _derive_recommended_solution(hard_blocks, flags, creditor_positions, None)
+    reasons, to_confirm = [], []
+    if iva_code == "IVA_NOT_VIABLE":
+        n = len(hard_blocks)
+        reasons.append(
+            f"{n} IVA criteria {'blocker' if n == 1 else 'blockers'} failed. "
+            "See the IVA criteria results for details."
+        )
+    elif iva_code == "REVIEW_REQUIRED":
+        to_confirm.append(
+            "An unsecured creditor does not vote on IVAs, so the vote outcome needs a caseworker review."
+        )
+    elif iva_code == "IVA_WITH_CONDITIONS":
+        n = len(flags)
+        to_confirm.append(
+            f"{n} IVA {'point needs' if n == 1 else 'points need'} checking. "
+            "See the IVA criteria results for details."
+        )
+    return _solution("IVA", "Individual Voluntary Arrangement (IVA)", reasons, to_confirm, [])
+
+
+def _evaluate_dro_solution(c: dict) -> dict:
+    checklist = c.get("solution_checklist") or {}
+    reasons, to_confirm, notes = [], [], []
+
+    total_debt = float(c.get("total_debt") or 0)
+    if total_debt >= DRO_MAX_DEBT:
+        reasons.append(
+            f"Total qualifying debt is £{total_debt:,.2f}. A DRO needs it to be "
+            f"less than £{DRO_MAX_DEBT:,}."
+        )
+    elif total_debt <= 0:
+        reasons.append("No unsecured debts are recorded on this case.")
+
+    surplus = float(c.get("disposable_income") or 0)
+    if not _income_recorded(c):
+        to_confirm.append(
+            "Income has not been recorded, so the monthly surplus can't be checked. "
+            f"A DRO needs the surplus to be less than £{DRO_MAX_SURPLUS} a month."
+        )
+    elif surplus >= DRO_MAX_SURPLUS:
+        reasons.append(
+            f"Monthly surplus is £{surplus:,.2f}. A DRO needs it to be less than "
+            f"£{DRO_MAX_SURPLUS} a month."
+        )
+
+    if c.get("has_property"):
+        reasons.append(
+            "The customer owns a property (or has a share in one). A DRO is not "
+            "possible with any legal or beneficial interest in a property."
+        )
+
+    net_vehicle = _net_vehicle_value(c)
+    if net_vehicle is not None and net_vehicle >= DRO_MAX_VEHICLE:
+        reasons.append(
+            f"The customer's vehicle is worth £{net_vehicle:,.2f} after any finance "
+            f"owed on it. A DRO normally needs it to be worth less than "
+            f"£{DRO_MAX_VEHICLE:,}, unless it is specially adapted."
+        )
+    elif net_vehicle is None and c.get("has_vehicle"):
+        to_confirm.append(
+            f"The customer has a vehicle but its value is not recorded. A DRO "
+            f"normally needs it to be worth less than £{DRO_MAX_VEHICLE:,}."
+        )
+
+    assets = checklist.get("assets_over_2000")
+    if assets is True:
+        reasons.append(
+            f"The customer's assets and savings are worth more than £{DRO_MAX_ASSETS:,}."
+        )
+    elif assets is None:
+        to_confirm.append(
+            f"Confirm the customer's assets and savings are worth £{DRO_MAX_ASSETS:,} or less."
+        )
+
+    ew = checklist.get("england_wales_connection")
+    if ew is False:
+        reasons.append(
+            "The customer has not lived or worked in England or Wales in the last three years."
+        )
+    elif ew is None:
+        to_confirm.append(
+            "Confirm the customer has lived or worked in England or Wales in the last three years."
+        )
+
+    insolvent = checklist.get("currently_insolvent")
+    if insolvent is True:
+        reasons.append(
+            "The customer is currently bankrupt, under an interim order or in an IVA."
+        )
+    elif insolvent is None:
+        text = "Confirm the customer is not currently bankrupt, under an interim order or in an IVA."
+        if c.get("credit_report_iva_or_bankruptcy"):
+            text += " The credit report shows an IVA or bankruptcy record."
+        to_confirm.append(text)
+
+    previous_dro = checklist.get("dro_in_last_6_years")
+    if previous_dro is True:
+        reasons.append("The customer has had a DRO in the last six years.")
+    elif previous_dro is None:
+        to_confirm.append("Confirm the customer has not had a DRO in the last six years.")
+
+    notes.append("No application fee. The DRO normally lasts 12 months.")
+    return _solution("DRO", "Debt Relief Order (DRO)", reasons, to_confirm, notes)
+
+
+def _evaluate_bankruptcy_solution(c: dict) -> dict:
+    checklist = c.get("solution_checklist") or {}
+    reasons, to_confirm, notes = [], [], []
+
+    if float(c.get("total_debt") or 0) <= 0:
+        reasons.append("No unsecured debts are recorded on this case.")
+
+    ew = checklist.get("england_wales_connection")
+    if ew is False:
+        reasons.append(
+            "The customer does not have the required England and Wales connection. "
+            "Scotland and Northern Ireland have different processes."
+        )
+    elif ew is None:
+        to_confirm.append(
+            "Confirm the customer has the required England and Wales connection."
+        )
+
+    if checklist.get("currently_insolvent") is True:
+        to_confirm.append(
+            "The customer is currently bankrupt, under an interim order or in an IVA. "
+            "Check whether a bankruptcy application is possible."
+        )
+
+    if checklist.get("assets_over_2000") is True:
+        to_confirm.append(
+            "The customer has assets or savings over £2,000. If these are enough to "
+            "pay the debts, bankruptcy may not be appropriate."
+        )
+
+    notes.append(
+        f"The £{BANKRUPTCY_FEE} application fee must be paid in full before applying."
+    )
+    if c.get("has_property"):
+        notes.append("The customer owns a property. Their home or equity may be at risk.")
+    net_vehicle = _net_vehicle_value(c)
+    if net_vehicle is not None and net_vehicle > 0:
+        notes.append(
+            "The customer's vehicle may be sold unless it is exempt or reasonably required."
+        )
+    if _income_recorded(c) and float(c.get("disposable_income") or 0) > 0:
+        notes.append(
+            "The customer has a monthly surplus, so income payments may be required "
+            "for up to three years."
+        )
+    notes.append(
+        "Discharge is normally after 12 months."
+    )
+    return _solution("BANKRUPTCY", "Bankruptcy", reasons, to_confirm, notes)
+
+
+def _evaluate_dmp_solution(c: dict, dmp_eligibility: dict) -> dict:
+    reasons, to_confirm, notes = [], [], []
+
+    status = dmp_eligibility.get("status")
+    if status == "DMP_REJECTED":
+        reasons.extend(dmp_eligibility.get("reasons") or [])
+    elif status == "DMP_NOT_EVALUATED":
+        to_confirm.append("The DMP checklist has not been completed.")
+    notes.extend(dmp_eligibility.get("notes") or [])
+
+    surplus = float(c.get("disposable_income") or 0)
+    if not _income_recorded(c):
+        to_confirm.append(
+            "Income has not been recorded, so it can't be checked whether an "
+            "affordable monthly payment is available."
+        )
+    elif surplus <= 0:
+        reasons.append(
+            "The customer has no money left each month after essential spending, "
+            "so there is no affordable amount for a DMP."
+        )
+    else:
+        total_debt = float(c.get("total_debt") or 0)
+        if total_debt > 0:
+            months = math.ceil(total_debt / surplus)
+            notes.append(
+                f"At £{surplus:,.2f} a month, the debts would take about "
+                f"{months} months ({months / 12:.1f} years) to repay. Check this is "
+                "reasonable for the customer's circumstances."
+            )
+
+    notes.append(
+        "Priority commitments (mortgage or rent, council tax, utilities) are dealt "
+        "with separately. Creditors do not have to accept reduced payments, freeze "
+        "interest or charges, or stop recovery action."
+    )
+    return _solution("DMP", "Debt Management Plan (DMP)", reasons, to_confirm, notes)
+
+
+def _evaluate_solution_eligibility(c, hard_blocks, flags, creditor_positions, dmp_eligibility) -> list:
+    """Every debt solution's own eligibility, in display order. More than one
+    can be ELIGIBLE at once."""
+    return [
+        _evaluate_iva_solution(hard_blocks, flags, creditor_positions),
+        _evaluate_dmp_solution(c, dmp_eligibility),
+        _evaluate_dro_solution(c),
+        _evaluate_bankruptcy_solution(c),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -6245,17 +6797,19 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     # Lead Gen disposable income — distinct from c["disposable_income"], which
     # remains untouched for Advisor-case rules (e.g. TIG-02). Only computed for
     # Lead Generation cases; formula is Total Household Income minus the
-    # rent-or-mortgage monthly payment, falling back to Total Household Income
-    # alone when no such payment was extracted (there is no structured rent
-    # figure anywhere in the system — only a mortgage monthly_payment from the
-    # credit report, via _cross_check_property_from_credit_report above).
+    # rent-or-mortgage monthly payment. The mortgage payment comes from the
+    # credit report (_cross_check_property_from_credit_report above); rent
+    # from the active SFS (payload `rent_monthly`, added for Lead Generation
+    # cases by run_standalone_assessment; business decision 2026-10-13). With
+    # neither, Total Household Income alone is used.
     lead_gen_disposable_income = None
+    lead_gen_housing = None
     if c.get("source_department") == "Lead Generation":
-        rent_or_mortgage_payment = c.get("mortgage_monthly_payment")
-        if rent_or_mortgage_payment:
-            lead_gen_disposable_income = c["total_income"] - rent_or_mortgage_payment
-        else:
-            lead_gen_disposable_income = c["total_income"]
+        if c.get("mortgage_monthly_payment"):
+            lead_gen_housing = {"source": "mortgage", "amount": float(c["mortgage_monthly_payment"])}
+        elif c.get("rent_monthly"):
+            lead_gen_housing = {"source": "rent", "amount": float(c["rent_monthly"])}
+        lead_gen_disposable_income = c["total_income"] - (lead_gen_housing or {}).get("amount", 0)
     c["lead_gen_disposable_income"] = lead_gen_disposable_income
 
     if detected_representatives is None:
@@ -6265,7 +6819,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         )
 
     # Expose detected representatives to the always-run rules (e.g. TIG-16 scopes
-    # itself to NON-WPM cases — WATCH/WPM equity is handled by WATCH-22.4).
+    # itself to NON-WPM cases).
     c["detected_representatives"] = detected_representatives
 
     # Expose per-body majority-voter status (WATCH-22.9 / TIX-07 vehicle-value
@@ -6278,6 +6832,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     # directly (tests, other services), so the parent/child VAT relationship is
     # enforced at the last point before _derive_recommended_solution reads it.
     c["dmp_checklist"] = _sanitize_dmp_checklist(case_json.get("dmp_checklist"))
+    c["solution_checklist"] = _sanitize_solution_checklist(case_json.get("solution_checklist"))
 
     # Load disabled rule_keys once — single DB query for the whole assessment.
     try:
@@ -6287,6 +6842,20 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         )
     except Exception:
         _disabled_rules = frozenset()
+    # Read by rules whose wording depends on another rule being switched on
+    # (TIG-16 must not point WATCH cases to a retired WATCH-22.4).
+    c["_disabled_rules"] = _disabled_rules
+
+    # Debt collectors (BPO-DEBT) — loaded once, as (name, [padded word patterns]).
+    try:
+        from debt_app.models import DebtCollector as _DC
+        c["_debt_collectors"] = [
+            (dc.name, [_name_words(n) for n in [dc.name, *(dc.aliases or [])]])
+            for dc in _DC.objects.filter(is_active=True)
+        ]
+    except Exception as _e:
+        logger.warning("Could not load DebtCollector list: %s", _e)
+        c["_debt_collectors"] = []
 
     hard_blocks: list[RuleResult] = []
     flags: list[RuleResult] = []
@@ -6326,7 +6895,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     tig_rules = [
         _tig_01, _tig_02, _tig_03, _tig_04, _tig_05,
         _tig_06, _tig_07, _tig_08, _tig_09, _tig_10,
-        _tig_11, _tig_11_gambling, _tig_12, _tig_13,
+        _tig_11, _tig_11_gambling, _tig_12, _tig_13, _previous_iva_unconfirmed,
         _tig_15_1, _tig_15_2, _tig_15_3, _tig_15_4, _tig_15_5,
         _tig_15_6, _tig_15_7, _tig_15_8, _tig_15_9, _tig_15_10,
         # HMRC-specific TIG rules (Rules 1, 3–8) — EXCEL_CRITERIA_REFERENCE.md HMRC Rules
@@ -6342,6 +6911,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         # Universal pastoral rules — apply regardless of representative
         _watch_22_7,   # children 13+ sustainability paragraph
         _watch_22_11,  # gambling as primary cause of debt
+        _bpo_debt,     # debts listed under a BPO (agency) name — real creditor needed
     ]
     for fn in tig_rules:
         _run(fn)
@@ -6472,7 +7042,15 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     # specific council holds the deduction order. All non-REJECT/DO_NOT_VOTE council
     # positions are overridden conservatively. Per-creditor deduction tracking is a
     # separate follow-up; without it this is the correct conservative behaviour.
-    _tig17_fired = any(r.rule_id == "TIG-17" for r in flags)
+    #
+    # TIG-17 also fires (as a "confirm the deductions" flag) when it is NOT KNOWN
+    # whether deductions are active. That is not a deduction: the sheet's
+    # "will reject" applies only when one is in place, so the override (and its
+    # "already taking money" reason) requires income_deductions_active is True.
+    _tig17_fired = (
+        any(r.rule_id == "TIG-17" for r in flags)
+        and c.get("income_deductions_active") is True
+    )
     if _tig17_fired:
         for _cp in council_positions:
             if (_cp.get("effective_status") or "").upper() not in ("REJECT", "DO_NOT_VOTE"):
@@ -6571,6 +7149,10 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         # Name the unidentified creditors in the message — the caseworker cannot
         # act on a bare "£X of debt belongs to unidentified creditor(s)" total.
         _unknown_names = _format_unknown_creditor_list(majority_analysis.get("unknown_creditors"))
+        _unknown_who, _unknown_action = _describe_unknown_creditors(majority_analysis.get("unknown_creditors"))
+        _any_unconfirmed = any(
+            e.get("stance_unconfirmed") for e in majority_analysis.get("unknown_creditors") or []
+        )
         if majority_analysis.get("indeterminate"):
             flags.append(RuleResult(
                 rule_id="MAJORITY-INDETERMINATE",
@@ -6584,11 +7166,9 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
                     f"£{majority_analysis['voting_debt']:,.2f} of "
                     f"confirmed support is in place, and "
                     f"£{majority_analysis['unknown_debt']:,.2f} of debt belongs to "
-                    f"creditor(s) who have not yet been identified"
-                    + (f": {_unknown_names}" if _unknown_names else "")
-                    + ". The caseworker must "
-                    "identify these creditor(s) before this vote can be relied upon, as "
-                    "their support could still be enough to reach the required majority."
+                    f"{_unknown_who}. The caseworker must {_unknown_action} before this "
+                    "vote can be relied upon, as their support could still be enough to "
+                    "reach the required majority."
                 ),
                 threshold=float(majority_analysis["threshold"]),
                 actual_value=float(majority_analysis["voting_debt"]),
@@ -6620,6 +7200,9 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
                     "cannot proceed as an IVA unless more creditor support is found — "
                     "a caseworker must review it before it goes any further."
                     + (
+                        f" £{majority_analysis['unknown_debt']:,.2f} of the debt belongs to "
+                        f"{_unknown_who}."
+                        if _unknown_names and _any_unconfirmed else
                         f" Unidentified creditor(s) holding "
                         f"£{majority_analysis['unknown_debt']:,.2f} of the debt: "
                         f"{_unknown_names}."
@@ -6639,6 +7222,10 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     # creditors the engine could not identify cannot be relied upon until resolved.
     _unknown_debt = majority_analysis.get("unknown_debt") or Decimal("0")
     _total_debt_maj = majority_analysis.get("total_debt") or Decimal("0")
+    _unknown_entries_unconfirmed = any(
+        e.get("stance_unconfirmed") for e in majority_analysis.get("unknown_creditors") or []
+    )
+    _material_who, _material_action = _describe_unknown_creditors(majority_analysis.get("unknown_creditors"))
     if _total_debt_maj > 0:
         _unknown_pct = float(_unknown_debt) / float(_total_debt_maj)
         if _unknown_pct >= UNKNOWN_REFERRAL_PCT:
@@ -6657,6 +7244,11 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
                     + ". The caseworker must identify them before "
                     "relying on this assessment, because it is not known how they would "
                     "vote or whether any creditor-specific rules apply to them."
+                ) if not _unknown_entries_unconfirmed else (
+                    f"£{float(_unknown_debt):,.2f} of the customer's debt "
+                    f"({_unknown_pct * 100:.1f}% of the total) is owed to {_material_who}. "
+                    "It is not known how they would vote, so the caseworker must "
+                    f"{_material_action} before relying on this assessment."
                 ),
                 threshold=float(UNKNOWN_REFERRAL_PCT * 100),
                 actual_value=float(_unknown_pct * 100),
@@ -6665,6 +7257,9 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     recommended_solution = _derive_recommended_solution(hard_blocks, flags, _all_creditor_positions, c)
     tig_eligible = len(hard_blocks) == 0
     dmp_eligibility = _evaluate_dmp_eligibility(c)
+    solution_eligibility = _evaluate_solution_eligibility(
+        c, hard_blocks, flags, _all_creditor_positions, dmp_eligibility,
+    )
 
     # SFS guideline comparison — non-blocking, appended to result
     #
@@ -6771,11 +7366,14 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
             float(c["lead_gen_disposable_income"])
             if c.get("lead_gen_disposable_income") is not None else None
         ),
+        # What lead_gen_disposable_income deducted: {"source": "mortgage"|"rent", "amount"} or None.
+        "lead_gen_housing": lead_gen_housing,
         "total_unsecured_debt": float(c["total_debt"]),
         "total_secured_debt": float(c.get("total_secured_debt") or 0),
         "passes_all_hard_blocks": tig_eligible,
         "recommended_solution": recommended_solution,
         "dmp_eligibility": dmp_eligibility,
+        "solution_eligibility": solution_eligibility,
         "tig_eligible": tig_eligible,
         "creditor_positions": _all_creditor_positions,
         "council_positions": council_positions,

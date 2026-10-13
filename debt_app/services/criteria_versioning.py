@@ -76,6 +76,7 @@ MANAGED_FIELDS = {
         "fees_cap_percentage", "min_di_for_fees_pence", "termination_risk_if_vehicle_on_finance",
         "conditional_voter", "conditional_voter_min_dividend_pence", "open_banking_access",
         "requires_credit_report", "fraud_claim_risk", "blocked_until_cleared", "blocked_reason",
+        "young_account_months", "young_account_min_dividend_pence",
     ],
     "CouncilRule": [
         "status", "min_dividend_pence", "reject_if_employed", "reject_if_unemployed_and_homeowner",
@@ -405,7 +406,17 @@ def _evaluate_snapshot(case_json):
         dmp_eligibility=result.get("dmp_eligibility"),
         documents_supplied=bool(case_json.get("documents")),
         rule_titles=rule_titles,
+        solution_eligibility=result.get("solution_eligibility"),
     )
+    # Creditor votes and the majority are compared too: a change can leave every
+    # rule id and the recommendation untouched yet flip how creditors vote (e.g.
+    # switching off a representative body's flag rule moves all of that body's
+    # creditors from "will consider" to "accept"). A reviewer must see that.
+    majority = result.get("majority_analysis") or {}
+    if majority.get("indeterminate"):
+        majority_text = "cannot be determined"
+    else:
+        majority_text = "achievable" if majority.get("achievable", True) else "not achievable"
     return {
         "engine_solution": result.get("recommended_solution"),
         "hard_blocks": sorted({r.rule_id for r in result.get("hard_blocks", [])}),
@@ -414,7 +425,34 @@ def _evaluate_snapshot(case_json):
         "lead_gen_overall": lead_gen["overall"]["code"],
         "lead_gen_iva": lead_gen["iva"]["code"],
         "lead_gen_dmp": lead_gen["dmp"]["code"],
+        "creditor_votes": sorted(
+            f"{p.get('creditor_name')}: {p.get('effective_status')}"
+            for p in [*result.get("creditor_positions", []), *result.get("council_positions", [])]
+        ),
+        "majority": majority_text,
     }
+
+
+# The Aryza import set previous_iva from td_previous_bankruptcy and from the
+# mere existence of the client's own iva_client row until commit c91fa58
+# (2026-07-15). Snapshots saved before then can say "previous IVA" when Aryza
+# holds no previous IVA (checked 2026-10-13: all 8 such trial cases had no
+# IVA arrangement, no factfind IVA row and no IVA failure reason).
+PREVIOUS_IVA_IMPORT_FIX_DATE = datetime.date(2026, 7, 15)
+
+
+def _snapshot_warnings(snapshot, saved_at):
+    """Plain-English caveats about a saved snapshot's reliability."""
+    warnings = []
+    flags = (snapshot or {}).get("flags") or {}
+    if (saved_at is not None and saved_at.date() < PREVIOUS_IVA_IMPORT_FIX_DATE
+            and (flags.get("previous_iva") or (snapshot or {}).get("previous_iva"))):
+        warnings.append(
+            f"This case was last assessed on {saved_at:%d %b %Y}, before a fix to how a previous IVA is read "
+            "from Aryza. Its \"previous IVA\" answer may be wrong, so any difference that depends on a "
+            "previous IVA is not reliable. Re-assess the case to refresh it."
+        )
+    return warnings
 
 
 def run_trial(change, user, max_cases=DEFAULT_TRIAL_CASES):
@@ -434,7 +472,8 @@ def run_trial(change, user, max_cases=DEFAULT_TRIAL_CASES):
     _check_items_still_current(change)  # stale draft -> refuse before spending time
 
     decisions = list(
-        CriteriaDecision.objects.order_by("-triggered_at").values("application_id", "input_snapshot")[:max_cases]
+        CriteriaDecision.objects.order_by("-triggered_at").values(
+            "application_id", "input_snapshot", "triggered_at")[:max_cases]
     )
     cases, changed, errors = [], [], []
     with isolated_database_copy() as alias:
@@ -459,7 +498,13 @@ def run_trial(change, user, max_cases=DEFAULT_TRIAL_CASES):
                         for k in before[ref] if before[ref][k] != after[k]}
                 cases.append(ref)
                 if diff:
-                    changed.append({"aryza_reference": ref, "differences": diff})
+                    entry = {"aryza_reference": ref, "differences": diff}
+                    if d.get("triggered_at"):
+                        entry["snapshot_saved_at"] = d["triggered_at"].isoformat()
+                    warnings = _snapshot_warnings(d["input_snapshot"], d.get("triggered_at"))
+                    if warnings:
+                        entry["warnings"] = warnings
+                    changed.append(entry)
 
     # Nothing above wrote to the live database; prove it before recording.
     if live_fingerprint() != live_fp:

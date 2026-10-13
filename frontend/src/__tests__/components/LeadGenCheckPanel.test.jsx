@@ -84,6 +84,11 @@ describe('LeadGenCheckPanel', () => {
         council_tax_current_year: false,
         council_tax_previous_year: false,
         lost_right_to_pay_instalments: false,
+        current_gas_bill: false,
+        current_electric_bill: false,
+        previous_gas_provider_debt: false,
+        previous_electric_provider_debt: false,
+        current_phone_contract: false,
       },
     })
   })
@@ -102,6 +107,129 @@ describe('LeadGenCheckPanel', () => {
     expect(await screen.findByText('Does not currently meet criteria')).toBeInTheDocument()
     expect(screen.getByText('Reason')).toBeInTheDocument()
     expect(screen.getByText('Minimum debt — criteria not met')).toBeInTheDocument()
+  })
+
+  it('shows DRO and bankruptcy with what to confirm', async () => {
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'POTENTIALLY_SUITABLE', label: 'Potentially suitable at Lead Gen stage' },
+      iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+      dmp: { code: 'NOT_SUITABLE', label: 'DMP — Not currently suitable' },
+      dro: {
+        code: 'NEEDS_REVIEW', label: 'DRO — Potentially suitable, details to confirm',
+        reasons: [], to_confirm: ['Confirm the customer has not had a DRO in the last six years.'],
+        notes: ['No application fee. The DRO normally lasts 12 months.'],
+      },
+      bankruptcy: {
+        code: 'NOT_SUITABLE', label: 'Bankruptcy — Not currently suitable',
+        reasons: [{ code: 'BANKRUPTCY-1', text: 'No unsecured debts are recorded on this case.', detail: null }],
+        to_confirm: [], notes: [],
+      },
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    expect(await screen.findByText('Case 123456')).toBeInTheDocument()
+    expect(within(solutionRow('DRO')).getByText('Potentially suitable, details to confirm')).toBeInTheDocument()
+    expect(screen.getByText('DRO details')).toBeInTheDocument()
+    expect(screen.getByText('Confirm the customer has not had a DRO in the last six years.')).toBeInTheDocument()
+    // Another option works, so bankruptcy is not shown.
+    expect(screen.queryByText('Bankruptcy', { selector: 'li > span' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Bankruptcy details')).not.toBeInTheDocument()
+  })
+
+  it('shows bankruptcy when it is the only option left', async () => {
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'DOES_NOT_MEET_CRITERIA', label: 'Does not currently meet criteria' },
+      iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+      dmp: { code: 'NOT_SUITABLE', label: 'DMP — Not currently suitable' },
+      dro: { code: 'NOT_SUITABLE', label: 'DRO — Not currently suitable', reasons: [], to_confirm: [], notes: [] },
+      bankruptcy: {
+        code: 'NEEDS_REVIEW', label: 'Bankruptcy — Potentially suitable, details to confirm', reasons: [],
+        to_confirm: ['Confirm the customer has the required England and Wales connection.'],
+        notes: ['The £680 application fee must be paid in full before applying.'],
+      },
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    expect(await screen.findByText('Case 123456')).toBeInTheDocument()
+    expect(within(solutionRow('Bankruptcy')).getByText('Potentially suitable, details to confirm')).toBeInTheDocument()
+    expect(screen.getByText('The £680 application fee must be paid in full before applying.')).toBeInTheDocument()
+  })
+
+  it('sends only the DRO and bankruptcy questions that were answered', async () => {
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'POTENTIALLY_SUITABLE', label: 'Potentially suitable at Lead Gen stage' },
+      iva: { code: 'POTENTIALLY_SUITABLE', label: 'IVA — Potentially suitable' },
+      dmp: { code: 'POTENTIALLY_SUITABLE', label: 'DMP — Potentially suitable' },
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.change(screen.getByLabelText('Had a Debt Relief Order in the last 6 years?'), { target: { value: 'no' } })
+    fireEvent.change(screen.getByLabelText('Assets and savings worth more than £2,000?'), { target: { value: 'yes' } })
+    expect(screen.getByText('2 of 4 answered')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    await screen.findByText('Case 123456')
+    expect(api.post.mock.calls[0][1].solution_checklist).toEqual({ assets_over_2000: true, dro_in_last_6_years: false })
+  })
+
+  it('groups reasons by solution and shows every one on request', async () => {
+    const iva = ['TIG-01', 'TIG-02', 'CREDITOR-BLOCKED', 'TIG-21.2'].map((code) => ({ code, text: `${code} failed`, detail: null }))
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'DOES_NOT_MEET_CRITERIA', label: 'Does not currently meet criteria' },
+      iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+      dmp: { code: 'NOT_SUITABLE', label: 'DMP — Not currently suitable' },
+      reasons: iva.slice(0, 3),
+      iva_reasons: iva,
+      dmp_reasons: [{ code: 'DMP-MIN-DEBT', text: 'Total debt is below the minimum', detail: null }],
+      review_reasons: [{ code: 'BPO-DEBT', text: 'Debt listed under a debt collector — needs checking', detail: null }],
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    expect(await screen.findByText('Why IVA is not suitable')).toBeInTheDocument()
+    expect(screen.getByText('Why DMP is not suitable')).toBeInTheDocument()
+    expect(screen.getByText('Total debt is below the minimum')).toBeInTheDocument()
+    expect(screen.getByText('Debt listed under a debt collector — needs checking')).toBeInTheDocument()
+    expect(screen.queryByText('TIG-21.2 failed')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 more' }))
+    expect(screen.getByText('TIG-21.2 failed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(screen.queryByText('TIG-21.2 failed')).not.toBeInTheDocument()
+  })
+
+  it('opens a reason to show the engine explanation, and shows the case figures', async () => {
+    const detail = "The customer's total unsecured debt is £2,400.00. An IVA usually requires total debt of at least £6,000.00."
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'DOES_NOT_MEET_CRITERIA', label: 'Does not currently meet criteria' },
+      iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+      dmp: { code: 'NOT_SUITABLE', label: 'DMP — Not currently suitable' },
+      reasons: [{ code: 'TIG-01', text: 'Minimum debt — criteria not met', detail }],
+      case_figures: {
+        total_unsecured_debt: 2400, monthly_income: null, monthly_expenditure: 1605, disposable_income: 45,
+      },
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+
+    const reason = await screen.findByRole('button', { name: /Minimum debt — criteria not met/ })
+    expect(reason).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText(detail)).not.toBeVisible()
+    fireEvent.click(reason)
+    expect(reason).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText(detail)).toBeVisible()
+
+    expect(screen.getByText('Case figures')).toBeInTheDocument()
+    expect(screen.getByText('£2,400.00')).toBeInTheDocument()
+    expect(screen.getByText('£1,605.00')).toBeInTheDocument()
+    expect(screen.getByText('£45.00')).toBeInTheDocument()
+    expect(screen.getByText('Not recorded')).toBeInTheDocument()
   })
 
   it('shows the DRO referral separately', async () => {
@@ -181,7 +309,7 @@ describe('LeadGenCheckPanel', () => {
     await typeRef()
     fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Income not recorded — check the fact find')
-    expect(screen.queryByText(/Debt Relief Order/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Refer for review/)).not.toBeInTheDocument()
     expect(screen.queryByText('No issues identified at this stage.')).not.toBeInTheDocument()
   })
 
@@ -234,6 +362,11 @@ describe('LeadGenCheckPanel', () => {
       council_tax_current_year: false,
       council_tax_previous_year: false,
       lost_right_to_pay_instalments: false,
+      current_gas_bill: false,
+      current_electric_bill: false,
+      previous_gas_provider_debt: false,
+      previous_electric_provider_debt: false,
+      current_phone_contract: false,
     })
   })
 
@@ -258,10 +391,39 @@ describe('LeadGenCheckPanel', () => {
         council_tax_current_year: true,
         council_tax_previous_year: true,
         lost_right_to_pay_instalments: true,
+        current_gas_bill: false,
+        current_electric_bill: false,
+        previous_gas_provider_debt: false,
+        previous_electric_provider_debt: false,
+        current_phone_contract: false,
       },
     })
     expect(within(solutionRow('DMP')).getByText('Not currently suitable')).toBeInTheDocument()
     expect(screen.getByText(/Council tax instalment rights lost/)).toBeInTheDocument()
+  })
+
+  it('sends the utility and phone answers and shows the DMP notes', async () => {
+    const note = 'The following debt(s) must be left out of the DMP arrangement: current gas bill.'
+    api.post.mockResolvedValueOnce({ data: {
+      ...baseResult,
+      overall: { code: 'POTENTIALLY_SUITABLE', label: 'Potentially suitable at Lead Gen stage' },
+      iva: { code: 'POTENTIALLY_SUITABLE', label: 'IVA — Potentially suitable' },
+      dmp: { code: 'POTENTIALLY_SUITABLE', label: 'DMP — Potentially suitable' },
+      dmp_notes: [note],
+    } })
+    renderPanel()
+    await typeRef()
+    fireEvent.click(screen.getByLabelText('Current gas bill'))
+    fireEvent.click(screen.getByLabelText('Current phone contract'))
+    fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+    await screen.findByText('Case 123456')
+    expect(api.post.mock.calls[0][1].dmp_checklist).toMatchObject({
+      current_gas_bill: true,
+      current_phone_contract: true,
+      current_electric_bill: false,
+    })
+    expect(screen.getByText('DMP notes')).toBeInTheDocument()
+    expect(screen.getByText(note)).toBeInTheDocument()
   })
 
   it('clears the DMP checklist answers when the case reference changes', async () => {
@@ -273,5 +435,140 @@ describe('LeadGenCheckPanel', () => {
     api.get.mockClear()
     await typeRef('654321')
     await waitFor(() => expect(screen.getByLabelText('Council tax arrears for this year')).not.toBeChecked())
+  })
+
+  describe('HMRC VAT question', () => {
+    const suitable = {
+      ...baseResult,
+      overall: { code: 'POTENTIALLY_SUITABLE', label: 'Potentially suitable at Lead Gen stage' },
+      iva: { code: 'POTENTIALLY_SUITABLE', label: 'IVA — Potentially suitable' },
+      dmp: { code: 'POTENTIALLY_SUITABLE', label: 'DMP — Potentially suitable' },
+    }
+    const checkCase = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+      await screen.findByText('Case 123456')
+    }
+    const vatBox = () => screen.getByLabelText('HMRC debt includes VAT')
+
+    it('is listed but disabled before a case has been checked', async () => {
+      renderPanel()
+      await typeRef()
+      expect(vatBox()).toBeDisabled()
+      expect(screen.getByText('Check the case first to see if HMRC is a creditor.')).toBeInTheDocument()
+    })
+
+    it('stays disabled when the case has no HMRC creditor', async () => {
+      api.post.mockResolvedValueOnce({ data: { ...suitable, hmrc_is_creditor: false } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      expect(vatBox()).toBeDisabled()
+      expect(screen.getByText('No HMRC debt found on this case.')).toBeInTheDocument()
+    })
+
+    it('is disabled while the check is running', async () => {
+      let resolve
+      api.post.mockReturnValueOnce(new Promise((r) => { resolve = r }))
+      renderPanel()
+      await typeRef()
+      fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+      await screen.findByText('Checking…')
+      expect(vatBox()).toBeDisabled()
+      resolve({ data: { ...suitable, hmrc_is_creditor: true } })
+      await waitFor(() => expect(vatBox()).toBeEnabled())
+    })
+
+    it('is disabled again when the check fails', async () => {
+      api.post.mockResolvedValueOnce({ data: { ...suitable, hmrc_is_creditor: true } })
+      api.post.mockRejectedValueOnce({ response: { status: 503, data: { error: 'Aryza is not responding.', code: 'ARYZA_TIMEOUT' } } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      fireEvent.click(vatBox())
+      fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Aryza is not responding.')
+      expect(vatBox()).toBeDisabled()
+      expect(vatBox()).not.toBeChecked()
+    })
+
+    it('is enabled for an HMRC creditor and sends the answers on the next check', async () => {
+      api.post.mockResolvedValueOnce({ data: { ...suitable, hmrc_is_creditor: true } })
+      api.post.mockResolvedValueOnce({ data: {
+        ...suitable,
+        hmrc_is_creditor: true,
+        iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+        reasons: [{ code: 'FORCED_DMP_VAT', text: 'A previous-year HMRC VAT debt is an automatic IVA fail' }],
+      } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      expect(api.post.mock.calls[0][1].dmp_checklist).not.toHaveProperty('hmrc_debt_has_vat')
+      expect(screen.queryByLabelText('The VAT is from a previous year')).not.toBeInTheDocument()
+      fireEvent.click(vatBox())
+      fireEvent.click(screen.getByLabelText('The VAT is from a previous year'))
+      await checkCase()
+      expect(api.post.mock.calls[1][1].dmp_checklist).toMatchObject({
+        hmrc_debt_has_vat: true,
+        hmrc_previous_year_vat: true,
+        current_gas_bill: false,
+      })
+      expect(within(solutionRow('IVA')).getByText('Not currently suitable')).toBeInTheDocument()
+      expect(screen.getByText('A previous-year HMRC VAT debt is an automatic IVA fail')).toBeInTheDocument()
+      expect(screen.getByLabelText('The VAT is from a previous year')).toBeChecked()
+    })
+
+    it('unticking "includes VAT" clears the previous-year answer', async () => {
+      api.post.mockResolvedValueOnce({ data: { ...suitable, hmrc_is_creditor: true } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      fireEvent.click(vatBox())
+      fireEvent.click(screen.getByLabelText('The VAT is from a previous year'))
+      fireEvent.click(vatBox())
+      fireEvent.click(vatBox())
+      expect(screen.getByLabelText('The VAT is from a previous year')).not.toBeChecked()
+    })
+
+    it('shows the VAT and DRO conflict as a caseworker review, with no DRO referral', async () => {
+      const text = 'A previous-year HMRC VAT debt and the Lead Gen DRO threshold both apply, '
+        + 'so a caseworker needs to decide between a DRO and a DMP'
+      api.post.mockResolvedValueOnce({ data: {
+        ...suitable,
+        hmrc_is_creditor: true,
+        overall: { code: 'REVIEW_REQUIRED', label: 'Caseworker review needed — DRO or DMP' },
+        iva: { code: 'NOT_SUITABLE', label: 'IVA — Not currently suitable' },
+        dmp: { code: 'REVIEW_REQUIRED', label: 'DMP — Caseworker review needed' },
+        dro: null,
+        reasons: [{ code: 'FORCED-SOLUTION-CONFLICT', text: 'IVA is not currently suitable for this conflict' }],
+        review_reasons: [{ code: 'FORCED-SOLUTION-CONFLICT', text, detail: null }],
+      } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      expect(screen.getByText('Caseworker review needed — DRO or DMP')).toBeInTheDocument()
+      expect(within(solutionRow('IVA')).getByText('Not currently suitable')).toBeInTheDocument()
+      expect(within(solutionRow('DMP')).getByText('Caseworker review needed')).toBeInTheDocument()
+      expect(screen.queryByText('Potentially suitable')).not.toBeInTheDocument()
+      expect(screen.getByText('IVA is not currently suitable for this conflict')).toBeInTheDocument()
+      expect(screen.getByText('Needs review')).toBeInTheDocument()
+      expect(screen.getByText(text)).toBeInTheDocument()
+      expect(screen.queryByText(/Refer for review/)).not.toBeInTheDocument()
+      expect(screen.queryByText('No issues identified at this stage.')).not.toBeInTheDocument()
+    })
+
+    it('is disabled and cleared when the case reference changes', async () => {
+      api.post.mockResolvedValueOnce({ data: { ...suitable, hmrc_is_creditor: true } })
+      renderPanel()
+      await typeRef()
+      await checkCase()
+      fireEvent.click(vatBox())
+      fireEvent.change(screen.getByLabelText('Case reference'), { target: { value: '654321' } })
+      expect(vatBox()).toBeDisabled()
+      expect(vatBox()).not.toBeChecked()
+      api.post.mockResolvedValueOnce({ data: { ...suitable, aryza_reference: '654321', hmrc_is_creditor: false } })
+      fireEvent.click(screen.getByRole('button', { name: 'Check case' }))
+      await screen.findByText('Case 654321')
+      expect(api.post.mock.calls[1][1].dmp_checklist).not.toHaveProperty('hmrc_debt_has_vat')
+    })
   })
 })

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useCreditorVoteSummary } from '../../hooks/useCreditors'
 import { isWaterSupplier, isPrivateParkingOperator, creditorRowKey } from '../../lib/dmpRowSelections'
+import SolutionOptions, { DEFAULT_SOLUTION_CHECKLIST } from './SolutionOptions'
 
 const REPRESENTATIVE_META = { 
   "WATCH": { 
@@ -332,6 +333,8 @@ export default function CriteriaReport({
   creditorRowSelections = {},
   onRowSelectionChange = () => {},
   isRecalculating = false,
+  solutionAnswers = DEFAULT_SOLUTION_CHECKLIST,
+  onSolutionAnswerChange = () => {},
 }) {
   const hard_blocks = result?.hard_blocks || []
   const flags = result?.flags || []
@@ -526,6 +529,13 @@ export default function CriteriaReport({
         </div>
         </div>
       </div>
+
+      <SolutionOptions
+        solutions={result?.solution_eligibility || []}
+        answers={solutionAnswers}
+        onAnswerChange={onSolutionAnswerChange}
+        disabled={isRecalculating}
+      />
 
       {/* SECTION B — KEY METRICS ROW */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">

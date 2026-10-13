@@ -22,6 +22,11 @@ class CreditorCriteria(models.Model):
         ('WILL_CONSIDER', 'Will Consider'),
         ('DO_NOT_VOTE', 'Do Not Vote'),
         ('CONDITIONAL_VOTER', 'Conditional Voter'),
+        # Stance not yet confirmed by the sheet owner. The engine reports it as
+        # "no recorded standing position" and flags the case; it is never an
+        # acceptance. Used for creditors that lost a retired representative
+        # body and for creditors added for name matching only.
+        ('UNKNOWN', 'Unknown - stance not yet confirmed'),
     ]
 
     id = models.BigAutoField(primary_key=True)
@@ -132,6 +137,18 @@ class CreditorCriteria(models.Model):
     termination_risk_if_vehicle_on_finance = models.BooleanField(default=False)
     conditional_voter = models.BooleanField(default=False)
     conditional_voter_min_dividend_pence = models.IntegerField(blank=True, null=True)
+    # A higher minimum dividend while the account is young, e.g. Loans by Mal:
+    # "if under 6 months but older than 3 months - has to 40p/£" (workbook
+    # 2026-10-12). Both must be set for the engine to apply it; the account
+    # age comes from the credit report and an unknown age is flagged, not assumed.
+    young_account_months = models.IntegerField(
+        blank=True, null=True,
+        help_text="Accounts younger than this many months need young_account_min_dividend_pence instead of min_dividend_pence.",
+    )
+    young_account_min_dividend_pence = models.IntegerField(
+        blank=True, null=True,
+        help_text="Minimum dividend (pence in the pound) while the account is younger than young_account_months.",
+    )
     open_banking_access = models.BooleanField(default=False)
     requires_credit_report = models.BooleanField(
         default=False,
@@ -467,6 +484,37 @@ class CouncilRule(models.Model):
 
     def __str__(self):
         return self.council_name
+
+
+class DebtCollector(models.Model):
+    """A debt collection agency ("BPO") that collects on behalf of the real creditor.
+
+    A debt entered in Aryza under one of these names is not the actual debt:
+    the BPO-DEBT rule flags it so the caseworker changes the creditor name in
+    Aryza to the debt provider and uploads POD from that provider.
+
+    Only collectors acting FOR someone else belong here — NOT debt purchasers
+    (Cabot, Lowell, Intrum, ...), which own the debt and are valid creditors.
+    """
+
+    name = models.CharField(max_length=255, unique=True)
+    aliases = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="Other names this collector trades under, e.g. [\"Marston Holdings\"]",
+    )
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Debt Collector'
+        verbose_name_plural = 'Debt Collectors'
+
+    def __str__(self):
+        return self.name
 
 
 class CountyCouncil(models.Model):
@@ -886,6 +934,7 @@ class CriteriaDecision(models.Model):
         ('BREATHING_SPACE', 'Debt Respite Scheme (Breathing Space)'),
         ('FREE_SECTOR', 'Free Sector Solution'),
         ('UNCLEAR', 'Unclear'),
+        ('REVIEW_REQUIRED', 'Caseworker Review Required'),
     ]
 
     SOURCE_CHOICES = [
@@ -1524,11 +1573,13 @@ class LeadGenCheck(models.Model):
         ('POTENTIALLY_SUITABLE', 'DMP potentially suitable'),
         ('NOT_SUITABLE', 'DMP not currently suitable'),
         ('NOT_ASSESSED', 'DMP not assessed'),
+        ('REVIEW_REQUIRED', 'DMP pending caseworker review (DRO or DMP)'),
     ]
     OVERALL_OUTCOME_CHOICES = [
         ('POTENTIALLY_SUITABLE', 'Potentially suitable'),
         ('DRO_REFER', 'DRO potentially suitable / refer for review'),
         ('DOES_NOT_MEET_CRITERIA', 'Does not currently meet criteria'),
+        ('REVIEW_REQUIRED', 'Caseworker review needed (DRO or DMP)'),
     ]
 
     id = models.BigAutoField(primary_key=True)

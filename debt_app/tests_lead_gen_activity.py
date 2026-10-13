@@ -41,13 +41,13 @@ class _ActivityFixture(TestCase):
             UserProfile.objects.create(user=u, department=self.dept)
 
     def _log(self, user, ref, when, status="OK", iva="POTENTIALLY_SUITABLE", dmp="POTENTIALLY_SUITABLE",
-             overall="POTENTIALLY_SUITABLE"):
+             overall="POTENTIALLY_SUITABLE", reason_codes=None):
         ok = status == "OK"
         return LeadGenCheck.objects.create(
             user=user, username=user.username, department_name="Lead Generation", aryza_reference=ref,
             checked_at=when, status=status,
             iva_outcome=iva if ok else "", dmp_outcome=dmp if ok else "", overall_outcome=overall if ok else "",
-            dro_referral=ok and overall == "DRO_REFER",
+            dro_referral=ok and overall == "DRO_REFER", reason_codes=reason_codes or [],
         )
 
     def _row(self, rows, username):
@@ -106,6 +106,15 @@ class SummariseActivityTests(_ActivityFixture):
         row = self._row(summarise_activity(LeadGenCheck.objects.all()), "alice")
         self.assertEqual((row["cases_checked"], row["iva_potential"], row["iva_needs_review"],
                           row["dmp_potential"], row["no_solution"], row["dro_referral"]), (4, 1, 1, 2, 1, 1))
+
+    def test_caseworker_review_and_income_not_recorded_are_counted(self):
+        self._log(self.alice, "A", _utc(2026, 6, 10), iva="NOT_SUITABLE", dmp="REVIEW_REQUIRED",
+                  overall="REVIEW_REQUIRED")
+        self._log(self.alice, "B", _utc(2026, 6, 10), iva="NOT_SUITABLE", dmp="NOT_SUITABLE",
+                  overall="DOES_NOT_MEET_CRITERIA", reason_codes=["TIG-02", "INCOME-NOT-RECORDED"])
+        row = self._row(summarise_activity(LeadGenCheck.objects.all()), "alice")
+        self.assertEqual((row["cases_checked"], row["caseworker_review"], row["income_not_recorded"],
+                          row["no_solution"]), (2, 1, 1, 1))
 
     def test_london_midnight_splits_days(self):
         # 22:59 UTC = 23:59 BST on 10 June; 23:01 UTC = 00:01 BST on 11 June.

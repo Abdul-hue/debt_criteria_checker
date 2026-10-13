@@ -1,8 +1,24 @@
 """
-Seed CreditorCriteria with representative and parent_group data.
+Sync CreditorCriteria from the Excel Criteria markdown files.
 
-Source of truth: Which_Representative_Criteria.md
-Run with: python manage.py seed_creditor_criteria [--dry-run]
+Sources: Which_Representative_Criteria.md, General_Creditors.md, Dividends_Criteria.md
+(generated from the workbook by `manage.py export_excel_criteria`).
+
+    python manage.py seed_creditor_criteria [--dry-run]            # notes-only (default, safe)
+    python manage.py seed_creditor_criteria --include-manual        # also touch admin-edited rows' notes
+    python manage.py seed_creditor_criteria --full [--dry-run]      # legacy: overwrite every parsed field
+
+Default mode is NOTES-ONLY: it updates free text and contact details on matched
+creditors, creates creditors that do not exist yet, and applies the agreed
+renames (RENAMED_ROWS). It never writes status, representative, dividend
+minimums, reject flags or trading names on an existing row: those are managed
+fields and change only through the criteria change workflow
+(build_criteria_change_from_excel -> trial -> second-manager approval).
+
+This command never deletes rows. Rows that are in the database but not in the
+markdown are listed as orphans for a human to look at. (The earlier "strict
+sync" deleted them, which is how hand-restored creditors went missing in
+August 2026.)
 """
 
 import os
@@ -11,6 +27,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from debt_app.models import CreditorCriteria
 from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
+from debt_app.services.excel_criteria import RENAMED_ROWS
 
 # ---------------------------------------------------------------------------
 # Structured conditional criteria (manual translation of the free-text
@@ -33,7 +50,8 @@ from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
 STRUCTURED_CRITERIA = {
     # --- min loan age (account_age_months): credit-report Start Date < N → reject ---
     "Acorn Banking": {"account_age_months": 6},                       # "reject if less than 6 months old"
-    "Admiral Loans": {"account_age_months": 3,                        # "running cases: 3 months or older"
+    "Admiral Loans": {"account_age_months": 6,                        # "running cases: 6 months or older" (was 3; workbook 24.08.26)
+                      "reject_if_second_iva": True,                   # "REJECT IF PREVIOUS IVA CONFIRMED THIS 24.08.26"
                       "reject_if_ccj": True, "reject_if_aoe": True},  # "no CCJ, no AOE"
     "CAMBRIAN credit union": {"account_age_months": 6,                # "REJECT IF LOAN LESS THAN 6 MONTHS OLD"
                               "reject_if_in_dmp": True},              # "CLIENT IS ALREADY IN A DMP"
@@ -53,12 +71,17 @@ STRUCTURED_CRITERIA = {
                       "reject_if_never_made_payment": True},         # "reject if no payment has been made"
     "Loans by Mal": {"account_age_months": 3,                        # "REJECT IF LESS THAN 3 MONTHS"
                      "reject_if_debt_repayable_within_months": 84,   # "REPAID IN 84 MONTHS"
-                     "reject_if_ie_doesnt_match_application": True}, # "APPLICATION DOES NOT MATCH OUR I&E"
+                     "reject_if_ie_doesnt_match_application": True,  # "APPLICATION DOES NOT MATCH OUR I&E"
+                     "young_account_months": 6,                      # "if under 6 months but older than 3 months - has to 40p/£"
+                     "young_account_min_dividend_pence": 40},        #   (workbook 2026-10-12)
     "Loans 2 Go": {"account_age_months": 1,                          # "if loan less than 1 month old"
                    "reject_if_never_made_payment": True,             # "reject if no payment has been made"
                    "fraud_claim_risk": True},                        # "reject and claim fraud"
     "Mutual Clothing": {"account_age_months": 6},                    # "IF TAKEN OUT RECENTLY WILL REJECT (6 MONTHS)"
     "One Stop Money Shop": {"account_age_months": 3},                # "LESS THAN 3 MONTHS OLD"
+    "Ratesetter": {"min_dividend_pence": 25,                          # Dividends: "25p"
+                   "young_account_months": 6,                        # "if under 6 months old it 50p" (confirmed 2026-10-13)
+                   "young_account_min_dividend_pence": 50},
     "Savvy (TICK TOCK LOANS)": {"account_age_months": 6,             # "IF LOAN IS LESS THAN 6 MONTHS OLD"
                                 "fraud_claim_risk": True},           # "CALL OUT FRAUD"
     "Transave UK Credit Union": {"account_age_months": 3,            # "needs to be at least 3 months old"
@@ -79,7 +102,11 @@ STRUCTURED_CRITERIA = {
 
     # --- equity > debt (homeowner, 85% LTV) → reject ---
     "American Express Service": {"reject_if_equity_exceeds_debt": True},   # "REJECT IF MORE EQUITY THAN THEIR DEBT"
-    "HM Revenue & Customs": {"reject_if_equity_exceeds_debt": True},       # "WILL REJECT if more equity than their debt"
+    # "HM Revenue & Customs": the sheet's "WILL REJECT if more equity than their
+    # debt (100% HOUSE VALUATION)" is TIG-15.4 (equity at 100% vs the HMRC
+    # balance). The per-creditor reject_if_equity_exceeds_debt flag (85% vs
+    # total unsecured debt) was a stand-in and is being switched off through
+    # the change workflow (2026-10-13); it must not be re-applied by a reseed.
     "Shawbrook": {"reject_if_equity_exceeds_debt": True},                  # "MORE EQUTIY THEN THERE DEBT WILL REJECT"
     "The Funding Corporation": {"reject_if_equity_exceeds_debt": True,     # "reject if more equity than their debt"
                                 "min_dividend_pence": 50},                 # "Vote to accept with 50p dividend" — Dividends "Funding Corp" differs
@@ -123,7 +150,7 @@ STRUCTURED_CRITERIA = {
     "GLENSIDE FINANCE LTD": {"min_dividend_pence": 25},        # Dividends: "Glenside Finance: 25p" — name differs from "GLENSIDE FINANCE LTD"
     "HULL & EAST YORKSHIRE CREDIT UNION (I) Hey CU (Hey Credit Union)": {"min_dividend_pence": 60},  # Dividends: "Hull and East Yorkshire CU: 60p"
     "Match the Cash t/a Guarantor My Loan (Match the Cash trading name)": {
-        "min_dividend_pence": 50,                              # Dividends: "Guarantor My Loan: 50p" — name differs
+        "min_dividend_pence": 100,                             # Dividends: "Guarantor My Loan: 100P/£" (was 50p; workbook 2026-10-12) — name differs
         "reject_if_ie_doesnt_match_application": True,         # "I&E has to match loan application"
     },
     "NHS CREDIT UNION (I)": {"min_dividend_pence": 78},        # "WANT 78P/£" — not in Dividends
@@ -182,6 +209,7 @@ TRADING_NAMES_OVERRIDES = {
     "The Money Platform": ["Money Platform"],
     "Cashplus": ["Cashplus Bank", "Advanced Payment Solutions Ltd", "Zempler Bank Limited"],
     "Santander Consumer Finance": ["Northridge Finance", "Northridge Finance Ltd"],
+    "Zilch": ["Zilch Technology Limited", "Zilch Technology LTD"],   # appears on real cases as all three forms
 }
 
 
@@ -257,6 +285,8 @@ def _parse_status(s):
         return "DO_NOT_VOTE"
     elif "will consider" in s_lower:
         return "WILL_CONSIDER"
+    elif "unknown" in s_lower:
+        return "UNKNOWN"          # stance not yet confirmed by the sheet owner (never an acceptance)
     elif "reject" in s_lower:
         return "REJECT"
     elif "accept" in s_lower:
@@ -407,90 +437,255 @@ def _parse_strict_sources():
     return valid_creditors
 
 
+# ---------------------------------------------------------------------------
+# Fields the default (notes-only) mode may write on an existing row.
+# Everything the engine decides on — status, representative, dividend
+# minimums, reject flags, trading names — is a managed field and changes only
+# through the criteria change workflow (see MANAGED_FIELDS in
+# debt_app/services/criteria_versioning.py).
+# ---------------------------------------------------------------------------
+NOTES_ONLY_FIELDS = (
+    "criteria_notes", "raw_updated_criteria",
+    "contact_name", "contact_email", "contact_phone", "dividend_notes",
+)
+
+
+def _find_row(name):
+    row = CreditorCriteria.objects.filter(creditor_name=name).first()
+    if row is None:
+        row = CreditorCriteria.objects.filter(creditor_name__iexact=name).order_by("pk").first()
+    return row
+
+
+def _new_row_defaults(data):
+    """Every parsed field, for a creditor that does not exist yet. A new row has
+    no manager-controlled values to protect, so the sheet's stance is its
+    starting point (exactly as every existing row was first created)."""
+    defaults = {
+        "representative": data["representative"],
+        "source_sheet": data["source"],
+        "is_active": True,
+        "trading_names": data["trading_names"],
+        "min_dividend_pence": data["min_dividend_pence"],
+        "dividend_notes": data["dividend_notes"],
+    }
+    if data.get("parent_group"):
+        defaults["parent_group"] = data["parent_group"]
+    for key in ("status", "criteria_notes", "contact_phone", "contact_email",
+                "contact_name", "raw_updated_criteria"):
+        if data.get(key):
+            defaults[key] = data[key]
+    return defaults
+
+
+def _with_trading_name_overrides(name, defaults):
+    """New rows only: merge the hand-maintained trading names so a creditor
+    created by the sync is matchable from day one. Existing rows keep their
+    trading_names (a managed field) untouched in notes-only mode."""
+    for crit_name, names in TRADING_NAMES_OVERRIDES.items():
+        if crit_name.lower() == name.lower():
+            current = list(defaults.get("trading_names") or [])
+            defaults["trading_names"] = current + [n for n in names if n not in current]
+    return defaults
+
+
 class Command(BaseCommand):
-    help = "Strict sync CreditorCriteria with General and Representative Excel sources"
+    help = (
+        "Sync CreditorCriteria from the Excel Criteria markdown. Default mode is notes-only: "
+        "updates free text and contact details, creates new creditors, applies agreed renames, "
+        "and never touches status, representative, dividends, reject flags or trading names. "
+        "Never deletes rows."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print what would be changed without writing to the database.",
+            "--dry-run", action="store_true",
+            help="Print what would change without writing to the database.",
+        )
+        parser.add_argument(
+            "--full", action="store_true",
+            help="Legacy full sync: overwrite every parsed field on existing rows (status, representative, "
+                 "dividends, notes) and apply the structured criteria and trading-name overrides. This "
+                 "bypasses the criteria change workflow; prefer build_criteria_change_from_excel. "
+                 "Never deletes rows.",
+        )
+        parser.add_argument(
+            "--include-manual", action="store_true",
+            help="Also update rows last edited by hand in admin (updated_by set). "
+                 "Those rows are skipped by default in both modes.",
         )
 
+    # ------------------------------------------------------------------ main
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
+        full = options["full"]
+        include_manual = options["include_manual"]
+
         try:
             valid_map = _parse_strict_sources()
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"Error parsing sources: {e}"))
             return
 
-        # 1. Remove non-creditors (orphans not in General or Rep files)
-        db_creditors = CreditorCriteria.objects.all()
-        deleted_count = 0
-        for c in db_creditors:
-            if c.creditor_name not in valid_map:
-                if dry_run:
-                    self.stdout.write(self.style.WARNING(f"  [DELETE] {c.creditor_name}"))
-                else:
-                    c.delete()
-                deleted_count += 1
-
-        # 2. Upsert valid ones
-        created_count = 0
-        updated_count = 0
-
-        for name, data in sorted(valid_map.items()):
-            defaults = {
-                "representative": data["representative"],
-                "source_sheet": data["source"],
-                "is_active": True,
-                "trading_names": data["trading_names"],
-                "min_dividend_pence": data["min_dividend_pence"],
-                "dividend_notes": data["dividend_notes"],
-            }
-            if data["parent_group"]:
-                defaults["parent_group"] = data["parent_group"]
-            if "status" in data and data["status"]:
-                defaults["status"] = data["status"]
-            if "criteria_notes" in data and data["criteria_notes"]:
-                defaults["criteria_notes"] = data["criteria_notes"]
-            if "contact_phone" in data and data["contact_phone"]:
-                defaults["contact_phone"] = data["contact_phone"]
-            if "contact_email" in data and data["contact_email"]:
-                defaults["contact_email"] = data["contact_email"]
-            if "contact_name" in data and data["contact_name"]:
-                defaults["contact_name"] = data["contact_name"]
-            if "raw_updated_criteria" in data and data["raw_updated_criteria"]:
-                defaults["raw_updated_criteria"] = data["raw_updated_criteria"]
-
-            if dry_run:
-                continue
-
-            _, created = CreditorCriteria.objects.update_or_create(
-                creditor_name=name,
-                defaults=defaults,
-            )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-
-        if dry_run:
-            self.stdout.write(self.style.SUCCESS(
-                f"\nDry run complete. Would delete {deleted_count} and sync {len(valid_map)} creditors."
+        mode = "FULL (legacy, overwrites managed fields)" if full else "NOTES-ONLY"
+        self.stdout.write(f"Mode: {mode}{' — DRY RUN, nothing written' if dry_run else ''}")
+        if full:
+            self.stdout.write(self.style.WARNING(
+                "--full overwrites status / representative / dividends on existing rows outside the "
+                "criteria change workflow. Use build_criteria_change_from_excel for those instead."
             ))
-            return
+
+        # 1. Agreed renames: same primary key, so foreign keys, votes, visibility
+        #    rows and audit history all follow the row.
+        renamed, self._pending_renames = self._apply_renames(dry_run)
+
+        # 2. Orphans are reported, never deleted.
+        pending_pks = {row.pk for row in self._pending_renames.values()}
+        orphans = sorted(
+            c.creditor_name for c in CreditorCriteria.objects.all()
+            if c.creditor_name not in valid_map and c.pk not in pending_pks
+        )
+        if orphans:
+            self.stdout.write(self.style.WARNING(
+                f"{len(orphans)} creditor row(s) are in the database but not in the markdown. "
+                "They are NOT deleted; retire them through the admin if they are genuinely gone:"
+            ))
+            for name in orphans[:40]:
+                self.stdout.write(f"  [ORPHAN] {name}")
+            if len(orphans) > 40:
+                self.stdout.write(f"  ... and {len(orphans) - 40} more")
+
+        # 3. Sync
+        if full:
+            counts = self._full_sync(valid_map, dry_run, include_manual)
+        else:
+            counts = self._notes_only_sync(valid_map, dry_run, include_manual)
+        counts["renamed"] = renamed
 
         self.stdout.write(self.style.SUCCESS(
-            f"Strict Sync complete. Deleted: {deleted_count}  Created: {created_count}  Updated: {updated_count}"
+            ("Would do" if dry_run else "Done") + ": " + ", ".join(f"{k} {v}" for k, v in counts.items())
         ))
 
-        # 3. Apply structured conditional criteria (engine-consumed fields).
-        # Runs after the prose import so it is reseed-safe.
-        # Only sets fields that are still at their unset default (None / False).
-        # If a field has been manually edited in Django admin, it is preserved.
-        # Case-insensitive name match; warns on any unmatched name.
+    # --------------------------------------------------------------- renames
+    def _apply_renames(self, dry_run):
+        """Returns (count, {new_name.lower(): row}); the dict lets a dry run
+        treat a not-yet-renamed row as already renamed, so it reports the same
+        creates/updates a real run would."""
+        renamed = 0
+        pending = {}
+        for old_name, new_name in RENAMED_ROWS.items():
+            row = _find_row(old_name)
+            if row is None:
+                continue
+            if row.creditor_name.lower() == new_name.lower():
+                continue
+            clash = CreditorCriteria.objects.filter(creditor_name__iexact=new_name).exclude(pk=row.pk).first()
+            if clash is not None:
+                self.stdout.write(self.style.ERROR(
+                    f"  [RENAME SKIPPED] {row.creditor_name!r} -> {new_name!r}: a separate row #{clash.pk} "
+                    f"already has the new name. Merge them by hand."
+                ))
+                continue
+            self.stdout.write(f"  [RENAME] #{row.pk} {row.creditor_name!r} -> {new_name!r}")
+            if dry_run:
+                pending[new_name.lower()] = row
+            else:
+                row.creditor_name = new_name
+                row.save(update_fields=["creditor_name"])
+            renamed += 1
+        return renamed, pending
+
+    def _row_for(self, name):
+        row = _find_row(name)
+        if row is None:
+            row = getattr(self, "_pending_renames", {}).get(name.lower())
+        return row
+
+    # ------------------------------------------------------------ notes-only
+    def _notes_only_sync(self, valid_map, dry_run, include_manual):
+        created = updated = unchanged = skipped_manual = 0
+        for name, data in sorted(valid_map.items()):
+            row = self._row_for(name)
+            if row is None:
+                defaults = _with_trading_name_overrides(name, _new_row_defaults(data))
+                self.stdout.write(
+                    f"  [CREATE] {name!r} (status {defaults.get('status', 'default')}, "
+                    f"representative {defaults['representative']})"
+                )
+                if not dry_run:
+                    CreditorCriteria.objects.create(creditor_name=name, **defaults)
+                created += 1
+                continue
+
+            if row.updated_by_id and not include_manual:
+                self.stdout.write(
+                    f"  [SKIP manual] {row.creditor_name!r} was edited by hand in admin "
+                    f"(by {row.updated_by}) — notes left as they are (use --include-manual to update)"
+                )
+                skipped_manual += 1
+                continue
+
+            patch = {}
+            for field in NOTES_ONLY_FIELDS:
+                new_value = data.get(field)
+                if new_value and (getattr(row, field) or "") != new_value:
+                    patch[field] = new_value
+            if patch:
+                self.stdout.write(f"  [UPDATE] {row.creditor_name!r}: {', '.join(sorted(patch))}")
+                if not dry_run:
+                    # queryset.update(): no save() signals, no auto_now bump, no updated_by.
+                    CreditorCriteria.objects.filter(pk=row.pk).update(**patch)
+                updated += 1
+            else:
+                unchanged += 1
+
+        self.stdout.write(
+            "Managed fields (status, representative, dividends, reject flags, trading names) were not "
+            "touched on existing rows. Propose those with build_criteria_change_from_excel."
+        )
+        return {"created": created, "updated": updated, "unchanged": unchanged, "skipped_manual": skipped_manual}
+
+    # ------------------------------------------------------------------ full
+    def _full_sync(self, valid_map, dry_run, include_manual):
+        """Legacy behaviour minus deletion: upsert every parsed field, then the
+        structured criteria and trading-name overrides."""
+        created_count = updated_count = skipped_manual = 0
+
+        for name, data in sorted(valid_map.items()):
+            defaults = _new_row_defaults(data)
+            existing = self._row_for(name)
+            if existing is not None and existing.updated_by_id and not include_manual:
+                self.stdout.write(
+                    f"  [SKIP manual] {existing.creditor_name!r} was edited by hand in admin "
+                    f"(by {existing.updated_by}) — left as it is (use --include-manual to overwrite)"
+                )
+                skipped_manual += 1
+                continue
+            if dry_run:
+                self.stdout.write(f"  [{'UPDATE' if existing else 'CREATE'}] {name!r}")
+                if existing:
+                    updated_count += 1
+                else:
+                    created_count += 1
+                continue
+            if existing is not None:
+                for k, v in defaults.items():
+                    setattr(existing, k, v)
+                existing.save()
+                updated_count += 1
+            else:
+                CreditorCriteria.objects.create(creditor_name=name, **defaults)
+                created_count += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Full sync complete. Created: {created_count}  Updated: {updated_count}  Skipped (manual): {skipped_manual}"
+        ))
+        if dry_run:
+            return {"created": created_count, "updated": updated_count, "skipped_manual": skipped_manual}
+
+        # Structured conditional criteria (engine-consumed fields). Only sets
+        # fields that are still at their unset default (None / False); a value
+        # edited in admin or through the change workflow is preserved.
         applied = skipped = 0
         for crit_name, fields in STRUCTURED_CRITERIA.items():
             objs = list(CreditorCriteria.objects.filter(creditor_name__iexact=crit_name))
@@ -503,26 +698,23 @@ class Command(BaseCommand):
                 patch = {}
                 for field, value in fields.items():
                     current = getattr(obj, field)
-                    # Treat None and False as "never set" — preserve any other manual value.
                     if current is None or current is False:
                         patch[field] = value
                     else:
                         skipped += 1
                         self.stdout.write(
                             f"  [STRUCTURED] {obj.creditor_name}.{field} = {current!r} "
-                            f"(manually set, seed value {value!r} skipped)"
+                            f"(already set, seed value {value!r} skipped)"
                         )
                 if patch:
                     CreditorCriteria.objects.filter(pk=obj.pk).update(**patch)
                     applied += 1
         self.stdout.write(self.style.SUCCESS(
             f"Structured criteria applied to {applied} creditor row(s) "
-            f"across {len(STRUCTURED_CRITERIA)} mappings "
-            f"({skipped} field(s) skipped — already set in DB)."
+            f"across {len(STRUCTURED_CRITERIA)} mappings ({skipped} field(s) already set)."
         ))
 
-        # 4. Apply trading name overrides — reseed-safe for the same reason as
-        # STRUCTURED_CRITERIA (see comment on TRADING_NAMES_OVERRIDES above).
+        # Trading name overrides — merged, never replaced.
         tn_applied = 0
         for crit_name, names in TRADING_NAMES_OVERRIDES.items():
             objs = list(CreditorCriteria.objects.filter(creditor_name__iexact=crit_name))
@@ -544,9 +736,8 @@ class Command(BaseCommand):
         ))
 
         for rep in ("WATCH", "TIX", "EVOLVE", "EVERYDAY_LOANS", "NONE"):
-            count = CreditorCriteria.objects.filter(representative=rep).count()
-            self.stdout.write(f"  {rep}: {count} creditors")
-        
+            self.stdout.write(f"  {rep}: {CreditorCriteria.objects.filter(representative=rep).count()} creditors")
         for source in ("GENERAL_CREDITOR", "REPRESENTATIVE", "DIVIDEND"):
-            count = CreditorCriteria.objects.filter(source_sheet=source).count()
-            self.stdout.write(f"  Source {source}: {count} creditors")
+            self.stdout.write(f"  Source {source}: {CreditorCriteria.objects.filter(source_sheet=source).count()} creditors")
+
+        return {"created": created_count, "updated": updated_count, "skipped_manual": skipped_manual}

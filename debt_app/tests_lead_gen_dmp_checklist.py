@@ -13,7 +13,7 @@ import json
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
-from debt_app.services.lead_gen import lead_gen_dmp_inputs
+from debt_app.services.lead_gen import LEAD_GEN_DMP_CASE_LEVEL_QUESTIONS, lead_gen_dmp_inputs
 from debt_app.tests_cat_assessment_golden import _cr_account
 from debt_app.tests_lead_gen import _LeadGenFixture
 from debt_app.views import criteria_views
@@ -32,7 +32,7 @@ class LeadGenDmpInputsTests(SimpleTestCase):
         for raw in (None, {}, "", "not json", ["x"]):
             rows, case_level = lead_gen_dmp_inputs(raw)
             self.assertEqual(rows, [])
-            self.assertEqual(case_level, {"lost_right_to_pay_instalments": False})
+            self.assertEqual(case_level, {q: False for q in LEAD_GEN_DMP_CASE_LEVEL_QUESTIONS})
 
     def test_all_yes_builds_the_council_tax_checklist(self):
         rows, case_level = lead_gen_dmp_inputs(ALL_YES)
@@ -50,9 +50,19 @@ class LeadGenDmpInputsTests(SimpleTestCase):
         self.assertTrue(case_level["lost_right_to_pay_instalments"])
 
     def test_unknown_keys_cannot_set_other_checklist_fields(self):
-        rows, case_level = lead_gen_dmp_inputs({"hmrc_previous_year_vat": True, "current_gas_bill": True})
+        rows, case_level = lead_gen_dmp_inputs({"hmrc_previous_year_vat": True, "current_water_bill": True})
         checklist = build_dmp_checklist(rows, case_level)
         self.assertFalse(any(checklist.values()))
+
+    def test_utility_and_phone_answers_reach_the_checklist(self):
+        utilities = ("current_gas_bill", "current_electric_bill", "previous_gas_provider_debt",
+                     "previous_electric_provider_debt", "current_phone_contract")
+        rows, case_level = lead_gen_dmp_inputs({q: True for q in utilities})
+        self.assertEqual(rows, [])
+        checklist = build_dmp_checklist(rows, case_level)
+        for q in utilities:
+            self.assertTrue(checklist[q], q)
+        self.assertFalse(checklist["lost_right_to_pay_instalments"])
 
 
 class LeadGenDmpChecklistEndpointTests(_LeadGenFixture):
@@ -86,3 +96,16 @@ class LeadGenDmpChecklistEndpointTests(_LeadGenFixture):
             criteria_views.extract_credit_report = original
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()["dmp"]["code"], "NOT_SUITABLE")
+
+    def test_utility_answers_add_dmp_notes_without_changing_the_outcome(self):
+        body = self._check(self._good_case("LG-UT-NOTES"), data={"dmp_checklist": {
+            "current_gas_bill": True, "previous_electric_provider_debt": True,
+        }}).json()
+        self.assertEqual(body["dmp"]["code"], "POTENTIALLY_SUITABLE")
+        notes = " ".join(body["dmp_notes"])
+        self.assertIn("current gas bill", notes)
+        self.assertIn("previous electricity provider", notes)
+
+    def test_no_utility_answers_means_no_utility_notes(self):
+        body = self._check(self._good_case("LG-UT-NONE")).json()
+        self.assertNotIn("gas", " ".join(body["dmp_notes"]))

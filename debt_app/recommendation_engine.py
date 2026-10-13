@@ -12,6 +12,7 @@ def get_recommendation(
     case_data: Dict[str, Any],
     vat_forced: bool = False,
     dro_forced: bool = False,
+    forced_conflict: bool = False,
 ) -> Dict[str, Any]:
     """
     Determines the recommended debt solution and alternative solutions.
@@ -34,10 +35,30 @@ def get_recommendation(
             precedence tier as vat_forced — the two are mutually exclusive by
             construction, since the engine routes their simultaneous case to
             REVIEW_REQUIRED before returning here.
+        forced_conflict: True when both of those overrides fired and the
+            engine returned REVIEW_REQUIRED instead of either. Checked first:
+            no solution is recommended, and a caseworker decides DRO vs DMP.
 
     Returns:
         A dictionary containing recommended_solution and alternative_solutions
     """
+    if forced_conflict:
+        return {
+            "recommended_solution": {
+                "code": "REVIEW_REQUIRED",
+                "label": "Caseworker Review Required",
+                "rationale": (
+                    "A previous-year HMRC VAT debt is confirmed, which is an automatic "
+                    "IVA fail and points to a Debt Management Plan. This is also a Lead "
+                    "Generation case with disposable income below £399, which points to "
+                    "a Debt Relief Order. Because both apply, no solution is recommended: "
+                    "a caseworker must review the case and decide between a DRO and a DMP."
+                ),
+                "confidence": "LOW",
+            },
+            "alternative_solutions": [],
+        }
+
     if vat_forced:
         return {
             "recommended_solution": {

@@ -74,15 +74,18 @@ class Command(BaseCommand):
                 p(f"  [ERROR] fetch_case_by_reference({ref!r}) FAILED: {exc}")
                 continue
 
-            # Build engine payload (same path as AssessCaseView)
+            # Build engine payload (same path as AssessCaseView). The view
+            # returns a third value: credit-report accounts that matched no
+            # declared creditor. They are reported here rather than dropped.
             try:
-                case_data, prepared_creditors = view._prepare_engine_payload(case_data_obj)
+                case_data, prepared_creditors, cr_unmatched = view._prepare_engine_payload(case_data_obj)
             except Exception as exc:
                 p(f"  [ERROR] _prepare_engine_payload({ref!r}) FAILED: {exc}")
                 continue
 
             p(f"  Client      : {case_data_obj.client_name or '(unknown)'}")
             p(f"  Creditors   : {len(prepared_creditors)}")
+            p(f"  CR unmatched: {len(cr_unmatched or [])} credit-report account(s) not matched to a declared creditor")
             p(f"  Total debt  : {case_data.get('total_unsecured_debt', 0):,.2f}")
             p(f"  Disp income : {case_data.get('disposable_income', 0):,.2f}")
 
@@ -331,8 +334,9 @@ class Command(BaseCommand):
         for ref in REFERENCE_CASES:
             try:
                 case_data_obj = fetch_case_by_reference(ref)
-                case_data, prepared_creditors = view._prepare_engine_payload(case_data_obj)
-            except Exception:
+                case_data, prepared_creditors, _cr_unmatched = view._prepare_engine_payload(case_data_obj)
+            except Exception as exc:
+                p(f"  Case {ref}: skipped ({type(exc).__name__}: {exc})")
                 continue
 
             try:

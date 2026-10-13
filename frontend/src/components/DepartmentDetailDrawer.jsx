@@ -58,6 +58,7 @@ const STATUS_STYLES = {
   WILL_CONSIDER: 'bg-amber-100 text-amber-700',
   DO_NOT_VOTE: 'bg-slate-100 text-slate-600',
   CONDITIONAL_VOTER: 'bg-purple-100 text-purple-700',
+  UNKNOWN: 'bg-blue-50 text-blue-700',
 }
 
 const REP_STYLES = {

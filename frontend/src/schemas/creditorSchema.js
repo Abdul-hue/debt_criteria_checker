@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const creditorSchema = z.object({
-  status: z.enum(['ACCEPT', 'REJECT', 'WILL_CONSIDER', 'DO_NOT_VOTE', 'CONDITIONAL_VOTER']),
+  status: z.enum(['ACCEPT', 'REJECT', 'WILL_CONSIDER', 'DO_NOT_VOTE', 'CONDITIONAL_VOTER', 'UNKNOWN']),
   representative: z.enum(['WATCH', 'TIX', 'EVOLVE', 'EVERYDAY_LOANS', 'NONE']),
   min_dividend_pence: z.number({ invalid_type_error: 'Must be a number' }).nullable().optional(),
   dividend_notes: z.string().optional().nullable(),
@@ -19,6 +19,15 @@ export const creditorSchema = z.object({
   fraud_claim_risk: z.boolean(),
   conditional_voter: z.boolean(),
   conditional_voter_min_dividend_pence: z.number().nullable().optional(),
+  // Age-dependent minimum dividend: while the account is younger than
+  // young_account_months, young_account_min_dividend_pence applies instead of
+  // min_dividend_pence. The backend applies the tier only when both are set.
+  young_account_months: z.number({ invalid_type_error: 'Must be a whole number of months' })
+    .int('Must be a whole number of months').min(1, 'Must be at least 1 month').max(120, 'Must be 120 months or fewer')
+    .nullable().optional(),
+  young_account_min_dividend_pence: z.number({ invalid_type_error: 'Must be a whole number of pence' })
+    .int('Must be a whole number of pence').min(0, 'Cannot be negative').max(100, 'Cannot exceed 100p in the pound')
+    .nullable().optional(),
   trading_names: z.array(z.string()).optional(),
   contact_name: z.string().optional().nullable(),
   contact_email: z.string().email('Invalid email').or(z.literal('')).optional().nullable(),
@@ -38,6 +47,15 @@ export const creditorSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['conditional_voter_min_dividend_pence'],
       message: 'Minimum dividend required for conditional voter.',
+    })
+  }
+  const monthsSet = data.young_account_months != null
+  const youngDivSet = data.young_account_min_dividend_pence != null
+  if (monthsSet !== youngDivSet) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [monthsSet ? 'young_account_min_dividend_pence' : 'young_account_months'],
+      message: 'Set both the age threshold and the younger-account minimum dividend, or clear both.',
     })
   }
 })

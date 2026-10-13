@@ -226,7 +226,7 @@ class Command(BaseCommand):
                 'severity': 'hard_block',
                 'is_active': False,
                 'threshold_value': None,
-                'description': 'STUB: requires property_value field in case payload. If property equity exceeds total HMRC debt, HMRC may reject an IVA in favour of a charge over property. Set is_active=True once payload is updated.',
+                'description': 'HMRC will reject an IVA where the available property equity (100% of the property value minus the mortgage balance) is more than the amount owed to HMRC. Cannot be completed when no valid property value is recorded.',
             },
             {
                 'criteria_set': 'TIG',
@@ -472,7 +472,7 @@ class Command(BaseCommand):
                 'severity': 'hard_block',
                 'is_active': True,
                 'threshold_value': Decimal('72.00'),
-                'description': 'WATCH will not accept an IVA where the repayment period exceeds 72 months (6 years). Threshold is maximum term in months.',
+                'description': 'WATCH rejects an IVA where total debt / (disposable income x 0.83) is at or below 72 months (6 years) if the client has a mortgage, or 60 months (5 years) if not. Threshold shown is the mortgage term.',
             },
             {
                 'criteria_set': 'WATCH',
@@ -705,17 +705,33 @@ class Command(BaseCommand):
                 'description': 'A County Council holds a significant portion of the debt. County Councils often have specific voting requirements or may require additional justification for an IVA.',
                 'action': 'Review County Council specific rules and ensure the proposal addresses their requirements.',
             },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'BPO-DEBT',
+                'rule_name': 'Debt collector listed instead of debt provider',
+                'severity': 'flag',
+                'is_active': True,
+                'description': 'A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.',
+                'action': 'Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.',
+            },
         ]
 
-        # T4 — update_or_create so re-runs always correct wrong data
+        # T4 — update_or_create so re-runs always correct wrong data.
+        # is_active is only seeded on CREATE: on an existing rule it is a
+        # managed criteria field (services/criteria_versioning.MANAGED_FIELDS)
+        # that changes only through an approved Criteria Change. Overwriting it
+        # here would silently undo approved switches (e.g. WATCH-22.4 /
+        # WATCH-22.6 / EVOLVE-01..03 off, TIG-15.4 on).
         created_count = 0
         updated_count = 0
         for rule_data in rules:
             rule_key = rule_data['rule_key']
-            defaults = {k: v for k, v in rule_data.items() if k != 'rule_key'}
+            create_defaults = {k: v for k, v in rule_data.items() if k != 'rule_key'}
+            defaults = {k: v for k, v in create_defaults.items() if k != 'is_active'}
             obj, created = GlobalCriteria.objects.update_or_create(
                 rule_key=rule_key,
                 defaults=defaults,
+                create_defaults=create_defaults,
             )
             if created:
                 created_count += 1

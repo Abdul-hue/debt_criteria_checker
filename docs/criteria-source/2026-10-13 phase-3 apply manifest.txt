@@ -1,0 +1,390 @@
+PHASE 3 APPLY MANIFEST - generated 2026-10-13 02:34 from a fresh read-only copy of data/db.sqlite3 (live state at that moment, migrations 0086+0087 applied to the copy only). Dry runs; nothing below has been applied to the live database.
+
+=================== A. seed_creditor_criteria (notes-only) ===================
+
+Mode: NOTES-ONLY — DRY RUN, nothing written
+  [RENAME] #1593 'Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd)' -> 'Clevr Money (Blackpool, Fylde & Wyre Credit Union Ltd)'
+  [RENAME] #1782 'Knowsley Credit Union' -> 'Knowsley Mutual Credit Union'
+8 creditor row(s) are in the database but not in the markdown. They are NOT deleted; retire them through the admin if they are genuinely gone:
+  [ORPHAN] Barclaycard
+  [ORPHAN] Mint
+  [ORPHAN] NatWest
+  [ORPHAN] NatWest Bank
+  [ORPHAN] Royal Bank of Scotland
+  [ORPHAN] TSB Bank
+  [ORPHAN] The Royal Bank of Scotland Plc
+  [ORPHAN] Ulster Bank
+  [SKIP manual] '1 Plus 1 Loans ONE PLUS ONE NOW KNOW AS Credit Labs Limited FROM 02.09.25' was edited by hand in admin (by admin) — notes left as they are (use --include-manual to update)
+  [SKIP manual] '118 118 Money' was edited by hand in admin (by admin) — notes left as they are (use --include-manual to update)
+  [SKIP manual] '118 Money' was edited by hand in admin (by Abdul.wasay) — notes left as they are (use --include-manual to update)
+  [SKIP manual] '1:Many' was edited by hand in admin (by Abdul.wasay) — notes left as they are (use --include-manual to update)
+  [CREATE] '1st Stop Personal Loans / Oplo' (status default, representative NONE)
+  [CREATE] '24/7 Moneybox / Active Securities' (status default, representative NONE)
+  [CREATE] '3 Mobile' (status default, representative NONE)
+  [CREATE] '365 Business Finance Ltd' (status default, representative NONE)
+  [CREATE] '3J Finance' (status default, representative NONE)
+  [CREATE] 'A Shade Greener Boilers' (status default, representative NONE)
+  [UPDATE] 'Acorn Banking': contact_phone, raw_updated_criteria
+  [UPDATE] 'Admiral Loans': criteria_notes, raw_updated_criteria
+  [UPDATE] 'American Express Service': raw_updated_criteria
+  [SKIP manual] 'Amigo' was edited by hand in admin (by Abdul.wasay) — notes left as they are (use --include-manual to update)
+  [CREATE] 'Anderson Brookes' (status DO_NOT_VOTE, representative NONE)
+  [UPDATE] 'Anglian Water': criteria_notes
+  [SKIP manual] 'Asset Link' was edited by hand in admin (by Abdul.wasay) — notes left as they are (use --include-manual to update)
+  [CREATE] 'Auto Lend' (status WILL_CONSIDER, representative NONE)
+  [UPDATE] 'AutoMoney Motor Finance': raw_updated_criteria
+  [UPDATE] 'BRISTOL CREDIT UNION LIMITED (I)': criteria_notes
+  [UPDATE] 'Ballymena Credit Union': criteria_notes
+  [UPDATE] 'Bamboo': criteria_notes
+  [UPDATE] 'Believe Housing': raw_updated_criteria
+  [UPDATE] 'Blues and Twos credit union': raw_updated_criteria
+  [UPDATE] 'Boom Credit Union ALSO known as East Sussex Credit Union Ltd t/a Wave Community Bank:': criteria_notes
+  [UPDATE] 'Bradford District Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'CAMBRIAN credit union': criteria_notes
+  [UPDATE] 'CAPITAL ON TAP (NEW WAVE)': criteria_notes
+  [CREATE] 'CARMOOLA' (status DO_NOT_VOTE, representative NONE)
+  [CREATE] 'CCC Debt Management' (status DO_NOT_VOTE, representative NONE)
+  [CREATE] 'Cashplus' (status DO_NOT_VOTE, representative NONE)
+  [UPDATE] 'Central Liverpool Credit Union': criteria_notes
+  [UPDATE] 'Citysave Credit Union Ltd': criteria_notes
+  [UPDATE] 'Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd)': criteria_notes
+  [UPDATE] 'Co-op Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Commsave Credit Union': criteria_notes
+  [CREATE] 'Credit4' (status WILL_CONSIDER, representative NONE)
+  [UPDATE] 'DRAGON SAVERS CREDIT UNION': criteria_notes
+  [UPDATE] 'Danske Bank': criteria_notes
+  [UPDATE] 'Darlington Credit Union': criteria_notes
+  [UPDATE] 'Derry Credit Union': criteria_notes
+  [UPDATE] 'E.ON': raw_updated_criteria
+  [UPDATE] 'East Sussex Credit Union': raw_updated_criteria
+  [UPDATE] 'Elfin Market': raw_updated_criteria
+  [UPDATE] 'Enterprise Credit Union': criteria_notes
+  [UPDATE] 'Every Day Loans': criteria_notes
+  [UPDATE] 'Express Solicitors': criteria_notes
+  [UPDATE] 'Fairshare Credit Union': criteria_notes
+  [UPDATE] 'Family Finance': raw_updated_criteria
+  [CREATE] 'Faughanvale Credit Union' (status REJECT, representative NONE)
+  [CREATE] 'Federal Capital' (status REJECT, representative NONE)
+  [UPDATE] 'Fintern limited / Abound - NOT WPM': criteria_notes, raw_updated_criteria
+  [UPDATE] 'First Rate Credit Union': criteria_notes
+  [UPDATE] 'Funding Circle': criteria_notes, raw_updated_criteria
+  [UPDATE] 'GMB Credit Union': criteria_notes
+  [UPDATE] 'George Banco': criteria_notes
+  [UPDATE] 'Great Western Credit Union': contact_email, criteria_notes, raw_updated_criteria
+  [UPDATE] 'HULL & EAST YORKSHIRE CREDIT UNION (I) Hey CU (Hey Credit Union)': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Harp and Crown Credit Union': criteria_notes
+  [UPDATE] 'Hillingdon Credit Union': criteria_notes
+  [UPDATE] 'Howden Joinery': contact_name
+  [CREATE] 'Huws Gray' (status WILL_CONSIDER, representative NONE)
+  [UPDATE] 'IWOCA / IWOKA LOANS': criteria_notes
+  [CREATE] 'JD Williams' (status default, representative TIX)
+  [UPDATE] 'Kaleidoscope': raw_updated_criteria
+  [UPDATE] 'Karbon Homes': raw_updated_criteria
+  [UPDATE] 'Knowsley Credit Union': criteria_notes
+  [UPDATE] 'Koyo Loans': raw_updated_criteria
+  [UPDATE] 'LURGAN CREDIT UNION': criteria_notes
+  [UPDATE] 'La Redoute': criteria_notes
+  [UPDATE] 'Leeds City Credit Union': raw_updated_criteria
+  [UPDATE] 'Lendwise': criteria_notes
+  [CREATE] 'Lewisham Plus Bromley Credit Union:' (status REJECT, representative NONE)
+  [UPDATE] 'Livelend': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Loans at home': criteria_notes
+  [UPDATE] 'Loans by Mal': criteria_notes, raw_updated_criteria
+  [UPDATE] 'London Capital Credit Union  / london community credit union': raw_updated_criteria
+  [UPDATE] 'London Mutual Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Marsh Finance': raw_updated_criteria
+  [UPDATE] 'Match the Cash t/a Guarantor My Loan (Match the Cash trading name)': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Moneybarn': criteria_notes
+  [UPDATE] 'Monzo': criteria_notes
+  [UPDATE] 'Motor Insurers Bureau': raw_updated_criteria
+  [UPDATE] 'NEFirst Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'No1 Copperpot Credit Union': criteria_notes
+  [UPDATE] 'Norwich Trust Limited': raw_updated_criteria
+  [SKIP manual] 'Octopus Energy' was edited by hand in admin (by admin) — notes left as they are (use --include-manual to update)
+  [CREATE] 'Oldham Credit Union' (status REJECT, representative NONE)
+  [UPDATE] 'PSAF (money options)': raw_updated_criteria
+  [UPDATE] 'Partners Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Pennine Community Credit Union': criteria_notes
+  [UPDATE] 'Penny Post Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'PennyBurn Credit Union': criteria_notes, raw_updated_criteria
+  [SKIP manual] 'Perch Capital Limited' was edited by hand in admin (by admin) — notes left as they are (use --include-manual to update)
+  [UPDATE] 'Plane Saver Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Plend': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Police Credit Union (PCU) aka Serve and Protect': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Powys Council': raw_updated_criteria
+  [UPDATE] 'Propensio Finance Limited': criteria_notes
+  [UPDATE] 'Ratesetter': criteria_notes
+  [UPDATE] 'Reevo Money': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Salad Money': criteria_notes, raw_updated_criteria
+  [SKIP manual] 'Salary Finance' was edited by hand in admin (by admin) — notes left as they are (use --include-manual to update)
+  [UPDATE] 'Scottish Power': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Secure Trust Bank': raw_updated_criteria
+  [UPDATE] 'Slemish N Tha Braid Credit Union:': raw_updated_criteria
+  [UPDATE] 'Smart Credit Union': raw_updated_criteria
+  [UPDATE] 'South East Water': criteria_notes, raw_updated_criteria
+  [UPDATE] 'South Manchester Credit Union': contact_email, contact_phone
+  [UPDATE] 'Specialist Motor Finance': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Startline Motor Finance': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Stockport Credit Union': criteria_notes
+  [UPDATE] 'Student Loans Company': criteria_notes
+  [UPDATE] 'TBI Financial Services': criteria_notes, raw_updated_criteria
+  [UPDATE] 'TFS Loans': criteria_notes
+  [UPDATE] 'THIS BANK LTD - PREVIOUSLY -JN Bank Limited & Jamaica Bank': criteria_notes
+  [UPDATE] 'TM Advances': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Talk Talk': raw_updated_criteria
+  [UPDATE] 'Tandem Bank / Finanace': raw_updated_criteria
+  [CREATE] 'The Money Platform' (status WILL_CONSIDER, representative NONE)
+  [UPDATE] 'Transave UK Credit Union': criteria_notes
+  [UPDATE] 'Travis Perkins': raw_updated_criteria
+  [CREATE] 'Tyrell Carpentry' (status WILL_CONSIDER, representative NONE)
+  [UPDATE] 'UK Credit Ltd': criteria_notes
+  [UPDATE] 'Unify Credit Union Limited': raw_updated_criteria
+  [UPDATE] 'Utilita Energy': criteria_notes
+  [UPDATE] 'Virgin Media': raw_updated_criteria
+  [UPDATE] 'Voyager Alliance Credit Union / The Penny Post Group': criteria_notes, raw_updated_criteria
+  [CREATE] 'WALSAVE CREDIT UNION' (status REJECT, representative NONE)
+  [UPDATE] 'West Suffolk Council': criteria_notes
+  [UPDATE] 'West Sussex and Surrey Credit Union': criteria_notes, raw_updated_criteria
+  [UPDATE] 'Wiltshire and Swindon Credit Union': raw_updated_criteria
+  [UPDATE] 'XS Direct': criteria_notes
+  [CREATE] 'Zilch' (status UNKNOWN, representative NONE)
+Managed fields (status, representative, dividends, reject flags, trading names) were not touched on existing rows. Propose those with build_criteria_change_from_excel.
+Would do: created 22, updated 103, unchanged 586, skipped_manual 9, renamed 2
+
+=================== B. seed_all_councils (adds new councils only) ===================
+
+
+Done. Created: 349  Updated: 0  Skipped: 0  Non-council: 15
+  [CREATE council] Oxford City Council -> REJECT (the only council in the markdown not already in the database)
+
+=================== C. build_criteria_change_from_excel (drafts; applied only after trial + second-manager approval) ===================
+
+== [Excel sync] Creditor statuses and structured criteria ==
+  14 change(s) - would-create
+  CreditorCriteria #1500 'Bamboo'
+      status: 'REJECT' -> 'WILL_CONSIDER'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'Will Consider'.
+  CreditorCriteria #1637 'Everyday Loans'
+      status: 'WILL_CONSIDER' -> 'REJECT'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'REJECT'.
+  CreditorCriteria #1648 'Fintern limited / Abound - NOT WPM'
+      status: 'REJECT' -> 'DO_NOT_VOTE'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CreditorCriteria #1680 'Great Western Credit Union'
+      status: 'WILL_CONSIDER' -> 'REJECT'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'REJECT'.
+  CreditorCriteria #1736 'Hastings Direct Loans'
+      status: 'ACCEPT' -> 'DO_NOT_VOTE'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CreditorCriteria #1934 'Partners Credit Union'
+      status: 'DO_NOT_VOTE' -> 'REJECT'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'REJECT'.
+  CreditorCriteria #1951 'Plend'
+      status: 'REJECT' -> 'ACCEPT'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'Accept'.
+  CreditorCriteria #1992 'Scottish Power'
+      status: 'DO_NOT_VOTE' -> 'ACCEPT'
+      source: General Creditor sheet, 'Accept / Reject' column | Sheet says 'Accept'.
+  CreditorCriteria #1449 'Admiral Loans'
+      account_age_months: 3 -> 6
+      source: General Creditor notes | 'running cases: 6 months or older' (was 3 months), updated 24.08.26.
+  CreditorCriteria #1449 'Admiral Loans'
+      reject_if_second_iva: False -> True
+      source: General Creditor notes | 'REJECT IF PREVIOUS IVA CONFIRMED THIS 24.08.26'. The engine's reject_if_second_iva fires on any previous IVA.
+  CreditorCriteria #1839 'Loans by Mal'
+      young_account_months: None -> 6
+      source: General Creditor notes | 'if under 6 months but older than 3 months - has to 40p/£' (new field; under 3 months is still a reject).
+  CreditorCriteria #1839 'Loans by Mal'
+      young_account_min_dividend_pence: None -> 40
+      source: General Creditor notes | 'if under 6 months but older than 3 months - has to 40p/£'.
+  CreditorCriteria #1593 'Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd)'
+      trading_names: [] -> ['Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd)']
+      source: Workbook rename | Renamed 'Clever Money (Blackpool, Fylde & Wyre Credit Union Ltd)' -> 'Clevr Money (Blackpool, Fylde & Wyre Credit Union Ltd)' in the workbook (the row keeps its id; seed_creditor_criteria renames it). Keeping the old name as a trading name so cases that still use it resolve to this row.
+  CreditorCriteria #1782 'Knowsley Credit Union'
+      trading_names: [] -> ['Knowsley Credit Union']
+      source: Workbook rename | Renamed 'Knowsley Credit Union' -> 'Knowsley Mutual Credit Union' in the workbook (the row keeps its id; seed_creditor_criteria renames it). Keeping the old name as a trading name so cases that still use it resolve to this row.
+
+== [Excel sync] Council statuses ==
+  13 change(s) - would-create
+  CouncilRule #27 'Basildon Borough Council'
+      status: 'DO_NOT_VOTE' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'REJECT'.
+  CouncilRule #69 'Cheltenham Borough Council'
+      status: 'ACCEPT' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Reject'.
+  CouncilRule #182 'Luton Borough Council'
+      status: 'DO_NOT_VOTE' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Reject'.
+  CouncilRule #194 'Mid Devon District Council'
+      status: 'WILL_CONSIDER' -> 'DO_NOT_VOTE'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CouncilRule #204 'Newcastle City Council'
+      status: 'WILL_CONSIDER' -> 'DO_NOT_VOTE'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CouncilRule #225 'Oldham Borough Council'
+      status: 'ACCEPT' -> 'WILL_CONSIDER'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Will Consider'.
+  CouncilRule #227 'Pendle Borough Council'
+      status: 'DO_NOT_VOTE' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'REJECT'.
+  CouncilRule #281 'St Helens Borough Council'
+      status: 'WILL_CONSIDER' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Reject'.
+  CouncilRule #290 'Suffolk Coastal District Council'
+      status: 'WILL_CONSIDER' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Reject' (duplicate rows; agreed resolution: take the last row). The sheet has two rows: the older 'Will Consider' row and a newer 'Reject' row dated 31.07.26 ('will not consider any IVA ... DO NOT PUT FORWARD'). The newer row is taken. The existing council record is kept; only its status changes.
+  CouncilRule #297 'Tameside Borough Council'
+      status: 'DO_NOT_VOTE' -> 'REJECT'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Reject'.
+  CouncilRule #306 'Thanet District Council'
+      status: 'ACCEPT' -> 'DO_NOT_VOTE'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CouncilRule #326 'Waverley Borough Council'
+      status: 'REJECT' -> 'DO_NOT_VOTE'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'DO NOT VOTE'.
+  CouncilRule #348 'Worcester City Council'
+      status: 'ACCEPT' -> 'WILL_CONSIDER'
+      source: Councils sheet, 'Accept / Reject' column | Sheet says 'Will Consider'.
+
+== [Excel sync] Dividends and representatives ==
+  26 change(s) - would-create
+  CreditorCriteria #1862 'Match the Cash t/a Guarantor My Loan (Match the Cash trading name)'
+      min_dividend_pence: 50 -> 100
+      source: Dividends sheet | 'Guarantor My Loan: 100P/£' (was 50p). Match the Cash trades as Guarantor My Loan, so the same minimum applies to this row.
+  CreditorCriteria #1970 'Ratesetter'
+      min_dividend_pence: 50 -> 25
+      source: Dividends sheet | '25p' standard minimum; confirmed 2026-10-13.
+  CreditorCriteria #1970 'Ratesetter'
+      young_account_months: None -> 6
+      source: Dividends sheet | 'if under 6 months old it 50p': the higher minimum applies while the loan is under 6 months old; at exactly 6 months the standard 25p applies.
+  CreditorCriteria #1970 'Ratesetter'
+      young_account_min_dividend_pence: None -> 50
+      source: Dividends sheet | 'if under 6 months old it 50p'; confirmed 2026-10-13.
+  CreditorCriteria #1970 'Ratesetter'
+      account_age_months: 6 -> None
+      source: General Creditor notes | The 6-month account-age reject was a stand-in for the 50p tier (its note says the caseworker had to verify age by hand). The sheet says a loan under 6 months needs 50p, not that it is rejected, so the reject is cleared now the tier is encoded.
+  CreditorCriteria #2128 'Guarantor My Loan'
+      min_dividend_pence: 50 -> 100
+      source: Dividends sheet | Sheet says '100P/£'.
+  CreditorCriteria #1992 'Scottish Power'
+      representative: 'NONE' -> 'WATCH'
+      source: Which Representative sheet | Listed under '(WATCH) WPM'.
+  CreditorCriteria #1502 'Barclaycard'
+      representative: 'EVOLVE' -> 'WATCH'
+      source: Evolve retirement | The Which Representative sheet lists 'Barclaycard (including cards below) - IVA' (and Barclaycard Motor Loans / Amazon) under WATCH, so Barclaycard is WATCH-represented and its vote follows the WATCH rules; the row's own status is not used.
+  CreditorCriteria #1865 'Mint'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1865 'Mint'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #1889 'NatWest'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1889 'NatWest'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #1890 'NatWest Bank'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1890 'NatWest Bank'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #1910 'Octopus Energy'
+      representative: 'EVOLVE' -> 'NONE'  [last edited by admin; review carefully]
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1975 'Royal Bank of Scotland'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1975 'Royal Bank of Scotland'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #1997 'Shell Energy'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | General Creditor sheet row 174 'Shell Energy Retail Limited (NOW OCTOPUS) | Accept'; the user confirmed on 2026-10-13 that the 'Shell Energy' row is that same creditor, so its ACCEPT stance is kept. See also the SHELL_ENERGY_CONSOLIDATION items in this draft.
+  CreditorCriteria #2038 'TSB Bank'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #2038 'TSB Bank'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #2057 'The Royal Bank of Scotland Plc'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #2057 'The Royal Bank of Scotland Plc'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #2071 'Ulster Bank'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #2071 'Ulster Bank'
+      status: 'ACCEPT' -> 'UNKNOWN'
+      source: Evolve retirement | This creditor appeared only on the retired Evolve list and has no stance of its own in the workbook. Its row carries the model default ACCEPT, which the criteria owner has confirmed is wrong, so the stance is set to UNKNOWN: the engine flags it as unconfirmed (CREDITOR-STANCE-UNCONFIRMED) and never treats it as an acceptance. Replace with the real stance once the sheet owner confirms it.
+  CreditorCriteria #2075 'Updraft'
+      representative: 'EVOLVE' -> 'NONE'
+      source: Evolve retirement | Evolve no longer exists (confirmed by the sheet owner on 2026-10-12) and the EVOLVE section is no longer exported, so this creditor is no longer represented.
+  CreditorCriteria #1998 'Shell Energy Retail Limited (NOW OCTOPUS)'
+      is_active: True -> False
+      source: User confirmation 2026-10-13 | Duplicate of 'Shell Energy' (confirmed the same creditor). Deactivated, not deleted: the row and its history are kept, and cases resolve to the one active record.
+
+== [Excel sync] Rule switches ==
+  5 change(s) - would-create
+  GlobalCriteria #78 'WATCH-22.4'
+      is_active: True -> False  [last edited by admin; review carefully]
+      source: Workbook criteria sheets | Watch rule 'reject if equity is greater than debt' was removed from the workbook; 'no longer a thing', confirmed by the sheet owner on 2026-10-12. TIG-16 stays non-WPM only, so WATCH cases get no equity check: intended.
+  GlobalCriteria #80 'WATCH-22.6'
+      is_active: True -> False  [last edited by admin; review carefully]
+      source: Workbook criteria sheets | Watch rule 'reject if any spending within 3 months' was removed from the workbook; 'no longer a thing', confirmed by the sheet owner on 2026-10-12.
+  GlobalCriteria #95 'EVOLVE-01'
+      is_active: True -> False  [last edited by Abdul.wasay; review carefully]
+      source: Workbook criteria sheets | Evolve Criteria sheet removed; 'Evolve don't exist anymore', confirmed by the sheet owner on 2026-10-12.
+  GlobalCriteria #96 'EVOLVE-02'
+      is_active: True -> False  [last edited by Abdul.wasay; review carefully]
+      source: Workbook criteria sheets | Evolve Criteria sheet removed; 'Evolve don't exist anymore', confirmed by the sheet owner on 2026-10-12.
+  GlobalCriteria #97 'EVOLVE-03'
+      is_active: True -> False  [last edited by admin; review carefully]
+      source: Workbook criteria sheets | Evolve Criteria sheet removed; 'Evolve don't exist anymore', confirmed by the sheet owner on 2026-10-12.
+
+== [Excel sync] HMRC equity rule (TIG-15.4) - needs trial evidence ==
+  2 change(s) - would-create
+  CreditorCriteria #1728 'HM Revenue & Customs'
+      reject_if_equity_exceeds_debt: True -> False
+      source: TIG Criteria sheet | Superseded by TIG-15.4 (100% of property value vs the HMRC balance). This per-creditor check (85% of value vs total unsecured debt) is not what the sheet describes and must not operate alongside TIG-15.4; switched off in the same draft that switches TIG-15.4 on.
+  GlobalCriteria #56 'TIG-15.4'
+      is_active: False -> True  [last edited by admin; review carefully]
+      source: TIG Criteria sheet | TIG sheet now reads 'HMRC - WILL REJECT if more equity than their debt (100% HOUSE VALUATION)'; 100% is for HMRC only, confirmed by the sheet owner on 2026-10-12. The rule already values the property at 100% (available_equity = property value - mortgage). It has been a switched-off stub because the case payload did not carry a property value; the Aryza client now reads slam_property_details, but no stored decision on this environment involves a homeowner, so the trial must confirm the rule behaves on real cases before approval.
+
+== Skipped / conflicts / warnings ==
+  NEW creditor '1st Stop Personal Loans / Oplo' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor '24/7 Moneybox / Active Securities' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor '3 Mobile' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor '365 Business Finance Ltd' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor '3J Finance' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor 'A Shade Greener Boilers' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status default.
+  NEW creditor 'Auto Lend' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status WILL_CONSIDER.
+  SKIP creditor 'CAPITAL ON TAP (NEW WAVE)': status 'NOT SURE' is not a recognised stance; database keeps ACCEPT.
+  NEW creditor 'CARMOOLA' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status DO_NOT_VOTE.
+  NEW creditor 'Faughanvale Credit Union' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status REJECT.
+  NEW creditor 'Federal Capital' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status REJECT.
+  SKIP creditor 'Leap Utilites': status 'UNSURE HOW THEY VOTE' is not a recognised stance; database keeps ACCEPT.
+  NEW creditor 'Lewisham Plus Bromley Credit Union:' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status REJECT.
+  NEW creditor 'Oldham Credit Union' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status REJECT.
+  SKIP creditor 'Reevo Money': status 'TRADING STYLE OF Amplifi Capital' is not a recognised stance; database keeps ACCEPT.
+  SKIP creditor 'Reward Rate': status 'TRADING STYLE OF AMIGO' is not a recognised stance; database keeps ACCEPT.
+  SKIP creditor 'SLL Capital': status 'croydon' is not a recognised stance; database keeps ACCEPT.
+  SKIP creditor 'Thames Water': status 'WPM CRITERIA' is not a recognised stance; database keeps ACCEPT.
+  NEW creditor 'WALSAVE CREDIT UNION' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status REJECT.
+  NEW creditor 'Anderson Brookes' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status DO_NOT_VOTE.
+  NEW creditor 'Huws Gray' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status WILL_CONSIDER.
+  NEW creditor 'Tyrell Carpentry' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status WILL_CONSIDER.
+  NEW creditor 'Credit4' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status WILL_CONSIDER.
+  NEW creditor 'CCC Debt Management' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status DO_NOT_VOTE.
+  NEW creditor 'The Money Platform' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status WILL_CONSIDER.
+  NEW creditor 'Cashplus' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status DO_NOT_VOTE.
+  NEW creditor 'Zilch' is not in the database: created by the notes-only sync (seed_creditor_criteria), with status UNKNOWN.
+  NEW council 'Oxford City Council' is not in the database: created by seed_all_councils (which never overwrites existing rows).
+  SKIP council 'Wycombe District Council': listed 2 times in the sheet ('Will Consider', 'Accept'); database (ACCEPT) matches one of them; left as it is.
+  NEW representative entry 'JD Williams' (TIX) is not in the database: created by the notes-only sync.
+  Rule WATCH-22.3 is already off; nothing to propose.
+
+Dry run: 60 proposed change(s); no draft written.

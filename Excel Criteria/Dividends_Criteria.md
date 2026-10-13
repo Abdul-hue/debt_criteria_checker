@@ -1,5 +1,7 @@
 # Dividends
 
+> Source: `2026-10-12 TIP CRITERIA & VOTING HISTORY.xlsx` — sheet `Dividends ` — exported 2026-10-13 by `manage.py export_excel_criteria`. Regenerate with that command rather than editing rows by hand; rows added by hand are kept on regeneration and listed at the end.
+
 | Creditor | Div Required | Notes |
 | --- | --- | --- |
 | Amigo |  | DO NOT REQUIRE A DIV NOW |
@@ -16,7 +18,7 @@
 | Funding Circle | 30p | Equity Issues |
 | Funding Corp | 50p |  |
 | Glenside Finance | 25p |  |
-| Guarantor My Loan | 50p |  |
+| Guarantor My Loan | 100P/£ |  |
 | Hull and East Yorkshire CU | 60p |  |
 | Medway Council | 25p | needs to be higher than 25p |
 | Ratesetter | 25p | if under 6 months old it 50p |

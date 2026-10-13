@@ -5,6 +5,27 @@ import { useNavigate } from 'react-router-dom'
 import { loginSchema } from '../schemas/authSchema.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import LoadingSpinner from '../components/shared/LoadingSpinner.jsx'
+import queryClient from '../lib/queryClient.js'
+import { myDepartmentQuery } from '../hooks/useDepartment.js'
+
+// Same slug the backend uses for the Lead Generation department (migration 0079).
+const LEAD_GEN_DEPARTMENT_SLUG = 'lead-generation'
+
+/**
+ * Where a user lands after login: admins -> /admin, Lead Generation users ->
+ * the Criteria Check (/lead-gen), everyone else -> /dashboard. The department
+ * comes from the API (the token does not carry it); if it cannot be read the
+ * user gets the normal /dashboard.
+ */
+async function homePathFor(isAdmin) {
+  if (isAdmin) return '/admin'
+  try {
+    const department = await queryClient.fetchQuery({ ...myDepartmentQuery, retry: false })
+    return department?.slug === LEAD_GEN_DEPARTMENT_SLUG ? '/lead-gen' : '/dashboard'
+  } catch {
+    return '/dashboard'
+  }
+}
 
 /**
  * LoginPage component
@@ -19,9 +40,12 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (token) {
-      navigate(isAdmin ? '/admin' : '/dashboard', { replace: true })
-    }
+    if (!token) return undefined
+    let current = true
+    homePathFor(isAdmin).then((path) => {
+      if (current) navigate(path, { replace: true })
+    })
+    return () => { current = false }
   }, [token, isAdmin, navigate])
 
   const {
@@ -38,7 +62,7 @@ export default function LoginPage() {
     try {
       const decoded = await login(data.email, data.password)
       const role = decoded?.role || (decoded?.is_admin || decoded?.is_staff ? 'admin' : 'assessor')
-      navigate(role === 'admin' ? '/admin' : '/dashboard', { replace: true })
+      navigate(await homePathFor(role === 'admin'), { replace: true })
     } catch (err) {
       setError('Invalid credentials. Please try again.')
       console.error('Login failed:', err)

@@ -12,12 +12,13 @@ export function useAssessCase() {
   const resultRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: async ({ aryza_reference, credit_report_id, dmp_checklist, creditor_rows, signal }) => {
+    mutationFn: async ({ aryza_reference, credit_report_id, dmp_checklist, creditor_rows, solution_checklist, signal }) => {
       const body = {
         aryza_reference,
         ...(credit_report_id ? { credit_report_id } : {}),
         ...(dmp_checklist ? { dmp_checklist } : {}),
         ...(creditor_rows && creditor_rows.length ? { creditor_rows } : {}),
+        ...(solution_checklist ? { solution_checklist } : {}),
       }
       // Only pass a request config when a signal was actually supplied —
       // callers that don't need cancellation (and existing tests) see the

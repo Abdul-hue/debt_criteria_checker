@@ -31,8 +31,9 @@ export default function EditDrawer({
   }, [isOpen, onClose])
 
   return (
-    <div 
+    <div
       className={`fixed inset-0 z-50 flex justify-end transition-visibility duration-300 ${isOpen ? 'visible' : 'invisible'}`}
+      aria-hidden={isOpen ? undefined : true}
     >
       {/* Backdrop */}
       <div

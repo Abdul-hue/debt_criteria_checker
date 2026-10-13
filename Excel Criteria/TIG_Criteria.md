@@ -56,7 +56,7 @@ We require proof of all debts to verify all cases. This can be any combination o
 | HMRC Majority | MUST NOT have a deduction from income or benefits — **will reject** |
 | HMRC Majority | WILL REJECT if previous IVA or Bankruptcy |
 | HMRC Self Assessment | If still self-employed, will vote to reject if any late submissions — must have submitted and HMRC confirm received |
-| HMRC Equity | WILL REJECT if more equity than their debt |
+| HMRC Equity | WILL REJECT if more equity than their debt (100% house valuation — HMRC only; other equity checks stay at 85%. Confirmed 2026-10-12) |
 | HMRC Bankruptcy Return | WILL REJECT if return higher in bankruptcy |
 | HMRC Full & Final | Won't accept full and final from savings if client only has savings from avoiding paying debts |
 | SEISS Fraud | Recovery of incorrectly claimed self-employed income support scheme (SEISS) **CANNOT BE INCLUDED — FRAUD** |

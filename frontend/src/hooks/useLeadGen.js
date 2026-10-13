@@ -35,12 +35,13 @@ export function useLeadGenCreditReportStatus(reference) {
  */
 export function useLeadGenCheck() {
   return useMutation({
-    mutationFn: async ({ aryza_reference, credit_report_id, file, dmp_checklist }) => {
+    mutationFn: async ({ aryza_reference, credit_report_id, file, dmp_checklist, solution_checklist }) => {
       if (file) {
         const form = new FormData()
         form.append('aryza_reference', aryza_reference)
         form.append('credit_report', file)
         if (dmp_checklist) form.append('dmp_checklist', JSON.stringify(dmp_checklist))
+        if (solution_checklist) form.append('solution_checklist', JSON.stringify(solution_checklist))
         const { data } = await api.post('/api/v1/criteria/lead-gen/check/', form)
         return data
       }
@@ -48,6 +49,7 @@ export function useLeadGenCheck() {
         aryza_reference,
         ...(credit_report_id ? { credit_report_id } : {}),
         ...(dmp_checklist ? { dmp_checklist } : {}),
+        ...(solution_checklist ? { solution_checklist } : {}),
       })
       return data
     },
