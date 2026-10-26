@@ -301,6 +301,7 @@ REGISTERED_RULE_IDS = frozenset({
     "WATCH-22.9", "WATCH-22.10", "WATCH-22.13", "WATCH-22.14",
     "TIX-01", "TIX-02", "TIX-03", "TIX-04", "TIX-05", "TIX-06", "TIX-07",
     "EVOLVE-01", "EVOLVE-02", "EVOLVE-03",
+    "BANK-STATEMENTS",
 })
 
 
@@ -324,7 +325,7 @@ class EveryRegisteredRuleAnswersExactlyOnce(TestCase):
         expected = REGISTERED_RULE_IDS - disabled
         self.assertEqual(set(), expected - set(seen), "registered rules missing from the result")
         self.assertEqual(set(), set(registered_seen) & disabled, "a disabled rule still answered")
-        self.assertEqual(72, len(REGISTERED_RULE_IDS))
+        self.assertEqual(73, len(REGISTERED_RULE_IDS))
 
     def test_disabling_by_the_emitted_rule_id_works_for_every_rule(self):
         """⚠️ Several rules emit an id that differs from their function name

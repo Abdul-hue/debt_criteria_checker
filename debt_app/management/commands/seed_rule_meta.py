@@ -714,6 +714,16 @@ class Command(BaseCommand):
                 'description': 'A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.',
                 'action': 'Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.',
             },
+            {
+                'criteria_set': 'TIG',
+                'rule_key': 'BANK-STATEMENTS',
+                'rule_name': '12 months of bank statements for each bank account',
+                'severity': 'flag',
+                'is_active': True,
+                'category': 'bank_statements',
+                'description': 'Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.',
+                'action': 'Upload the missing statements for each listed account, or record why the customer cannot provide them.',
+            },
         ]
 
         # T4 — update_or_create so re-runs always correct wrong data.

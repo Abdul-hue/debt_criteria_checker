@@ -59,6 +59,8 @@ EVIDENCE_STAGE_RULES = {
     "TIG-11": "Bank statement",
     "TIG-12": "Signed third-party contribution letter",
     "TIG-13": "Termination report",
+    # Only tests that statements are on file for each credit-report bank account.
+    "BANK-STATEMENTS": "12 months of bank statements for each bank account",
 }
 
 # ---------------------------------------------------------------------------

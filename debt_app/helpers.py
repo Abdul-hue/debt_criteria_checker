@@ -223,7 +223,6 @@ _RAW_CREDITOR_ALIAS_MAP = {
     '118 money': '118 Money',
     'madison cf uk ltd t/a 118 118 money': '118 Money',
     'creation': 'Creation',
-    'creation consumer finance': 'Creation',
     'creation consumer finance ltd': 'Creation Consumer Finance',
     'creation financial services': 'Creation',
     'creation finance': 'Creation Financial Services',
@@ -280,8 +279,7 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'lowell portfolio i ltd': 'Lowell',
     'pra': 'PRA (Portfolio Recovery Associates) - IVA',
     'portfolio recovery associates': 'PRA (Portfolio Recovery Associates) - IVA',
-    'pra group': 'PRA (Portfolio Recovery Associates) - IVA',
-    'portfolio recovery': 'PRA (Portfolio Recovery Associates) - IVA',
+    'portfolio recovery':'PRA (Portfolio Recovery Associates) - IVA',
     'pra group (uk) limited (tix)': 'PRA Group',
     'pra group (uk) ltd c/o wpm': 'PRA Group',
     'pulse': 'Pulse - IVA',
@@ -290,7 +288,6 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'lantern debt recovery services ltd': 'Lantern',
     'lantern debt recovery limited - iva or bky': 'Lantern',
     'lantern debt recovery limited - td or das or seq': 'Lantern',
-    'perch capital': 'PCO Holdco Sarl - IVA',
     'perch capital limited': 'Perch Capital Limited',
     'cabot': 'Cabot Financial',
     'cabot financial': 'Cabot Financial',
@@ -351,8 +348,11 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'nationwide': 'Nationwide Building Society',
     'nationwide building society': 'Nationwide Building Society',
     'first direct': 'First Direct',
+    # Phase 3B (2026-10-21): 'monzo bank': 'Monzo' removed - with 'monzo' ->
+    # 'Monzo Bank' it formed a loop, so "Monzo" and "Monzo Bank" swapped rows on
+    # every alias hop (the engine applies the map twice). Every Monzo variant now
+    # ends at 'Monzo Bank'; the 'Monzo' row holds the same criteria.
     'monzo': 'Monzo Bank',
-    'monzo bank': 'Monzo',
     'starling': 'Monzo Bank',
     'argos': 'Argos Card Services',
     'home retail group': 'Argos Card Services',
@@ -382,6 +382,13 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'ford credit': 'FCE Bank',
     'hitachi': 'Hitachi',
     'ikano': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    # 2026-10-21: the Aryza "Ikano Bank" / "Ikano Bank Direct" / "New Look"
+    # records all carry Ikano's company number (FC031187) and UUID; none of
+    # them reached the row ("Ikano Bank AB - ..." is not inside "Ikano Bank").
+    # Workbook, Which Representative (WATCH): "Ikano Bank AB", "incl. New Look Card".
+    'ikano bank': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'ikano bank direct': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
+    'new look': 'Ikano Bank AB - IVA or TD or BKY or DAS or SEQ or DRO',
     'granite': 'Granite (Vanquis)',
     'gracombex ltd t/a the money platform': 'The Money Platform',
     # Councils never go through CREDITOR_ALIAS_MAP / CreditorCriteria — they're
@@ -429,7 +436,9 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'admiral financial services ltd': 'Admiral Loans',
     'admiral financial services limited': 'Admiral Loans',
     'shop direct finance company ltd': 'Shop Direct Finance Company - IVA or TD',
-    'home retail group card services': 'Home Retail Group',
+    # Phase 3B: was 'Home Retail Group', itself aliased to 'Argos Card Services'
+    # (a chain). Points at the end of the chain - the row the engine already used.
+    'home retail group card services': 'Argos Card Services',
     'hbos - halifax - iva': 'HBOS - Halifax - IVA',
     'secure trust bank plc': 'Secure Trust Bank',
     'mbna ltd': 'MBNA - IVA',
@@ -457,10 +466,113 @@ _RAW_CREDITOR_ALIAS_MAP = {
     'paypal (europe) sarl & cia, sca': 'Paypal Europe Ltd',
     'paypal credit': 'Paypal Europe Ltd',
     'redcats catalogue': 'Redcats UK',
+
+    # Phase 2A exact aliases (2026-10-20), collision-tested against every Aryza
+    # creditor name before being added. Elevate and Credit Spring were unknown;
+    # Fluid and Lantern reached their WATCH rows only through the row-order-
+    # dependent substring step (competitors 'NewDay' TIX and 'SLL Capital').
+    # Normalisation also maps "...Ltd", "(NewDay)" and "X T/A Credit Spring" here.
+    # FCA Automotive Services UK Ltd is deliberately NOT aliased: on HOLD until
+    # the company-number conflict (02739931 vs 07604628) is confirmed.
+    'elevate credit international limited': 'Elevate Credit International (Sunny)',
+    'credit spring': 'CreditSpring',
+    'fluid credit (newday limited)': 'Fluid',
+    'lantern debt recovery previously sll capital ltd': 'Lantern',
+
+    # Phase 2C (2026-10-21): Aryza 919785 "Hutchinson 3G UK Ltd" (Aryza's
+    # misspelling) is the company behind '3 Mobile' - same company number and
+    # UUID as the live Hutchison 3G records, whose debts are entered as
+    # "3 Mobile" / "Three Mobile" / "H3G LOAN". Normalises to "hutchinson 3g".
+    'hutchinson 3g uk ltd': '3 Mobile',
+
+    # Owner decisions 2026-10-21, exact keys from the Aryza creditor list.
+    # 118 118 Money (Madison CF UK, company 08393840): every variant is the
+    # '118 Money' row (TIX), never '118 118 Money' (NONE). The "- Loans" /
+    # "- Credit Cards" names used to reach it only because the lower id won
+    # a two-row substring tie.
+    '118118 money madison cf uk ltd': '118 Money',
+    '118 118 credit card': '118 Money',
+    '118 118 money - loans': '118 Money',
+    '118 118 money - credit cards': '118 Money',
+    'madison cf uk limited (t/a 118 118 money)': '118 Money',  # normalises to "madison cf"
+    'madison cf uk ltd t/a 118 118 money credit card': '118 Money',
+    # Asset Link Capital (company 05360261): the numbered SPVs "(No 1)".."(No 9)"
+    # normalise to "asset link capital" and used to substring-match 'Asset
+    # Link' (NONE). Plain "Asset Link" keeps its own row.
+    'asset link capital': 'Asset Link Capital',
+    'asset link capital c/o the insolvency exchange': 'Asset Link Capital',
+    # Tesco: Tesco Personal Finance Plc is Tesco Bank's company (SC173199).
+    # Plain "Tesco" reached Intrum only by a substring of the trading name
+    # "Tesco C/O WPM (Intrum)"; pinned here so the whole-entry trading-name
+    # match (step 3 of the resolver) keeps it. Tesco Mobile is untouched.
+    'tesco personal finance plc': 'Tesco Bank',
+    'tesco': 'Intrum UK Ltd (previously 1st Credit) - IVA or BKY',
+    # Phase 5 owner decisions (2026-10-21); workbook "Which Representative",
+    # (WATCH) WPM column. Without these the resolver's whole-word step picks a
+    # different creditor:
+    # - Birmingham Midshires Mortgage Shortfall is not ordinary 'Birmingham
+    #   Midshires' (NONE): its own WATCH row is "HBOS - Birmingham Midshires
+    #   Mortgage Shortfall - IVA" (row 115).
+    # - Shop Direct Finance has the company number and UUID of Shop Direct
+    #   Finance Company Ltd (04660974), whose WATCH row is "Shop Direct Finance
+    #   Company - IVA or TD" (row 281) - not the TIX 'Shop Direct'.
+    # - "BIP CREDIT (NewDay)" (normalises to "bip credit") is the WATCH row
+    #   'BIP' (row 203), not 'NewDay' (TIX), which won on the lower row id.
+    'birmingham midshires mortgage shortfall': 'HBOS - Birmingham Midshires Mortgage Shortfall - IVA',
+    'shop direct finance': 'Shop Direct Finance Company - IVA or TD',
+    'bip credit': 'BIP',
+    # Phase 6A (owner, 2026-10-21): ORANGE and Orange Personal Communications
+    # Services Ltd (the network, company 02178917) are one creditor with the
+    # mobile treatment - the EE row (workbook GENERAL CREDITOR "EE Insolvency
+    # Team", DO NOT VOTE). The workbook has no Orange mobile row of its own; its
+    # only Orange rows are 'Orange - CREDIT CARD ONLY', which both names used to
+    # reach through the bare "Orange" segment. Row chosen by the owner.
+    'orange': 'EE Insolvency Team',
+    'orange personal communications services ltd': 'EE Insolvency Team',
+
+    # Phase 9 (manager, 2026-10-21). Only names Phase 8 tied to the company by
+    # company number and UUID (or that carry the company's own name):
+    # - Parkingeye Limited (05134454), DO NOT VOTE. "Car Parking Partnership"
+    #   is NOT here: it normalises to the same key as "Car Parking Partnership
+    #   (CPP)", a different company (02920033).
+    'parkingeye': 'Parkingeye Limited',
+    'parking eye': 'Parkingeye Limited',
+    'parkingeye ltd t/as car parking partnership': 'Parkingeye Limited',
+    # - Quidie Limited t/a Fernovo (08110266), DO NOT VOTE. "Quidieloan" has
+    #   no identifier and is left out.
+    'quidie': 'Quidie Limited t/a Fernovo',
+    'fernovo': 'Quidie Limited t/a Fernovo',
+    'fernovo *': 'Quidie Limited t/a Fernovo',
+    # - Propel Holdings UK / Stagemount Ltd t/a Quidmarket (07259223), TIX.
+    #   Separate from Quidie and from Quick Quid (CashEuroNet); Propel Finance
+    #   Plc (04015132) is another company and is not here.
+    'quidmarket': 'Propel Holdings UK T/A Quidmarket',
+    'quid market': 'Propel Holdings UK T/A Quidmarket',
+    'quid market *': 'Propel Holdings UK T/A Quidmarket',
+    'quidmarket loans': 'Propel Holdings UK T/A Quidmarket',
+    'quidmarket loans uk': 'Propel Holdings UK T/A Quidmarket',
+    'quidmarket loans c/o the insolvency exchange': 'Propel Holdings UK T/A Quidmarket',
+    'stagemount': 'Propel Holdings UK T/A Quidmarket',
+    'stagemount t/as quidmarket': 'Propel Holdings UK T/A Quidmarket',
+    'stagemount t/as quidmarket loans uk': 'Propel Holdings UK T/A Quidmarket',
+    # - South Manchester Credit Union is its own lender (REJECT). "South
+    #   Manchester Credit Union Limited" reached 'Manchester Credit Union' (a
+    #   different lender, lower row id) through the whole-word step.
+    'south manchester credit union': 'South Manchester Credit Union',
 }
 
 # Apply normalisation to all keys in the alias map to ensure robust lookups
 CREDITOR_ALIAS_MAP = {normalise_creditor_name(k): v for k, v in _RAW_CREDITOR_ALIAS_MAP.items()}
+
+# Names confirmed to be no Criteria creditor, which the resolver would
+# otherwise match by a shared word: both reached 'Orange - CREDIT CARD ONLY'
+# through its bare "Orange" segment (owner, 2026-10-21). Orange Lettings is a
+# lettings agent (company 12262029); Orange Installations an installer
+# (10758849). They resolve to nothing. Normalised, like the alias keys.
+_NO_CRITERIA_MATCH = frozenset(normalise_creditor_name(n) for n in (
+    'Orange Lettings',
+    'Orange Installations c/o Harwood & Co Limited',
+))
 
 
 def is_asset_link_capital(name: str) -> bool:
@@ -565,9 +677,16 @@ def _db_name_segments(creditor_name: str) -> list:
          "Pulse - IVA"                -> ["pulse"]
          "Zopa - IVA or BKY"          -> ["zopa"]     ("iva or bky" dropped)
          "Somelender - Bank - IVA"    -> ["somelender"]  ("bank" alone dropped)
+         "Arrow Global Ltd- IVA"      -> ["arrow global ltd"]
+         "The Co-operative Bank"      -> ["the co-operative bank"]
+
+    A separator hyphen has whitespace on at least one side ("A - B", "Ltd- IVA",
+    "x -Y"). A hyphen inside a word is part of the name: splitting "Co-operative"
+    made "the co" a segment, so "The Co-Operative Credit Union" matched the
+    Co-operative Bank rows.
     """
     segments = []
-    for part in re.split(r"\s*-\s*", creditor_name.lower()):
+    for part in re.split(r"\s+-\s*|\s*-\s+", creditor_name.lower()):
         part = part.strip()
         if len(part) < 4:
             continue
@@ -613,6 +732,56 @@ def with_creditor_lookup_cache(fn):
     return _wrapped
 
 
+_CARE_OF_RE = re.compile(r"(?<![a-z0-9])c\s*/\s*o(?![a-z0-9])\.?", re.IGNORECASE)
+
+
+def care_of_organisation(name: str):
+    """The organisation after the last "c/o" in a creditor name, or None.
+
+    "Blues & Twos Credit Union c/o Wilkin Chapman LLP" -> "Wilkin Chapman LLP";
+    "X c/o c/o Y" -> "Y". None when there is no c/o or nothing follows it.
+    """
+    parts = _CARE_OF_RE.split(name or "")
+    if len(parts) < 2:
+        return None
+    org = parts[-1].strip(" \t:;,.-")
+    return org or None
+
+
+def get_creditor_by_exact_name(name: str):
+    """The active CreditorCriteria row a name identifies exactly, or None.
+
+    The resolver's exact steps only - the no-match list, the alias map, the
+    creditor name, a whole trading name - plus the name with legal suffixes
+    ignored on both sides ("Brachers" == "Brachers LLP"). Never a partial-name
+    match, so a shared word cannot pick a row. Several rows: lowest id.
+    """
+    from debt_app.models import CreditorCriteria
+
+    cleaned = (name or "").strip()
+    normalised = normalise_creditor_name(cleaned)
+    if not normalised or normalised in _NO_CRITERIA_MATCH:
+        return None
+    active = CreditorCriteria.objects.filter(is_active=True).order_by("id")
+    alias = CREDITOR_ALIAS_MAP.get(normalised)
+    if alias:
+        row = active.filter(creditor_name__iexact=alias).first()
+        if row:
+            return row
+    row = active.filter(creditor_name__iexact=cleaned).first()
+    if row:
+        return row
+    for row in active.filter(trading_names__icontains=cleaned):
+        if any(str(t).strip().lower() == cleaned.lower() for t in row.trading_names or []):
+            return row
+    for row in active:
+        if normalise_creditor_name(row.creditor_name) == normalised or any(
+            normalise_creditor_name(str(t)) == normalised for t in row.trading_names or []
+        ):
+            return row
+    return None
+
+
 def get_creditor_by_trading_name(name: str, all_names=None):
     """`_get_creditor_by_trading_name_uncached`, memoised per assessment when
     `creditor_lookup_cache()` is active (see there). A miss is remembered too,
@@ -642,9 +811,11 @@ def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
     Find CreditorCriteria row for a given creditor name.
 
     Search order:
+    0. A name in _NO_CRITERIA_MATCH (normalised) resolves to nothing
     1. CREDITOR_ALIAS_MAP exact match
     2. Exact match on creditor_name (case-insensitive)
-    3. Search trading_names field for any row where this name is a known trading name
+    3. Search trading_names field for any row where this name is a known trading
+       name (one whole entry, case-insensitive)
     4. Substring: creditor_name is contained in the input name
        e.g. DB="NatWest", Aryza="Natwest Group Plc"
        "natwest" is in "natwest group plc" → match
@@ -663,6 +834,9 @@ def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
     cleaned = name.strip()
     cleaned_lower = cleaned.lower()
     normalised = normalise_creditor_name(name)
+
+    if normalised in _NO_CRITERIA_MATCH:
+        raise CreditorCriteria.DoesNotExist(f"No criteria row found for: {name!r}")
 
     # 1. Alias map
     alias = CREDITOR_ALIAS_MAP.get(normalised)
@@ -694,13 +868,31 @@ def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
             creditor_name__iexact=cleaned, is_active=True
         ).order_by("id").first()
 
-    # 3. Trading names search
-    row = CreditorCriteria.objects.filter(
+    # 3. Trading names search: the name must BE one of a row's trading names
+    # (case-insensitive), not merely appear inside one. The icontains query
+    # only narrows the candidates - it runs over the JSON text, so it hit
+    # fragments of unrelated entries: "E" in "NatWest", "ERS" in "Personal
+    # Loan", "Sky Card" in Barclaycard's "Sky Card - IVA", "AO" in New Day's
+    # "AO - IVA" list. Several rows can hold the name; the lowest id wins.
+    for row in CreditorCriteria.objects.filter(
         trading_names__icontains=cleaned,
         is_active=True
-    ).first()
-    if row:
-        return row
+    ).order_by("id"):
+        if any(str(t).strip().lower() == cleaned_lower for t in row.trading_names or []):
+            return row
+
+    # 3b. "X c/o Y" (manager, 2026-10-21): when Y, the organisation after
+    # "c/o", has its own row by exact match (get_creditor_by_exact_name: alias,
+    # name, whole trading name, legal suffixes ignored), the vote follows Y.
+    # Otherwise the name resolves exactly as before (steps 4-6), so a creditor
+    # reached through its solicitor or agent - e.g. VWFS c/o Blake Morgan and
+    # its termination rule - keeps its treatment. A mapping of the whole name
+    # (steps 1-3) still wins.
+    care_of = care_of_organisation(cleaned)
+    if care_of is not None:
+        row = get_creditor_by_exact_name(care_of)
+        if row is not None:
+            return row
 
     # 4-6. Single pass over active rows, checking (in priority order) whole-name
     # substring, cosmetic-normalised exact match, and segment substring. One
@@ -727,7 +919,12 @@ def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
     #    extra text ("- IVA", "HBOS - ") the input doesn't. Splitting on " - "
     #    and matching brand segments generalises the fix to every similarly
     #    shaped row instead of needing a hand-written alias per creditor.
-    all_active = list(CreditorCriteria.objects.filter(is_active=True))
+    #
+    # Steps 4-6 return the first matching row, and several rows often match
+    # (e.g. "Perch Capital" and "Perch Capital Limited"). Ordering by id makes
+    # that winner the lowest id - the order SQLite already returned - rather
+    # than whatever order the database happens to return the rows in.
+    all_active = list(CreditorCriteria.objects.filter(is_active=True).order_by("id"))
     cosmetic_input = _cosmetic_normalise(cleaned)
 
     # Precompute each row's comparison values once (avoids re-normalising the

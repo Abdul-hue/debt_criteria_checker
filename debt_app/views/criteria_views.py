@@ -1,4 +1,5 @@
 import logging
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -51,6 +52,24 @@ from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_t
 import threading
 
 logger = logging.getLogger(__name__)
+
+
+def _match_county_council(raw_name: str, county_names) -> str | None:
+    """County (from CountyCouncilRouting) that a COUNCIL creditor name refers to, or None.
+
+    ⚠️ Replaces fuzz.partial_ratio >= 85, which scored partial overlaps at the
+    string edges: "Kent" vs the "ent" ending "Civil Enforcement" / "DWP
+    Overpayment" scored 85.7, and a short name was searched inside the county
+    ("E", "ss" -> Essex, 100). 228 Aryza names that are not councils were
+    rewritten to a county and council_tax that way. A match now needs the word
+    "council" and a county as whole words, longest county first, ignoring case.
+    """
+    if not re.search(r"\bcouncil\b", raw_name, re.IGNORECASE):
+        return None
+    for county in sorted(set(county_names), key=len, reverse=True):
+        if re.search(rf"(?<![a-z0-9]){re.escape(county)}(?![a-z0-9])", raw_name, re.IGNORECASE):
+            return county
+    return None
 
 
 def _lookup_creditor_name(raw_name: str) -> str:
@@ -1084,16 +1103,13 @@ class AssessCaseView(APIView):
                 resolved_name = _council_rule.council_name
                 debt_type_override = 'council_tax'
             else:
-                # CHECK 2 — CountyCouncilRouting fuzzy match (partial_ratio ≥ 85)
-                _cr = rfprocess.extractOne(
-                    raw_name, county_names, scorer=fuzz.partial_ratio, score_cutoff=85
-                )
-                if _cr:
-                    _matched, _score, _ = _cr
+                # CHECK 2 — CountyCouncilRouting: a council name containing a county
+                _matched = _match_county_council(raw_name, county_names)
+                if _matched:
                     logger.info(
-                        "[COUNTY COUNCIL MATCH] '%s' → '%s' score=%d — "
+                        "[COUNTY COUNCIL MATCH] '%s' → '%s' — "
                         "reclassified from type='%s' to council",
-                        raw_name, _matched, _score, debt_type,
+                        raw_name, _matched, debt_type,
                     )
                     resolved_name = _matched
                     debt_type_override = 'council_tax'

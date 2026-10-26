@@ -35,6 +35,7 @@ Creditor representative lookup is done once in assess_case() and passed in.
 # CREDITOR-MANUAL-CHECK-REQUIRED    — criteria_notes is non-empty; caseworker must read and apply manually
 # CREDITOR-STANCE-UNCONFIRMED       — row exists but its stance is UNKNOWN; confirm with the criteria owner (flag, never an acceptance)
 
+import calendar
 import logging
 import math
 import re
@@ -982,6 +983,13 @@ def _parse_case(case_json: dict) -> dict:
         "is_police_officer": is_police_officer,
         "previous_iva_failed": previous_iva_failed,
         "bank_accounts": bank_accounts,
+        # BANK-STATEMENTS: every statement, not just the first, and the date the
+        # case was added to CAT (None until CAT sends it; the rule then falls
+        # back to assessment_date).
+        # One entry per ACCOUNT a document states (`_bank_statement_entries`);
+        # `bank_stmt_docs` itself, which TIG-06/08/11 read, is unchanged.
+        "bank_statements": [entry for d in bank_stmt_docs for entry in _bank_statement_entries(d)],
+        "case_created_date": _parse_any_date(case_json.get("case_created_date")),
         "iva_term_months": iva_term_months,
         "monthly_di": monthly_di,
         # Phase 5 additions — employment / benefit / case-type flags
@@ -2591,6 +2599,382 @@ def _bpo_debt(c: dict) -> RuleResult:
 
 
 # ---------------------------------------------------------------------------
+# BANK-STATEMENTS — 12 months of statements for every bank account the credit
+# report shows the customer holds
+# ---------------------------------------------------------------------------
+#
+# The credit-report parsers each keep their own account shape (Aryza Advize,
+# Experian classic CAIS, Experian Valid8IP), so the bank accounts are
+# normalised here rather than in the parsers, whose output CAT also consumes.
+
+# CA is a current account on every format, and on Experian classic reports
+# also a savings account (integrations/credit_report._EXPERIAN_CATEGORY_TO_TYPE
+# maps both to CA). BK is a basic bank account, which the parsers route to
+# `other_accounts`.
+_BANK_ACCOUNT_TYPE_CODES = {"CA", "BK"}
+_BANK_ACCOUNT_REQUIRED_STATUSES = {"active", "default"}
+
+# Whole-word status wording across the three formats. Settled is tested
+# before default: a satisfied default is a closed account.
+_BANK_STATUS_SETTLED_RE = re.compile(r"\b(settled|satisfied|closed|repaid|paid off|paid in full)\b")
+_BANK_STATUS_DEFAULT_RE = re.compile(r"\bdefault(ed)?\b")
+_BANK_STATUS_ACTIVE_RE = re.compile(
+    r"\b(active|open|up to date|current|late|late payment|arrears|arrangement|delinquent)\b"
+)
+
+_MONTH_NUMBERS = {
+    name: i for i, name in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1
+    )
+}
+# Day-first dates as CAT's statement extractor stores them: "1 Jan 2026",
+# "01/01/2026", "1st January 26", "1-Jan-2026".
+_DAY_FIRST_DATE_RE = re.compile(r"(\d{1,2})(?:st|nd|rd|th)?[\s/\-.,]+([a-z]{3,}|\d{1,2})[\s/\-.,]+(\d{4}|\d{2})")
+_ISO_DATE_PREFIX_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+# Words that do not tell one bank from another ("Barclays Bank UK PLC" and
+# "BARCLAYS" are the same bank).
+_BANK_NAME_NOISE_WORDS = {
+    "bank", "banking", "building", "society", "plc", "ltd", "limited", "uk", "the",
+    "group", "current", "savings", "account", "accounts", "basic", "of",
+}
+
+
+def _parse_any_date(value) -> Optional[date]:
+    """A date from ISO ("2026-01-31", with or without a time) or a UK day-first
+    string ("31/01/2026", "1 Jan 2026"). None when it cannot be read - a date
+    is never guessed."""
+    if isinstance(value, date):
+        return date(value.year, value.month, value.day)
+    s = " ".join(str(value or "").strip().lower().split())
+    if not s:
+        return None
+    if _ISO_DATE_PREFIX_RE.match(s):
+        try:
+            return date.fromisoformat(s[:10])
+        except ValueError:
+            return None
+    m = _DAY_FIRST_DATE_RE.fullmatch(s)
+    if not m:
+        return None
+    day, month_text, year_text = m.groups()
+    month = int(month_text) if month_text.isdigit() else _MONTH_NUMBERS.get(month_text[:3])
+    year = int(year_text) + (2000 if len(year_text) == 2 else 0)
+    try:
+        return date(year, month, int(day))
+    except (TypeError, ValueError):
+        return None
+
+
+def _add_months(d: date, months: int) -> date:
+    """Calendar month arithmetic; the day is clamped (31 Mar - 1 month = 28/29 Feb)."""
+    years, month_index = divmod(d.month - 1 + months, 12)
+    year, month = d.year + years, month_index + 1
+    return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def _format_day(d: date) -> str:
+    return f"{d.day} {d.strftime('%b %Y')}"
+
+
+def _normalise_bank_account_status(raw) -> str:
+    """Credit-report account status -> "active" | "default" | "settled_closed" | "unknown".
+
+    Each format keeps its own wording: Aryza "Up to date" / "Late payment" /
+    "Default" ("" when none is printed), Experian classic capitalised text
+    ("Open" when none is printed), Valid8 "Active" / "Settled" / "Default".
+    """
+    low = " ".join(str(raw or "").lower().split())
+    if not low:
+        return "unknown"
+    if _BANK_STATUS_SETTLED_RE.search(low):
+        return "settled_closed"
+    if _BANK_STATUS_DEFAULT_RE.search(low):
+        return "default"
+    if _BANK_STATUS_ACTIVE_RE.search(low):
+        return "active"
+    return "unknown"
+
+
+def _credit_report_bank_accounts(credit_report_data: dict) -> list[dict]:
+    """The CA / BK accounts of a parsed credit report in one shape, whatever
+    the report format. Fields a format does not print are None."""
+    data = credit_report_data or {}
+    agency = data.get("agency")
+    accounts = []
+    for acct in list(data.get("accounts") or []) + list(data.get("other_accounts") or []):
+        if not isinstance(acct, dict):
+            continue
+        type_code = str(acct.get("type_code") or "").strip().upper()
+        if type_code not in _BANK_ACCOUNT_TYPE_CODES:
+            continue
+        raw_status = acct.get("account_status") or ""
+        accounts.append({
+            "name": acct.get("raw_name") or acct.get("matched_creditor") or "Unknown bank",
+            "matched_creditor": acct.get("matched_creditor"),
+            "type_code": type_code,
+            "source_agency": agency,
+            "status_normalised": _normalise_bank_account_status(raw_status),
+            "raw_status": raw_status,
+            "account_number": acct.get("account_number") or None,
+            "start_date": _parse_any_date(acct.get("start_date")),
+            "last_reported": acct.get("last_update") or acct.get("cais_last_updated") or None,
+        })
+    return accounts
+
+
+def _normalise_bank_statement(doc: dict) -> dict:
+    """One bank statement document in one shape. CAT's PDF extraction gives the
+    period and account number but no bank name; its image extraction gives the
+    bank name and statement date but no period. Missing fields are None."""
+    ext = doc.get("extracted_data") if isinstance(doc.get("extracted_data"), dict) else {}
+    holder = ext.get("account_holder")
+    if not holder and ext.get("first_name") and ext.get("last_name"):
+        holder = f"{ext['first_name']} {ext['last_name']}"
+    return {
+        "account_number": ext.get("account_number") or None,
+        "sort_code": ext.get("sort_code") or None,
+        "account_holder": holder or None,
+        "bank_name": ext.get("bank_name") or None,
+        "period_start": _parse_any_date(ext.get("statement_period_start")),
+        "period_end": _parse_any_date(ext.get("statement_period_end")),
+        "statement_date": _parse_any_date(ext.get("statement_date") or doc.get("document_date")),
+    }
+
+
+# CAT's per-account field (`extracted_data.bank_accounts[]`, one per statement
+# file, from the statement service) -> the `extracted_data` key
+# `_normalise_bank_statement` reads for it.
+_BANK_ACCOUNT_STATEMENT_KEYS = {
+    "account_number": "account_number",
+    "sort_code": "sort_code",
+    "bank_name": "bank_name",
+    "statement_start": "statement_period_start",
+    "statement_end": "statement_period_end",
+}
+
+
+def _bank_statement_entries(doc: dict) -> list[dict]:
+    """The statement entries one bank statement document gives the rule: one
+    per account in `extracted_data.bank_accounts`, else the document itself.
+
+    A CAT document can hold several statement files, for more than one
+    account; each account carries its own number and period. With two or more
+    accounts an entry takes ONLY its own account and period fields - never the
+    document's - so one account's dates are never credited to another. With
+    one account the document's own value wins wherever it has one, as before
+    and as CAT's payload builder decides it (`_documents`: a key the document
+    has is never replaced); the account fills only what the document lacks.
+    Holder and statement date are the document's. A missing, empty or
+    malformed list gives the single document entry, unchanged.
+    """
+    ext = doc.get("extracted_data") if isinstance(doc.get("extracted_data"), dict) else {}
+    raw = ext.get("bank_accounts")
+    accounts = [a for a in raw if isinstance(a, dict)] if isinstance(raw, list) else []
+    if not accounts:
+        return [_normalise_bank_statement(doc)]
+    if len(accounts) == 1:
+        base = ext
+    else:
+        base = {k: v for k, v in ext.items() if k not in _BANK_ACCOUNT_STATEMENT_KEYS.values()}
+    entries = []
+    for account in accounts:
+        stated = {key: account[field] for field, key in _BANK_ACCOUNT_STATEMENT_KEYS.items() if account.get(field)}
+        if len(accounts) == 1:
+            stated = {key: value for key, value in stated.items() if not base.get(key)}
+        entries.append(_normalise_bank_statement({**doc, "extracted_data": {**base, **stated}}))
+    return entries
+
+
+def _visible_account_digits(value) -> str:
+    """The digits of an account number that can be compared: all of them, or
+    for a masked number ("****5678", "XXXX 5678") those after the mask."""
+    s = str(value or "").strip()
+    if re.search(r"[*xX•#]", s):
+        s = re.split(r"[*xX•#]+", s)[-1]
+    return re.sub(r"\D", "", s)
+
+
+def _account_numbers_match(a, b) -> Optional[bool]:
+    """Compare the last 4-8 digits both numbers show. None when either side
+    has fewer than 4 digits to compare - the numbers say nothing either way."""
+    da, db = _visible_account_digits(a), _visible_account_digits(b)
+    if len(da) < 4 or len(db) < 4:
+        return None
+    k = min(len(da), len(db), 8)
+    return da[-k:] == db[-k:]
+
+
+def _bank_name_key(name) -> str:
+    """A bank name reduced to the words that identify the bank, spaces removed
+    ("Barclays Bank UK PLC" -> "barclays", "Nat West" -> "natwest")."""
+    words = re.sub(r"[^a-z0-9]+", " ", normalise_creditor_name(name or "")).split()
+    return "".join(w for w in words if w not in _BANK_NAME_NOISE_WORDS)
+
+
+def _bank_name_keys(*names) -> set:
+    keys = set()
+    for name in names:
+        if not name:
+            continue
+        keys.add(_bank_name_key(name))
+        alias = CREDITOR_ALIAS_MAP.get(normalise_creditor_name(name))
+        if alias:
+            keys.add(_bank_name_key(alias))
+    keys.discard("")
+    return keys
+
+
+def _statement_account_matches(stmt: dict, accounts: list[dict]) -> tuple[list[int], str]:
+    """Indexes of the accounts a statement belongs to, and how: "number",
+    "name", "ambiguous" or "none".
+
+    An account number on both sides decides (a different number is a
+    different account, never a bank-name match). Bank name is used only where
+    one side has no number, and only when exactly one account fits - two
+    accounts at one bank cannot be told apart by name.
+    """
+    by_number, by_name = [], []
+    stmt_keys = _bank_name_keys(stmt.get("bank_name"))
+    for i, acct in enumerate(accounts):
+        numbers = _account_numbers_match(stmt.get("account_number"), acct.get("account_number"))
+        if numbers is True:
+            by_number.append(i)
+        elif numbers is None and stmt_keys & _bank_name_keys(acct.get("name"), acct.get("matched_creditor")):
+            by_name.append(i)
+    if by_number:
+        return (by_number, "number") if len(by_number) == 1 else (by_number, "ambiguous")
+    if by_name:
+        return (by_name, "name") if len(by_name) == 1 else (by_name, "ambiguous")
+    return [], "none"
+
+
+def _coverage_gaps(periods: list[tuple[date, date]], start: date, end: date) -> list[tuple[date, date]]:
+    """Inclusive date ranges within [start, end] that no period covers.
+    Overlapping and back-to-back periods merge."""
+    gaps = []
+    cursor = start
+    for p_start, p_end in sorted(periods):
+        if p_end < cursor:
+            continue
+        if p_start > cursor:
+            gaps.append((cursor, min(p_start - timedelta(days=1), end)))
+        cursor = max(cursor, p_end + timedelta(days=1))
+        if cursor > end:
+            break
+    if cursor <= end:
+        gaps.append((cursor, end))
+    return [g for g in gaps if g[0] <= g[1]]
+
+
+def _bank_statements(c: dict) -> RuleResult:
+    """BANK-STATEMENTS: every active or defaulted bank account on the credit
+    report (current, savings, basic bank account) needs bank statements
+    covering the 12 months before the case was added to CAT. Flag only.
+
+    The window is the 12 calendar months before the anchor date, the anchor
+    itself excluded, and starts later for an account opened inside it.
+    Coverage is the statements' printed periods, merged; a statement with no
+    readable period, or that cannot be tied to one account, proves nothing.
+    """
+    bank_accounts = c.get("cr_bank_accounts")
+    if bank_accounts is None:
+        return _pass(
+            "BANK-STATEMENTS",
+            "No extracted credit report is on file, so no bank accounts could be identified from it.",
+        )
+    required = [a for a in bank_accounts if a.get("status_normalised") in _BANK_ACCOUNT_REQUIRED_STATUSES]
+    if not required:
+        return _pass(
+            "BANK-STATEMENTS",
+            "The credit report shows no active or defaulted bank accounts, so no bank statements are required by this check.",
+        )
+
+    if c.get("case_created_date"):
+        anchor, anchor_label = c["case_created_date"], "the date the case was added to CAT"
+    else:
+        anchor, anchor_label = c.get("assessment_date") or date.today(), "the assessment date"
+    window_start = _add_months(anchor, -12)
+    window_end = anchor - timedelta(days=1)
+
+    matched: dict[int, list[dict]] = {i: [] for i in range(len(required))}
+    ambiguous: dict[int, int] = {i: 0 for i in range(len(required))}
+    for stmt in c.get("bank_statements") or []:
+        indexes, how = _statement_account_matches(stmt, required)
+        for i in indexes:
+            if how == "ambiguous":
+                ambiguous[i] += 1
+            else:
+                matched[i].append(stmt)
+
+    problems = []
+    for i, acct in enumerate(required):
+        start = window_start
+        if acct.get("start_date") and acct["start_date"] > window_start:
+            start = acct["start_date"]
+        if start > window_end:
+            continue  # opened on or after the anchor date: no earlier statements exist
+        stmts = matched[i]
+        periods = [
+            (s["period_start"], s["period_end"]) for s in stmts
+            if s.get("period_start") and s.get("period_end") and s["period_start"] <= s["period_end"]
+        ]
+        undated = len(stmts) - len(periods)
+        if not stmts:
+            reason = "no bank statements matched to this account"
+            if ambiguous[i]:
+                reason += (
+                    f" ({ambiguous[i]} statement(s) from this bank could not be assigned, because the customer "
+                    "has more than one account there and the account number does not tell them apart)"
+                )
+        elif not periods:
+            reason = (
+                f"{len(stmts)} statement(s) matched, but no statement period could be read from them, "
+                "so the coverage cannot be confirmed"
+            )
+        else:
+            gaps = _coverage_gaps(periods, start, window_end)
+            if not gaps:
+                continue
+            reason = "no statement coverage for " + "; ".join(
+                f"{_format_day(g_start)} to {_format_day(g_end)}" for g_start, g_end in gaps
+            )
+            if undated:
+                reason += f" ({undated} further matched statement(s) had no readable statement period)"
+        problems.append((acct, start, reason))
+
+    if not problems:
+        return _pass(
+            "BANK-STATEMENTS",
+            f"Bank statements cover the 12 months before {anchor_label} ({_format_day(anchor)}) for every "
+            f"active or defaulted bank account on the credit report ({len(required)} account(s)).",
+        )
+
+    lines = [
+        f"Bank statements covering {_format_day(window_start)} to {_format_day(window_end)} (the 12 months before "
+        f"{anchor_label}, {_format_day(anchor)}) are needed for every active or defaulted bank account on the "
+        "credit report. The evidence is incomplete for:"
+    ]
+    for acct, start, reason in problems:
+        kind = "basic bank account" if acct["type_code"] == "BK" else "bank account"
+        detail = [kind, acct.get("raw_status") or acct["status_normalised"]]
+        digits = _visible_account_digits(acct.get("account_number"))
+        if len(digits) >= 4:
+            detail.append(f"account ending {digits[-4:]}")
+        if start != window_start:
+            detail.append(f"opened {_format_day(start)}")
+        lines.append(f"- {acct['name']} ({', '.join(detail)}): {reason}")
+    lines.append("Upload the missing statements, or record why the customer cannot provide them.")
+    return RuleResult(
+        rule_id="BANK-STATEMENTS",
+        severity="flag",
+        triggered=True,
+        message="\n".join(lines),
+        creditors=[acct["name"] for acct, _, _ in problems],
+    )
+
+
+# ---------------------------------------------------------------------------
 # WATCH RULES — run only when WATCH is a creditor
 # ---------------------------------------------------------------------------
 
@@ -3743,6 +4127,57 @@ def _build_council_reason(rule, cr: dict, case: dict, effective_status: str) -> 
     return " ".join(parts)
 
 
+def _private_parking_creditor(cr: dict):
+    """The CreditorCriteria row for a parking debt (pcn) that no CouncilRule
+    claims - a private operator such as Parkingeye - or None.
+
+    Exact name only (alias, creditor name, whole trading name): a parking name
+    must never reach an unrelated creditor through a shared word, e.g. "Link
+    Parking Ltd" -> LINK. A council's parking debt keeps its council rule.
+    """
+    from debt_app.helpers import DEBT_TYPE_PCN, get_creditor_by_exact_name
+    if cr.get("debt_type_normalised") != DEBT_TYPE_PCN:
+        return None
+    name = cr.get("name") or ""
+    if _match_council_rule(name) is not None:
+        return None
+    return get_creditor_by_exact_name(name)
+
+
+def _is_council_routed(cr: dict, council_names_lower: frozenset) -> bool:
+    """True when a debt belongs to the council modules, not to CreditorCriteria:
+    a council-type debt, or a name matching a CouncilRule whatever its type.
+    A private parking operator's debt with its own CreditorCriteria row is not."""
+    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT
+    if (
+        cr["debt_type_normalised"] == DEBT_TYPE_PCN
+        and cr.get("name", "").lower() not in council_names_lower
+        and _private_parking_creditor(cr) is not None
+    ):
+        return False
+    return (
+        cr["debt_type_normalised"] in (DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT)
+        or cr.get("name", "").lower() in council_names_lower
+    )
+
+
+def _resolve_creditor_criteria(name: str):
+    """The CreditorCriteria row a case creditor is assessed against: the alias
+    map on the normalised name, then the resolver. Shared by Module 4 and
+    Module 5 so both read the same row; within assess_case the lookup is
+    memoised (helpers.creditor_lookup_cache), so the second caller is free.
+
+    ⚠️ Module 4 used to look names up exactly (case-sensitive, alias keyed by
+    the un-normalised name) - a 2026-05 refactor side effect, not a rule - and
+    missed e.g. "Commsave" (reject_if_in_dmp) and "VOLKSWAGEN FINANCE"
+    (termination risk), which Module 5 resolved.
+
+    Raises CreditorCriteria.DoesNotExist.
+    """
+    from debt_app.helpers import get_creditor_by_trading_name
+    return get_creditor_by_trading_name(CREDITOR_ALIAS_MAP.get(normalise_creditor_name(name), name))
+
+
 def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[int] = None) -> list[dict]:
     """
     Evaluate each non-council creditor against its CreditorCriteria DB row.
@@ -3753,7 +4188,6 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
     """
     from debt_app.helpers import (
         DEBT_TYPE_COUNCIL_TAX, DEBT_TYPE_PCN, DEBT_TYPE_HOUSING_BENEFIT,
-        get_creditor_by_trading_name, fuzzy_lookup_creditor,
     )
     from debt_app.models import CreditorCriteria, CreditorResolutionMiss
 
@@ -3773,33 +4207,59 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
             for v in _ampersand_variants(n)
         )
 
-    # Pre-load all active creditor names once for fuzzy matching
-    _all_creditor_names = list(
-        CreditorCriteria.objects.filter(is_active=True)
-        .values_list("creditor_name", flat=True)
-    )
-
     positions = []
     for cr in case.get("creditors", []):
         # Skip council-type debts — handled entirely by _check_council_rules().
         # Also skip creditors whose name matches a CouncilRule entry even when Aryza
         # has tagged them with a generic debt type (e.g. GENERAL instead of council_tax).
-        if cr["debt_type_normalised"] in _COUNCIL_TYPES:
+        # A private parking operator with its own CreditorCriteria row (exact name
+        # only, e.g. Parkingeye) is assessed below like any other creditor.
+        if cr["debt_type_normalised"] in _COUNCIL_TYPES and _is_council_routed(cr, _council_names_lower):
+            # ⚠️ A parking debt (Aryza "parking_ticket" -> pcn) whose name matches no
+            # CouncilRule - a private operator such as Parkingeye, or a council
+            # missing from the rules - is positioned by NEITHER module: the council
+            # check skips it at `rule is None`. It used to vanish from the positions
+            # while staying in total_debt. Give it an explicit UNKNOWN here, without
+            # the creditor lookup (a parking name must not substring-match an
+            # unrelated creditor, e.g. "Link Parking Ltd" -> LINK) and outside
+            # council_positions (the TIG-17 override would turn it into a REJECT).
+            # The majority already counted it as unknown debt, so votes are unchanged.
+            if cr["debt_type_normalised"] == DEBT_TYPE_PCN and _match_council_rule(cr.get("name", "")) is None:
+                _pcn_name = cr.get("original_name") or cr.get("name") or "Unknown Creditor"
+                positions.append({
+                    "creditor_name": _pcn_name,
+                    "display_name": None,
+                    "original_aryza_name": None,
+                    "resolved_canonical_name": _pcn_name,
+                    "representative": "NONE",
+                    "effective_status": "UNKNOWN",
+                    "findings": [{"code": "PCN-NO-COUNCIL-RULE", "reason": PCN_NO_COUNCIL_RULE_REASON}],
+                    "reason": PCN_NO_COUNCIL_RULE_REASON,
+                    "rule_ids": ["PCN-NO-COUNCIL-RULE"],
+                    "balance": cr["crm_balance"],
+                    "is_secured": bool(cr.get("is_secured", False)),
+                    "debt_type_normalised": cr.get("debt_type_normalised"),
+                    "_creditor_idx": cr.get("_idx"),
+                    "cr_raw_name": cr.get("cr_raw_name"),
+                    "type_code": cr.get("type_code"),
+                    "cr_balance": cr.get("cr_balance"),
+                    "cr_account_status": cr.get("cr_account_status"),
+                    "cr_account_status_subjective": cr.get("cr_account_status_subjective"),
+                    "cr_credit_limit": cr.get("cr_credit_limit"),
+                    "cr_start_date": cr.get("cr_start_date"),
+                    "cr_account_age_months": cr.get("cr_account_age_months"),
+                    "cr_missed_payments_3m": cr.get("cr_missed_payments_3m"),
+                })
             continue
-        if cr.get("name", "").lower() in _council_names_lower:
+        if _is_council_routed(cr, _council_names_lower):
             continue
 
         name = cr.get("name", "Unknown Creditor")
         original_name = cr.get("original_name") or name
         balance = cr["crm_balance"]
 
-        # Resolve via alias map first
-        normalised_input = normalise_creditor_name(name)
-        resolved_name = CREDITOR_ALIAS_MAP.get(normalised_input, name)
-
         try:
-            criteria = get_creditor_by_trading_name(resolved_name,
-                                                    all_names=_all_creditor_names)
+            criteria = _resolve_creditor_criteria(name)
         except CreditorCriteria.DoesNotExist:
             # PART 2: Log the miss (fire-and-forget)
             try:
@@ -4614,6 +5074,12 @@ def _council_status_reason(name: str, status: str) -> str:
         return f"{name} — council votes conditionally; outcome depends on the dividend offered."
     return f"{name} — vote status calculated by council rules."
 
+
+# Reason on a parking (PCN) debt that matches no council rule. NEVER ACCEPT.
+PCN_NO_COUNCIL_RULE_REASON = (
+    "Parking debt with no matching council rule (e.g. a private parking operator) — "
+    "its vote could not be assessed, so manual review is required."
+)
 
 # Reason shown for a creditor the engine could not assess at all. NEVER ACCEPT.
 CREDITOR_NOT_ASSESSED_REASON = (
@@ -6173,6 +6639,12 @@ def _enrich_from_credit_report(case_data: dict) -> str:
         if _prop_findings:
             case_data["property_report_findings"] = _prop_findings
 
+        # Bank accounts for BANK-STATEMENTS, from the extracted report only - left
+        # unset (None) when there is none, so the rule can tell "no report" from
+        # "no bank accounts".
+        if report:
+            case_data["cr_bank_accounts"] = _credit_report_bank_accounts(report.extracted_data or {})
+
         if status == "present":
             from rapidfuzz import fuzz, process as rfprocess
             accounts = report.extracted_data["accounts"]
@@ -6912,45 +7384,75 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         _watch_22_7,   # children 13+ sustainability paragraph
         _watch_22_11,  # gambling as primary cause of debt
         _bpo_debt,     # debts listed under a BPO (agency) name — real creditor needed
+        _bank_statements,  # 12 months of statements per credit-report bank account
     ]
     for fn in tig_rules:
         _run(fn)
 
+    # Pre-load all CouncilRule names (+ &/and variants) into a lowercase frozenset once.
+    # Module 4 (below), _check_creditor_individual() and _check_council_rules() read
+    # this from c so council routing is consistent regardless of the debt_type tagged
+    # in Aryza (e.g. a council whose debt_type arrives as GENERAL instead of
+    # council_tax is still routed through _check_council_rules() if its name matches
+    # a CouncilRule entry).
+    try:
+        from debt_app.models import CouncilRule as _CouncilRuleModel
+        _raw_council_names = list(
+            _CouncilRuleModel.objects.values_list("council_name", flat=True)
+        )
+        c["_council_rule_names_lower"] = frozenset(
+            variant.lower()
+            for raw in _raw_council_names
+            for variant in _ampersand_variants(raw)
+        )
+    except Exception as _e:
+        logger.warning("Could not pre-load CouncilRule names: %s", _e)
+        c["_council_rule_names_lower"] = frozenset()
+
     # --- Module 4 rules (always) ---
-    # Pre-fetch relevant CreditorCriteria for Module 4 rules to avoid ORM calls in rules
+    # Resolve CreditorCriteria here so no rule function touches the ORM. Each
+    # creditor gets the row Module 5 assesses it against (_resolve_creditor_criteria);
+    # the per-assessment lookup cache makes Module 5's own lookup a cache hit.
     from debt_app.models import CreditorCriteria
 
+    module4_criteria_data = {}
+    for cr in c["creditors"]:
+        name = cr.get("name")
+        if not name or name in module4_criteria_data or _is_council_routed(cr, c["_council_rule_names_lower"]):
+            continue
+        try:
+            module4_criteria_data[name] = _resolve_creditor_criteria(name)
+        except CreditorCriteria.DoesNotExist:
+            pass
+
+    # Attach parent_group (banking group) to each case creditor from its
+    # CreditorCriteria row, so the single-lender rules (WATCH-22.5 / EVOLVE-02)
+    # can collapse brands of one bank into a single lender.
+    #
+    # ⚠️ DELIBERATELY still the old exact-name lookup (case-sensitive
+    # creditor_name, alias keyed by the un-normalised name), not the resolved
+    # rows above. Resolving would attach a group to ~140-195 more Aryza names and
+    # move WATCH-22.5 both ways (brands merge into one lender; small balances
+    # sum past £500), including matches still under review: "AA Insurance
+    # Services" -> AA (Lloyds), "E"/"ERS"/"PERSONAL" -> NatWest, and the
+    # Everyday Loans / Moorcroft / Max Recovery rows tagged "Shop Direct Group".
+    # Owner decision 2026-10-21: keep grouping unchanged until that is reviewed.
     case_creditor_names = {cr["name"] for cr in c["creditors"] if cr.get("name")}
     lookup_names = set(case_creditor_names)
     for name in case_creditor_names:
         alias = CREDITOR_ALIAS_MAP.get(name.lower())
         if alias:
             lookup_names.add(alias)
-
-    # Single bulk query as requested
-    criteria_qs = CreditorCriteria.objects.filter(
-        is_active=True,
-        creditor_name__in=lookup_names
-    )
-    criteria_lookup = {crit.creditor_name.lower(): crit for crit in criteria_qs}
-
-    # Map back to the original names used in the case
-    module4_criteria_data = {}
-    for name in case_creditor_names:
-        name_lower = name.lower()
-        if name_lower in criteria_lookup:
-            module4_criteria_data[name] = criteria_lookup[name_lower]
-        else:
-            alias = CREDITOR_ALIAS_MAP.get(name_lower)
-            if alias and alias.lower() in criteria_lookup:
-                module4_criteria_data[name] = criteria_lookup[alias.lower()]
-
-    # Attach parent_group (banking group) to each case creditor from its
-    # CreditorCriteria row, so the single-lender rules (WATCH-22.5 / EVOLVE-02)
-    # can collapse brands of one bank into a single lender. ORM stays out of the
-    # rule functions — the lookup happens here once, reusing the bulk prefetch.
+    exact_lookup = {
+        crit.creditor_name.lower(): crit
+        for crit in CreditorCriteria.objects.filter(is_active=True, creditor_name__in=lookup_names)
+    }
     for cr in c["creditors"]:
-        crit = module4_criteria_data.get(cr.get("name"))
+        if not cr.get("name"):
+            continue
+        name_lower = cr["name"].lower()
+        alias = CREDITOR_ALIAS_MAP.get(name_lower)
+        crit = exact_lookup.get(name_lower) or (exact_lookup.get(alias.lower()) if alias else None)
         if crit and getattr(crit, "parent_group", None):
             cr["parent_group"] = crit.parent_group
 
@@ -6982,25 +7484,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
             _run(fn)
 
     # --- Module 5: per-creditor and per-council positions ---
-    # Pre-load all CouncilRule names (+ &/and variants) into a lowercase frozenset once.
-    # Both _check_creditor_individual() and _check_council_rules() read this from c so
-    # council routing is consistent regardless of the debt_type tagged in Aryza (e.g.
-    # a council whose debt_type arrives as GENERAL instead of council_tax is still
-    # routed through _check_council_rules() if its name matches a CouncilRule entry).
-    try:
-        from debt_app.models import CouncilRule as _CouncilRuleModel
-        _raw_council_names = list(
-            _CouncilRuleModel.objects.values_list("council_name", flat=True)
-        )
-        c["_council_rule_names_lower"] = frozenset(
-            variant.lower()
-            for raw in _raw_council_names
-            for variant in _ampersand_variants(raw)
-        )
-    except Exception as _e:
-        logger.warning("Could not pre-load CouncilRule names: %s", _e)
-        c["_council_rule_names_lower"] = frozenset()
-
+    # (c["_council_rule_names_lower"] is pre-loaded above, before Module 4.)
     estimated_pence = calculate_estimated_dividend_pence(c)
     _all_creditor_positions = _check_creditor_individual(c, estimated_dividend_pence=estimated_pence)
     for _pos in _all_creditor_positions:

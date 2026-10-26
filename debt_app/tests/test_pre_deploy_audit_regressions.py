@@ -28,7 +28,11 @@ FETCH = "debt_app.aryza_client.fetch_case_by_reference"
 # Alias targets that are legitimately absent from the markdown sources: rows
 # that still exist in the database from the retired Evolve list. Anything else
 # an alias points at must be a creditor the workbook knows about.
-ALIAS_TARGETS_NOT_IN_WORKBOOK = {"Barclaycard", "NatWest", "TSB Bank"}
+ALIAS_TARGETS_NOT_IN_WORKBOOK = {
+    "Barclaycard", "NatWest", "TSB Bank",
+    # Phase 9 rows, created by migration 0091 (manager decisions 2026-10-21).
+    "Parkingeye Limited", "Quidie Limited t/a Fernovo", "Propel Holdings UK T/A Quidmarket",
+}
 
 
 class AuditUnpacksThreeValuesTests(TestCase):
