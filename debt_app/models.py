@@ -1180,6 +1180,23 @@ EXTRACTION_STATUS_CHOICES = [
     ("failed", "Failed"),
 ]
 
+# A credit report can also be an imported Experian search whose person no
+# longer matches the Aryza client (their name or date of birth was changed
+# after the import). No report selection uses it; it returns to extracted /
+# extracted_empty if the identity matches again. See
+# services/experian_credit_report.py.
+EXTRACTION_STATUS_IDENTITY_MISMATCH = "identity_mismatch"
+CREDIT_REPORT_STATUS_CHOICES = EXTRACTION_STATUS_CHOICES + [
+    (EXTRACTION_STATUS_IDENTITY_MISMATCH, "Not This Client — Identity No Longer Matches"),
+]
+
+CREDIT_REPORT_SOURCE_PDF_UPLOAD = "pdf_upload"
+CREDIT_REPORT_SOURCE_EXPERIAN_DB = "experian_db"
+CREDIT_REPORT_SOURCE_CHOICES = [
+    (CREDIT_REPORT_SOURCE_PDF_UPLOAD, "PDF upload"),
+    (CREDIT_REPORT_SOURCE_EXPERIAN_DB, "Experian database"),
+]
+
 
 class CreditReport(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -1189,7 +1206,18 @@ class CreditReport(models.Model):
     )
     uploaded_file = models.FileField(
         upload_to="credit_reports/%Y/%m/",
-        help_text="Raw PDF file"
+        null=True, blank=True,
+        help_text="Raw PDF file. Empty for a report read from the Experian database."
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=CREDIT_REPORT_SOURCE_CHOICES,
+        default=CREDIT_REPORT_SOURCE_PDF_UPLOAD,
+        help_text="Where the report came from: an uploaded PDF or the Experian database"
+    )
+    source_report_id = models.BigIntegerField(
+        null=True, blank=True,
+        help_text="Experian Credit_Searches.ID the report was read from; empty for a PDF upload"
     )
     agency = models.CharField(
         max_length=100, blank=True, default="",
@@ -1211,7 +1239,7 @@ class CreditReport(models.Model):
     )
     extraction_status = models.CharField(
         max_length=20,
-        choices=EXTRACTION_STATUS_CHOICES,
+        choices=CREDIT_REPORT_STATUS_CHOICES,
         default="pending"
     )
     extracted_data = models.JSONField(
@@ -1232,6 +1260,16 @@ class CreditReport(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["aryza_reference"])]
+        constraints = [
+            # One row per imported Experian search per case, so a repeated or
+            # concurrent assessment cannot import the same search twice. PDF
+            # uploads are untouched: each upload is still its own row.
+            models.UniqueConstraint(
+                fields=["aryza_reference", "source", "source_report_id"],
+                condition=models.Q(source=CREDIT_REPORT_SOURCE_EXPERIAN_DB),
+                name="uniq_experian_credit_report_per_search",
+            ),
+        ]
 
     def __str__(self):
         return f"CreditReport({self.aryza_reference}, {self.extraction_status})"

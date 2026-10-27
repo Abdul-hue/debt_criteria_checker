@@ -484,6 +484,8 @@ _RAW_CREDITOR_ALIAS_MAP = {
     # UUID as the live Hutchison 3G records, whose debts are entered as
     # "3 Mobile" / "Three Mobile" / "H3G LOAN". Normalises to "hutchinson 3g".
     'hutchinson 3g uk ltd': '3 Mobile',
+    # Credit reports spell it correctly ("HUTCHISON 3G UK LTD", case 426399).
+    'hutchison 3g uk ltd': '3 Mobile',
 
     # Owner decisions 2026-10-21, exact keys from the Aryza creditor list.
     # 118 118 Money (Madison CF UK, company 08393840): every variant is the
@@ -748,6 +750,15 @@ def care_of_organisation(name: str):
     return org or None
 
 
+def _row_with_trading_name(rows, name: str):
+    """First row in `rows` with `name` as one whole trading name (case-insensitive)."""
+    target = (name or "").strip().lower()
+    for row in rows.filter(trading_names__icontains=target):
+        if any(str(t).strip().lower() == target for t in row.trading_names or []):
+            return row
+    return None
+
+
 def get_creditor_by_exact_name(name: str):
     """The active CreditorCriteria row a name identifies exactly, or None.
 
@@ -765,7 +776,7 @@ def get_creditor_by_exact_name(name: str):
     active = CreditorCriteria.objects.filter(is_active=True).order_by("id")
     alias = CREDITOR_ALIAS_MAP.get(normalised)
     if alias:
-        row = active.filter(creditor_name__iexact=alias).first()
+        row = active.filter(creditor_name__iexact=alias).first() or _row_with_trading_name(active, alias)
         if row:
             return row
     row = active.filter(creditor_name__iexact=cleaned).first()
@@ -847,7 +858,14 @@ def _get_creditor_by_trading_name_uncached(name: str, all_names=None):
                 is_active=True
             )
         except CreditorCriteria.DoesNotExist:
-            pass
+            # The alias may name a trading name rather than the row itself, e.g.
+            # 'O2 UK' (workbook row name) on a DB whose row is 'O2 UK Ltd' with
+            # 'O2 UK' among its trading_names.
+            row = _row_with_trading_name(
+                CreditorCriteria.objects.filter(is_active=True).order_by("id"), alias
+            )
+            if row:
+                return row
         except CreditorCriteria.MultipleObjectsReturned:
             # Guard against duplicate active rows — return a deterministic match
             # rather than crashing the whole assessment.

@@ -34,6 +34,7 @@ from debt_app.helpers import get_user_department
 from debt_app.models import CreditReport, GlobalCriteria, LeadGenCheck
 from debt_app.permissions import HasEnabledFeature
 from debt_app.services.criteria_versioning import current_criteria_version, get_code_version
+from debt_app.services.experian_credit_report import experian_request_scope
 from debt_app.services.lead_gen import (
     ACTIVITY_COUNT_KEYS,
     LEAD_GEN_DEPARTMENT,
@@ -180,7 +181,7 @@ class LeadGenCheckView(APIView):
             max(0.0, float(estimated_di["estimated_disposable_income"])) if estimated_di["available"] else None
         )
 
-        def assess(checklist_raw):
+        def assess(checklist_raw, experian):
             return criteria_views.run_standalone_assessment(
                 reference,
                 user=user,
@@ -191,20 +192,23 @@ class LeadGenCheckView(APIView):
                 case_data_obj=case_obj,
                 sfs_household=household,
                 disposable_income_override=di_override,
+                experian_client=experian,
                 source_department_override=LEAD_GEN_DEPARTMENT,
                 persist_source_department=False,
                 save_decision=False,
             )
 
         try:
-            outcome = assess(dmp_checklist_raw)
-            hmrc_is_creditor = bool(outcome.response_body.get("hmrc_is_creditor"))
-            # The VAT question is only offered for a case with an HMRC creditor.
-            # A VAT tick on any other case (stale screen, raw API call) would
-            # still force a DMP in the engine, so it is dropped and re-assessed.
-            if not hmrc_is_creditor and without_vat_answers(dmp_checklist_raw) != dmp_checklist_raw:
-                logger.warning("[LEAD GEN] VAT answers ignored for %s: no HMRC creditor", reference)
-                outcome = assess(without_vat_answers(dmp_checklist_raw))
+            # Both runs' Experian imports share one connection, closed here.
+            with experian_request_scope() as experian:
+                outcome = assess(dmp_checklist_raw, experian)
+                hmrc_is_creditor = bool(outcome.response_body.get("hmrc_is_creditor"))
+                # The VAT question is only offered for a case with an HMRC creditor.
+                # A VAT tick on any other case (stale screen, raw API call) would
+                # still force a DMP in the engine, so it is dropped and re-assessed.
+                if not hmrc_is_creditor and without_vat_answers(dmp_checklist_raw) != dmp_checklist_raw:
+                    logger.warning("[LEAD GEN] VAT answers ignored for %s: no HMRC creditor", reference)
+                    outcome = assess(without_vat_answers(dmp_checklist_raw), experian)
             income_missing = lead_gen_income_missing(case_obj)
             rule_titles = dict(GlobalCriteria.objects.values_list("rule_key", "rule_name"))
             lead_gen = to_lead_gen_result(outcome, income_missing=income_missing, rule_titles=rule_titles)

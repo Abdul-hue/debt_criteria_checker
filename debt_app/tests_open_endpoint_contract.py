@@ -9,7 +9,7 @@ change is a deliberate, reviewed decision. They do not endorse it.
   /api/v1/criteria/assess/        (AssessCaseView)    AllowAny, no auth classes
       caller: CAT frontend useAssessCase (sends a JWT, which is ignored)
   /api/v1/criteria/upload-credit-report/  AllowAny, no auth classes
-      callers: case-assessment backend (sends X-Internal-Key, not validated),
+      callers: case-assessment backend (sends no credentials),
                CAT frontend CaseSearch (sends a JWT, ignored)
 """
 

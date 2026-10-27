@@ -123,6 +123,24 @@ DATABASES = {
     },
 }
 
+# Experian credit-search database (SQL Server), read only. Deliberately NOT in
+# DATABASES: it is an external source reached through
+# debt_app/integrations/experian_db.py, so migrations, the test runner and the
+# trial router can never touch it. Timeouts are seconds.
+EXPERIAN_DB = {
+    'HOST': os.environ.get('EXPERIAN_DB_HOST', ''),
+    'PORT': os.environ.get('EXPERIAN_DB_PORT', '1433'),
+    'NAME': os.environ.get('EXPERIAN_DB_NAME', ''),
+    'USER': os.environ.get('EXPERIAN_DB_USER', ''),
+    'PASSWORD': os.environ.get('EXPERIAN_DB_PASSWORD', ''),
+    'CONNECT_TIMEOUT': 5,
+    'QUERY_TIMEOUT': 10,
+}
+
+# Automatic creditor-report retrieval from the Experian database during an
+# assessment. Off by default; nothing reads it until that feature is built.
+EXPERIAN_AUTO_CREDIT_REPORT = env_bool('EXPERIAN_AUTO_CREDIT_REPORT', False)
+
 # Inert unless a criteria trial is running (debt_app/db_router.py): routes only
 # that trial's queries to an isolated copy of the database.
 DATABASE_ROUTERS = ['debt_app.db_router.CriteriaTrialRouter']

@@ -3,7 +3,7 @@ import sys
 import os
 from django.core.management.base import BaseCommand
 from debt_app.models import CreditorCriteria
-from debt_app.helpers import _RAW_CREDITOR_ALIAS_MAP
+from debt_app.helpers import _RAW_CREDITOR_ALIAS_MAP, _row_with_trading_name, get_creditor_by_trading_name
 
 class Command(BaseCommand):
     help = "Validate CREDITOR_ALIAS_MAP against active CreditorCriteria rows."
@@ -37,7 +37,12 @@ class Command(BaseCommand):
                 else:
                     ok_intended_values.append(value)
             except CreditorCriteria.DoesNotExist:
-                broken_intended_values.append(value)
+                # The resolver also accepts an alias naming a row's trading name.
+                active = CreditorCriteria.objects.filter(is_active=True).order_by("id")
+                if _row_with_trading_name(active, value):
+                    ok_intended_values.append(value)
+                else:
+                    broken_intended_values.append(value)
             except CreditorCriteria.MultipleObjectsReturned:
                 # Should not happen due to unique=True, but we handle it
                 self.stderr.write(self.style.WARNING(f"Multiple active rows found for '{value}'"))
@@ -73,6 +78,23 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("\nCASE MISMATCHES:"))
             for k, v, correct in case_mismatch_list:
                 self.stdout.write(f"  {k} -> {v} (should be: {correct})")
+
+        # Credit-report extractor map (integrations/credit_report.py): its
+        # values are display/reconciliation names, not row names, so a miss is
+        # a warning only - but it means an undeclared CR account under that
+        # name can resolve only through its raw name.
+        from debt_app.integrations.credit_report import CREDITOR_ALIAS_MAP as CR_MAP
+        unresolved = []
+        for value in sorted(set(CR_MAP.values())):
+            try:
+                get_creditor_by_trading_name(value)
+            except CreditorCriteria.DoesNotExist:
+                unresolved.append(value)
+        if unresolved:
+            self.stdout.write(self.style.WARNING(
+                f"\nCREDIT REPORT MAP: {len(unresolved)} target(s) resolve to no criteria row:"))
+            for v in unresolved:
+                self.stdout.write(f"  {v}")
 
         # 8. Accept --fix flag
         if fix and mismatch_count > 0:

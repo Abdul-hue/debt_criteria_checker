@@ -45,10 +45,12 @@ from debt_app.models import (
     DepartmentSFSVisibility, CreditorOutcome, CriteriaAuditLog,
     CountyCouncil, CreditorVoteSummary, CrmSyncRun, CreditorVoteChangeEvent,
     CreditorMocAlert, CreditorNonAcceptMilestone,
+    CREDIT_REPORT_SOURCE_EXPERIAN_DB, CREDIT_REPORT_SOURCE_PDF_UPLOAD,
 )
 from debt_app.credit_report_extractor import extract_credit_report, normalise_start_date_iso
 from debt_app.integrations.council_tax_evidence import extract_council_tax_evidence
 from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally, get_last_5_tally
+from debt_app.services.experian_credit_report import ensure_experian_credit_report
 import threading
 
 logger = logging.getLogger(__name__)
@@ -70,30 +72,6 @@ def _match_county_council(raw_name: str, county_names) -> str | None:
         if re.search(rf"(?<![a-z0-9]){re.escape(county)}(?![a-z0-9])", raw_name, re.IGNORECASE):
             return county
     return None
-
-
-def _lookup_creditor_name(raw_name: str) -> str:
-    """
-    Resolve a raw Aryza creditor name using ONLY the explicit alias map.
-    
-    This performs a single, deterministic lookup without fuzzy matching.
-    The engine's CREDITOR_ALIAS_MAP is authoritative — no estimation or 
-    fuzzy logic is applied here.
-    
-    Returns the mapped name from CREDITOR_ALIAS_MAP, or the raw name 
-    if no mapping exists. The engine will attempt internal resolution.
-    """
-    from debt_app.helpers import CREDITOR_ALIAS_MAP
-    
-    normalized = raw_name.strip().lower()
-    mapped = CREDITOR_ALIAS_MAP.get(normalized)
-    
-    if mapped:
-        logger.warning(f"[RESOLVE ALIAS] '{raw_name}' → '{mapped}'")
-        return mapped
-    
-    logger.warning(f"[RESOLVE UNMAPPED] '{raw_name}' — no alias, passing raw")
-    return raw_name
 
 
 def _rule_to_dict(r) -> dict:
@@ -591,6 +569,7 @@ def run_standalone_assessment(
     save_decision=True,
     sfs_household=None,
     disposable_income_override=None,
+    experian_client=None,
 ):
     """Run the standalone (Aryza-sourced) criteria assessment for one case.
 
@@ -612,6 +591,13 @@ def run_standalone_assessment(
         income for THIS run instead of the full I&E figure (Lead Gen passes its
         estimated disposable income). The full I&E figure is kept in
         case_data["full_ie_disposable_income"].
+    experian_client: the Experian client the import uses (default: a new
+        ExperianDBClient). Lead Gen passes one request-scoped client so its
+        re-run shares one connection.
+
+    Credit reports: an uploaded PDF or an Experian import
+    (ASSESSMENT_CREDIT_REPORT_SOURCES), whichever is the newest usable one;
+    a pinned credit_report_id is used as-is.
     """
     # DMP Eligibility Checklist — combines per-row dropdown selections
     # (council tax current/previous, water included, parking
@@ -627,8 +613,17 @@ def run_standalone_assessment(
     # Step 2 — Fetch from Aryza
     if case_data_obj is None:
         case_data_obj = fetch_case_by_reference(aryza_reference)
+    # The case's newest identity-matched Experian search is imported (once)
+    # when EXPERIAN_AUTO_CREDIT_REPORT is on (the service checks the flag);
+    # the usual selection below then picks the newest usable report, PDF or
+    # Experian. A pinned credit_report_id is used as-is, so Experian is not
+    # consulted.
+    credit_report_sources = ASSESSMENT_CREDIT_REPORT_SOURCES
+    if not credit_report_id:
+        ensure_experian_credit_report(aryza_reference, case_data_obj, credit_report_id=None,
+                                      client=experian_client)
     case_data, prepared_creditors, _cr_unmatched = AssessCaseView()._prepare_engine_payload(
-        case_data_obj, credit_report_id,
+        case_data_obj, credit_report_id, credit_report_sources=credit_report_sources,
     )
     if disposable_income_override is not None:
         case_data["full_ie_disposable_income"] = case_data.get("disposable_income")
@@ -714,7 +709,7 @@ def run_standalone_assessment(
 
     case_creditors = case_data.get("creditors") or []
     detected_reps = detect_representatives(case_creditors)
-    result = assess_case(case_data, detected_reps)
+    result = assess_case(case_data, detected_reps, credit_report_sources=credit_report_sources)
 
     # STEP 7 — Reconcile creditors the engine routed elsewhere (councils) or
     # could not assess. Uses the shared helper so the displayed status is always
@@ -817,11 +812,18 @@ def run_standalone_assessment(
             # hardcoded representative='NONE' unconditionally, which meant a
             # genuinely WATCH/TIX/EVOLVE creditor that only showed up as an
             # undeclared credit-report account silently lost its badge.
-            try:
-                _cr_criteria = get_creditor_by_trading_name(_cr_name)
-                _cr_representative = _cr_criteria.representative
-            except CreditorCriteria.DoesNotExist:
-                _cr_representative = 'NONE'
+            # Raw PDF name first: the extractor's alias output ("Three", "O2",
+            # "Natwest Group Plc"...) is a display name that may match no row,
+            # while the raw name goes through the full resolver alias map.
+            _cr_criteria = None
+            for _query in dict.fromkeys((_raw, _cr_name)):
+                try:
+                    _cr_criteria = get_creditor_by_trading_name(_query)
+                    break
+                except CreditorCriteria.DoesNotExist:
+                    continue
+            _cr_representative = _cr_criteria.representative if _cr_criteria else 'NONE'
+            if _cr_criteria is None:
                 try:
                     CreditorResolutionMiss.objects.create(
                         raw_name=_raw,
@@ -833,14 +835,19 @@ def run_standalone_assessment(
                 except Exception as e:
                     logger.error(f"Failed to log CreditorResolutionMiss for CR-only account {_raw!r}: {e}")
 
+            # A resolved account shows its row's standing position (status as
+            # recorded, not assessed against this case); it was previously
+            # always UNKNOWN, so e.g. "LLOYDS BANK CURRENT ACCOUNTS" (Lloyds,
+            # ACCEPT) showed "Unidentified". Representative-body rows are then
+            # restamped by _apply_representative_outcomes below.
             _cr_only_pos = {
-                'criteria_id': None,
+                'criteria_id': _cr_criteria.id if _cr_criteria else None,
                 'creditor_name': _cr_name,
                 'display_name': None,
                 'original_aryza_name': _raw if _raw != _cr_name else None,
-                'resolved_canonical_name': _cr_name,
+                'resolved_canonical_name': _cr_criteria.creditor_name if _cr_criteria else _cr_name,
                 'representative': _cr_representative,
-                'effective_status': 'UNKNOWN',
+                'effective_status': (_cr_criteria.status or 'UNKNOWN') if _cr_criteria else 'UNKNOWN',
                 'findings': [{
                     'code': 'CREDITOR-CR-ONLY',
                     'reason': (
@@ -1008,7 +1015,7 @@ class AssessCaseView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
 
-    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None):
+    def _prepare_engine_payload(self, case_data_obj, credit_report_id=None, credit_report_sources=None):
         """
         Transforms Aryza CaseData object into the payload format expected by the criteria engine.
 
@@ -1021,6 +1028,8 @@ class AssessCaseView(APIView):
         credit_report_id: when given, pins credit-report enrichment to this EXACT
           CreditReport row (e.g. the id returned by upload-credit-report) instead of
           re-selecting among every historical extraction for this aryza_reference.
+        credit_report_sources: limits that selection to these CreditReport.source
+          values (see select_credit_report); None means every source.
 
         Returns: (payload, prepared_creditors)
           payload: dict for assess_case()
@@ -1185,7 +1194,8 @@ class AssessCaseView(APIView):
         _cr_unmatched = []  # accounts in CR not matched to any declared creditor
         try:
             from debt_app.models import CreditReport
-            cr_obj = select_credit_report(case_data_obj.aryza_reference, credit_report_id)
+            cr_obj = select_credit_report(case_data_obj.aryza_reference, credit_report_id,
+                                          sources=credit_report_sources)
             if cr_obj and cr_obj.extracted_data:
                 # Mortgages are extracted into a SEPARATE list from unsecured/HP
                 # accounts (mortgage_accounts vs accounts) — folding both in here
@@ -3093,28 +3103,35 @@ class ExpenditureGuidelineDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class _InternalKeyOrAuthenticated(BasePermission):
-    """
-    Grants access when a valid X-Internal-Key header is present (service-to-service),
-    or when the request carries a valid JWT (human user via browser/API).
-    """
-    def has_permission(self, request, view):
-        internal_key = request.headers.get("X-Internal-Key", "")
-        expected = getattr(django_settings, "DEBT_CRITERIA_INTERNAL_KEY", "")
-        if internal_key and expected and internal_key == expected:
-            return True
-        return bool(request.user and request.user.is_authenticated)
+# The CreditReport sources an assessment draws on: uploaded PDFs and Experian
+# imports, one ordering for both (newest created_at first, then highest id).
+# An Experian import's created_at is the time its search was run, so the
+# newest matched search wins over older imports, and a PDF uploaded after it
+# wins over it (services/experian_credit_report.py).
+ASSESSMENT_CREDIT_REPORT_SOURCES = (CREDIT_REPORT_SOURCE_PDF_UPLOAD, CREDIT_REPORT_SOURCE_EXPERIAN_DB)
 
 
-def select_credit_report(aryza_reference, credit_report_id=None):
+def select_credit_report(aryza_reference, credit_report_id=None, sources=None):
     """Pick the CreditReport the standalone assessment enriches creditors from.
 
     credit_report_id pins an exact row (scoped to this reference); otherwise
-    the most recent `extracted` report that has accounts. Returns None when
-    there is nothing usable. Shared by the assessment and the Lead Gen
-    credit-report status check so both agree on "usable report".
+    the most recent `extracted` report that has accounts, ties broken by the
+    higher id. Returns None when there is nothing usable. Shared by the
+    assessment and the Lead Gen credit-report status check so both agree on
+    "usable report".
+
+    sources, when given, limits both the pin and the fallback to reports of
+    those CreditReport.source values; a pinned row of another source counts
+    as not found.
+
+    An Experian import about someone who no longer matches the client
+    (identity_mismatch) is never used, pinned or not; a pin to one counts as
+    not found.
     """
-    from debt_app.models import CreditReport
+    from debt_app.models import EXTRACTION_STATUS_IDENTITY_MISMATCH, CreditReport
+    reports = CreditReport.objects.exclude(extraction_status=EXTRACTION_STATUS_IDENTITY_MISMATCH)
+    if sources is not None:
+        reports = reports.filter(source__in=sources)
     cr_obj = None
     if credit_report_id:
         # Caller (e.g. the frontend, right after upload-credit-report)
@@ -3122,7 +3139,7 @@ def select_credit_report(aryza_reference, credit_report_id=None):
         # instead of re-deriving "best" from history. Scoped to this
         # aryza_reference so a stray/mistyped id can't pull another
         # case's report.
-        cr_obj = CreditReport.objects.filter(
+        cr_obj = reports.filter(
             id=credit_report_id,
             aryza_reference=aryza_reference,
         ).first()
@@ -3142,10 +3159,10 @@ def select_credit_report(aryza_reference, credit_report_id=None):
         # kept serving the six-day-old 29-account report instead of the
         # one just uploaded. Recency is the right default; passing
         # credit_report_id explicitly is the reliable fix.
-        recent_reports = CreditReport.objects.filter(
+        recent_reports = reports.filter(
             aryza_reference=aryza_reference,
             extraction_status="extracted",
-        ).order_by('-created_at')
+        ).order_by('-created_at', '-id')
         cr_obj = next(
             (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
             None,

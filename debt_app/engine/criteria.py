@@ -6207,9 +6207,10 @@ def _compute_dividend_analysis(case: dict, positions: list) -> dict:
     below_min = []
     max_min_required = 0
     for cr in creditors:
-        resolved_name = CREDITOR_ALIAS_MAP.get(cr["name"].lower(), cr["name"])
+        # Same resolver as Module 5 (normalised alias key), not a raw .lower()
+        # lookup that missed aliases like "O2 (UK)" -> "o2".
         try:
-            crit_obj = get_creditor_by_trading_name(resolved_name)
+            crit_obj = _resolve_creditor_criteria(cr["name"])
         except CreditorCriteria.DoesNotExist:
             continue
         min_p = crit_obj.min_dividend_pence
@@ -6550,31 +6551,41 @@ def _cross_check_property_from_credit_report(c: dict, credit_report_data: dict) 
     return findings
 
 
-def _enrich_from_credit_report(case_data: dict) -> str:
+def _enrich_from_credit_report(case_data: dict, sources=None) -> str:
     """
     Looks up CreditReport by aryza_reference from case_data and enriches
     per-creditor fields and evidence_ledger in-place. Never raises.
     Returns "present" | "absent" | "extraction_failed".
+
+    sources, when given, limits the lookup to reports of those
+    CreditReport.source values; reports of any other source are not seen.
     """
     try:
-        from debt_app.models import CreditReport, CreditorCriteria
+        from debt_app.models import EXTRACTION_STATUS_IDENTITY_MISMATCH, CreditReport, CreditorCriteria
 
         ref = case_data.get("aryza_reference")
         if not ref:
             return "absent"
 
+        # An Experian import about someone who no longer matches the client is
+        # not this client's report: with only such a report the case has none
+        # ("absent"), not a failed one.
+        reports = CreditReport.objects.exclude(extraction_status=EXTRACTION_STATUS_IDENTITY_MISMATCH)
+        if sources is not None:
+            reports = reports.filter(source__in=sources)
+
         # Determine status — check for record existence separately from extraction
-        any_report = CreditReport.objects.filter(aryza_reference=ref).order_by("-created_at").first()
+        any_report = reports.filter(aryza_reference=ref).order_by("-created_at", "-id").first()
         # The newest extracted report that HAS accounts, as DirectAssessView
         # chooses -- an empty upload after a real one (ref 411322: an
         # unreadable file, saved as "extracted" with 0 accounts) made this
         # status "extraction_failed", skipped all per-creditor enrichment, and
         # its has_ccj False overrode the case. Falls back to the newest
         # extracted report so a case with only empty ones is unchanged.
-        _extracted = list(CreditReport.objects.filter(
+        _extracted = list(reports.filter(
             aryza_reference=ref,
             extraction_status="extracted",
-        ).order_by("-created_at"))
+        ).order_by("-created_at", "-id"))
         report = next(
             (r for r in _extracted if (r.extracted_data or {}).get("accounts")),
             _extracted[0] if _extracted else None,
@@ -7231,16 +7242,20 @@ def _evaluate_solution_eligibility(c, hard_blocks, flags, creditor_positions, dm
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def assess_case(case_json: dict, detected_representatives: Optional[set] = None) -> dict:
+def assess_case(case_json: dict, detected_representatives: Optional[set] = None,
+                credit_report_sources=None) -> dict:
     """`_assess_case_impl` under a per-assessment creditor-lookup cache
     (`helpers.creditor_lookup_cache`): every rule module resolves every
-    creditor, and the same name resolves the same way for the whole run."""
+    creditor, and the same name resolves the same way for the whole run.
+
+    credit_report_sources: see _enrich_from_credit_report(sources=...)."""
     from debt_app.helpers import creditor_lookup_cache
     with creditor_lookup_cache():
-        return _assess_case_impl(case_json, detected_representatives)
+        return _assess_case_impl(case_json, detected_representatives, credit_report_sources)
 
 
-def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] = None) -> dict:
+def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] = None,
+                      credit_report_sources=None) -> dict:
     """
     Assess a case JSON payload against all active rules.
 
@@ -7261,7 +7276,7 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         }
     """
     c = _parse_case(case_json)
-    credit_report_status = _enrich_from_credit_report(c)
+    credit_report_status = _enrich_from_credit_report(c, sources=credit_report_sources)
 
     logger.warning("[PROPERTY ENRICH] ref=%s has_property=%s property_value=%s mortgage_balance=%s enrich_status=%s",
         c.get("aryza_reference"), c["has_property"], c["property_value"], c["mortgage_balance"], credit_report_status)

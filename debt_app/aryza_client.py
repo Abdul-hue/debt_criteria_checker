@@ -8,14 +8,41 @@ Handles client lookup, income, creditors, property, vehicles, and flags.
 import logging
 import re
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import connections
 from django.db.utils import OperationalError
 
 logger = logging.getLogger(__name__)
+
+_LONDON = ZoneInfo("Europe/London")
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def aryza_dob_to_date(timestamp) -> Optional[date]:
+    """An Aryza client.dob Unix timestamp -> the calendar date of birth.
+
+    Aryza stores a date of birth as midnight UK time, so 23:00 UTC during
+    British Summer Time and 00:00 UTC otherwise; converting in Europe/London
+    gives the right day for both (99.98% of Aryza clients land exactly on
+    local midnight). Epoch arithmetic rather than fromtimestamp(), which uses
+    the server's own timezone (a UTC container put BST birthdays a day early)
+    and rejects pre-1970 (negative) values on Windows. None, 0 and
+    unparseable values mean "no date of birth".
+    """
+    try:
+        seconds = int(timestamp)
+    except (TypeError, ValueError):
+        return None
+    if seconds == 0:
+        return None
+    try:
+        return (_EPOCH + timedelta(seconds=seconds)).astimezone(_LONDON).date()
+    except OverflowError:
+        return None
 
 
 # ============================================================================
@@ -147,6 +174,12 @@ class CaseData:
         self.clientid: int = 0
         self.client_name: str = ""
         self.dob: Optional[str] = None
+        # The client row's raw name parts and dob timestamp, for matching the
+        # client to an Experian credit search. Not part of to_dict(), so the
+        # engine payload is unchanged.
+        self.first_name: Optional[str] = None
+        self.last_name: Optional[str] = None
+        self.dob_timestamp: Optional[int] = None
         self.employment_status: str = "unemployed"
         self.total_unsecured_debt: int = 0
         self.disposable_income: int = 0
@@ -393,13 +426,14 @@ class AryzaClient:
                     fname = client_row[1] or ""
                     lname = client_row[2] or ""
                     case.client_name = f"{fname} {lname}".strip() or f"Client {clientid}"
-                    
+                    case.first_name = client_row[1]
+                    case.last_name = client_row[2]
+                    case.dob_timestamp = client_row[3]
+
                     # Convert dob (Unix timestamp) to ISO date string
                     if client_row[3]:
-                        try:
-                            case.dob = datetime.fromtimestamp(int(client_row[3])).date().isoformat()
-                        except (ValueError, TypeError, OverflowError, OSError):
-                            case.dob = None
+                        dob = aryza_dob_to_date(client_row[3])
+                        case.dob = dob.isoformat() if dob else None
                     self._audit(case, "client", "FOUND", f"Name: {case.client_name}")
                 else:
                     case.client_name = f"Client {clientid}"

@@ -193,9 +193,13 @@ class EvaluateCaseView(APIView):
         # Fallback: if Aryza has no mortgage balance, read from uploaded credit report
         if property_dict.get("mortgage_balance") is None:
             try:
-                from debt_app.models import CreditReport
+                from django.db.models import Q
+                from debt_app.models import EXTRACTION_STATUS_IDENTITY_MISMATCH, CreditReport
+                # Never another person's figures: an Experian import that no
+                # longer matches the client is skipped.
                 cr = CreditReport.objects.filter(
-                    aryza_reference=aryza_ref
+                    ~Q(extraction_status=EXTRACTION_STATUS_IDENTITY_MISMATCH),
+                    aryza_reference=aryza_ref,
                 ).order_by("-created_at").first()
                 if cr and cr.extracted_data:
                     mortgage_accounts = cr.extracted_data.get("mortgage_accounts", [])

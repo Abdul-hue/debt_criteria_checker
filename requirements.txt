@@ -13,3 +13,5 @@ openpyxl
 pdfplumber
 pytesseract
 Pillow
+pymssql
+tzdata

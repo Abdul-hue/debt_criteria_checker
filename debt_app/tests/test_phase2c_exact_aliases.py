@@ -3,7 +3,8 @@ Phase 2C exact alias (2026-10-21). Aryza creditor 919785 "Hutchinson 3G UK Ltd"
 (Aryza's spelling of Hutchison 3G, the company behind the Three network) was
 unknown; it now resolves to the existing '3 Mobile' row and takes its
 DO NOT VOTE stance. Normalisation strips "UK Ltd", so "Hutchinson 3G" shares
-the key. The correctly spelled "Hutchison 3G UK Limited" is NOT aliased yet.
+the key. The correctly spelled "Hutchison 3G UK Ltd" (credit reports) was
+aliased on 2026-10-27 (case 426399).
 
 As in the Phase 2A tests, resolutions are asserted with the rows created in
 both orders, so a pass cannot come from table order.
@@ -56,6 +57,9 @@ class HutchinsonThreeMobileAliasTests(TestCase):
         self.assertEqual(pos["representative"], "NONE")
         self.assertEqual(pos["effective_status"], "DO_NOT_VOTE")
         self.assertNotIn("CREDITOR-UNKNOWN", {f["code"] for f in pos["findings"]})
+
+    def test_hutchison_3g_correct_spelling_resolves_to_3_mobile(self):
+        self.assertResolves(_variants("HUTCHISON 3G UK LTD"), "3 Mobile")
 
     def test_existing_names_unchanged(self):
         self.assertResolves(("3 Mobile",), "3 Mobile")
