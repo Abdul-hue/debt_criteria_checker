@@ -3426,6 +3426,86 @@ class CreditReportUploadView(APIView):
         )
 
 
+class CreditReportFetchView(APIView):
+    """
+    GET /api/v1/criteria/credit-report/?aryza_reference=<ref>
+    Open endpoint — no JWT required, matching CreditReportUploadView. Called
+    by the Drafter tool.
+
+    Returns the case's credit report as JSON: the one the assessment would use
+    (newest usable, PDF upload or Experian import). The case's newest
+    identity-matched Experian search is imported first, exactly as an
+    assessment does, so a case with no upload still gets its automatic report.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [AssessRateThrottle]
+
+    def get(self, request):
+        aryza_reference = (request.query_params.get("aryza_reference") or "").strip()
+        if not aryza_reference:
+            return error_response(
+                "aryza_reference is required", "MISSING_REFERENCE",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # Experian matching needs the client's current Aryza name and DOB.
+        try:
+            case_data_obj = fetch_case_by_reference(aryza_reference)
+        except AryzaCaseNotFoundError:
+            return error_response(
+                f"Case {aryza_reference} not found in Aryza", "CASE_NOT_FOUND",
+                status.HTTP_404_NOT_FOUND,
+            )
+        except AryaTimeoutError:
+            return error_response(
+                "Aryza database timed out. Please try again.", "ARYZA_TIMEOUT",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except AryzaConnectionError:
+            return error_response(
+                "Unable to connect to Aryza database.", "ARYZA_UNAVAILABLE",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except AryzaDataError as e:
+            logger.error("Aryza data error for %s: %s", aryza_reference, e)
+            return error_response(
+                "Data error reading case. Contact support.", "ARYZA_DATA_ERROR",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        experian = ensure_experian_credit_report(aryza_reference, case_data_obj)
+        report = select_credit_report(aryza_reference, sources=ASSESSMENT_CREDIT_REPORT_SOURCES)
+        if report is None:
+            return Response({
+                "success": False,
+                "aryza_reference": aryza_reference,
+                "code": "NO_CREDIT_REPORT",
+                "error": "No usable credit report for this case.",
+                "experian_reason": experian.reason,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        data = report.extracted_data or {}
+        return Response({
+            "success": True,
+            "credit_report_id": report.id,
+            "aryza_reference": aryza_reference,
+            "source": report.source,
+            "agency": report.agency,
+            "extraction_status": report.extraction_status,
+            "created_at": timezone.localtime(report.created_at).isoformat(),
+            "accounts_found": len(data.get("accounts", [])),
+            "client_name_on_report": report.client_name_on_report,
+            "client_address_on_report": report.client_address_on_report,
+            "printed_report_date": data.get("printed_report_date", ""),
+            "unmatched_accounts": data.get("unmatched_accounts", []),
+            "accounts": data.get("accounts", []),
+            "mortgage_accounts": data.get("mortgage_accounts", []),
+            "other_accounts": data.get("other_accounts", []),
+            "public_information": data.get("public_information", {}),
+        })
+
+
 # Recognised image signatures — a real council-tax bill/letter is often
 # supplied as a phone screenshot (see ctax1.png), not a text-layer PDF, so
 # this endpoint (unlike CreditReportUploadView above) has to accept images
