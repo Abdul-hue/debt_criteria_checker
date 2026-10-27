@@ -25,12 +25,15 @@ CONNECT = "debt_app.integrations.experian_db.ExperianDBClient._connect"
 class CreditReportFetchViewTests(TestCase):
 
     def _get(self, reference=REF, experian=ExperianImportResult(None, "flag_disabled"),
-             html="<html>report</html>", html_error=None):
+             html="<html>report</html>", html_error=None, response_format=None):
         html_patch = (patch(HTML_QUERY, side_effect=html_error) if html_error
                       else patch(HTML_QUERY, return_value=html))
+        params = {"aryza_reference": reference} if reference is not None else {}
+        if response_format is not None:
+            params["response_format"] = response_format
         with patch(FETCH, return_value=_case()) as fetch, patch(ENSURE, return_value=experian) as ensure, \
                 patch(CONNECT), html_patch as html_query:
-            resp = APIClient().get(URL, {"aryza_reference": reference} if reference is not None else {})
+            resp = APIClient().get(URL, params)
         self.html_query = html_query
         return resp, fetch, ensure
 
@@ -41,29 +44,61 @@ class CreditReportFetchViewTests(TestCase):
             extracted_data={"accounts": [_cr_account("ALPHA BANK", "Alpha Bank", 600000)]}, **kwargs,
         )
 
-    def test_experian_report_includes_its_rendered_html(self):
+    def test_json_is_the_default_and_never_reads_the_html(self):
         self._experian_report()
-        resp, _, _ = self._get()
+        for response_format in (None, "json", "JSON"):
+            with self.subTest(response_format=response_format):
+                resp, _, _ = self._get(response_format=response_format)
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(resp.data["accounts_found"], 1)
+                self.assertNotIn("report_html", resp.data)
+                self.html_query.assert_not_called()
+
+    def test_html_format_returns_the_rendered_report_as_html(self):
+        self._experian_report()
+        resp, _, _ = self._get(response_format="html")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data["report_html"], "<html>report</html>")
-        self.assertEqual(resp.data["report_html_status"], "ok")
+        self.assertTrue(resp["Content-Type"].startswith("text/html"))
+        self.assertEqual(resp.content.decode(), "<html>report</html>")
         # The search is read for THIS case only.
         self.html_query.assert_called_once_with(77, REF)
 
-    def test_pdf_upload_has_no_html_and_never_reads_experian(self):
+    def test_html_format_with_no_html_is_a_json_404(self):
         _pdf_report()
-        resp, _, _ = self._get()
+        resp, _, _ = self._get(response_format="html")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.data["code"], "NO_REPORT_HTML")
+        self.assertEqual(resp.data["report_html_status"], "not_experian")
+        self.html_query.assert_not_called()
+
+    def test_both_format_returns_the_json_and_the_html(self):
+        self._experian_report()
+        resp, _, _ = self._get(response_format="both")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["accounts_found"], 1)
+        self.assertEqual(resp.data["report_html"], "<html>report</html>")
+        self.assertEqual(resp.data["report_html_status"], "ok")
+
+    def test_both_format_pdf_upload_has_null_html(self):
+        _pdf_report()
+        resp, _, _ = self._get(response_format="both")
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.data["report_html"])
         self.assertEqual(resp.data["report_html_status"], "not_experian")
         self.html_query.assert_not_called()
+
+    def test_unknown_response_format_is_422(self):
+        resp, fetch, _ = self._get(response_format="xml")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.data["code"], "INVALID_RESPONSE_FORMAT")
+        fetch.assert_not_called()
 
     def test_html_failure_still_returns_the_json(self):
         self._experian_report()
         for exc, code in ((ExperianDataError("x"), "experian_data_error"),
                           (ExperianConnectionError("x"), "experian_unavailable")):
             with self.subTest(code=code):
-                resp, _, _ = self._get(html_error=exc)
+                resp, _, _ = self._get(html_error=exc, response_format="both")
                 self.assertEqual(resp.status_code, 200)
                 self.assertEqual(resp.data["accounts_found"], 1)
                 self.assertIsNone(resp.data["report_html"])

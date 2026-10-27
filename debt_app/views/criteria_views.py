@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, ProtectedError
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
@@ -3439,14 +3440,20 @@ class CreditReportFetchView(APIView):
     identity-matched Experian search is imported first, exactly as an
     assessment does, so a case with no upload still gets its automatic report.
 
-    Drafter only: also returns the rendered Experian report (HTMLData) as
-    report_html, read on demand and never stored. It is null for a PDF upload
-    or when Experian fails (report_html_status says which); the JSON is
-    returned either way.
+    response_format picks what the Drafter gets (not `format`: DRF reserves it):
+      json (default) -- the JSON above; Experian's HTML is not read.
+      html           -- the rendered Experian report (HTMLData) as text/html.
+                        A report with no HTML (PDF upload, Experian failure)
+                        is a JSON 404 NO_REPORT_HTML with report_html_status.
+      both           -- the JSON plus report_html / report_html_status
+                        (null + reason when there is no HTML).
+    The HTML is read on demand and never stored.
     """
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
+
+    RESPONSE_FORMATS = ("json", "html", "both")
 
     def get(self, request):
         aryza_reference = (request.query_params.get("aryza_reference") or "").strip()
@@ -3454,6 +3461,12 @@ class CreditReportFetchView(APIView):
             return error_response(
                 "aryza_reference is required", "MISSING_REFERENCE",
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        response_format = (request.query_params.get("response_format") or "json").strip().lower()
+        if response_format not in self.RESPONSE_FORMATS:
+            return error_response(
+                f"response_format must be one of: {', '.join(self.RESPONSE_FORMATS)}",
+                "INVALID_RESPONSE_FORMAT", status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         # Experian matching needs the client's current Aryza name and DOB.
@@ -3493,10 +3506,24 @@ class CreditReportFetchView(APIView):
                     "error": "No usable credit report for this case.",
                     "experian_reason": experian.reason,
                 }, status=status.HTTP_404_NOT_FOUND)
-            report_html, report_html_status = fetch_experian_report_html(report, client=experian_client)
+            if response_format != "json":
+                report_html, report_html_status = fetch_experian_report_html(report, client=experian_client)
+
+        if response_format == "html":
+            if report_html is None:
+                return Response({
+                    "success": False,
+                    "aryza_reference": aryza_reference,
+                    "credit_report_id": report.id,
+                    "source": report.source,
+                    "code": "NO_REPORT_HTML",
+                    "error": "No rendered HTML report for this case's credit report.",
+                    "report_html_status": report_html_status,
+                }, status=status.HTTP_404_NOT_FOUND)
+            return HttpResponse(report_html, content_type="text/html; charset=utf-8")
 
         data = report.extracted_data or {}
-        return Response({
+        body = {
             "success": True,
             "credit_report_id": report.id,
             "aryza_reference": aryza_reference,
@@ -3513,9 +3540,11 @@ class CreditReportFetchView(APIView):
             "mortgage_accounts": data.get("mortgage_accounts", []),
             "other_accounts": data.get("other_accounts", []),
             "public_information": data.get("public_information", {}),
-            "report_html": report_html,
-            "report_html_status": report_html_status,
-        })
+        }
+        if response_format == "both":
+            body["report_html"] = report_html
+            body["report_html_status"] = report_html_status
+        return Response(body)
 
 
 # Recognised image signatures — a real council-tax bill/letter is often
