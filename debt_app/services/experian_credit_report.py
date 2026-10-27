@@ -334,3 +334,31 @@ def ensure_experian_credit_report(aryza_reference, case_data_obj, credit_report_
     _log(reference, reason, search_id=chosen.search_id, status=report.extraction_status,
          skipped_newer=candidates.index(chosen))
     return ExperianImportResult(report, reason, created)
+
+
+# Rendered-report (HTMLData) outcome codes.
+HTML_OK = "ok"
+HTML_NOT_EXPERIAN = "not_experian"
+
+
+def fetch_experian_report_html(report: CreditReport,
+                               client: ExperianDBClient | None = None) -> tuple[str | None, str]:
+    """The rendered Experian report (Credit_Searches.HTMLData) behind `report`.
+
+    Returns (html, reason code). html is None for a PDF upload (not_experian)
+    or when Experian fails (experian_unavailable / experian_data_error); it
+    never raises for an Experian failure. Read on demand for the Drafter only:
+    never stored, never logged.
+    """
+    if report.source != CREDIT_REPORT_SOURCE_EXPERIAN_DB or not report.source_report_id:
+        return None, HTML_NOT_EXPERIAN
+    client = client or ExperianDBClient()
+    try:
+        with client.session() as session:
+            html = session.fetch_search_html(report.source_report_id, report.aryza_reference)
+    except ExperianError as exc:
+        reason = EXPERIAN_DATA_ERROR if isinstance(exc, ExperianDataError) else EXPERIAN_UNAVAILABLE
+        logger.info("[EXPERIAN HTML] ref=%s reason=%s search_id=%s error=%s",
+                    report.aryza_reference, reason, report.source_report_id, type(exc).__name__)
+        return None, reason
+    return html, HTML_OK

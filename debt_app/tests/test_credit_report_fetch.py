@@ -10,6 +10,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from debt_app.aryza_client import AryzaCaseNotFoundError, AryzaConnectionError
+from debt_app.integrations.experian_db import ExperianConnectionError, ExperianDataError
 from debt_app.models import CREDIT_REPORT_SOURCE_EXPERIAN_DB, CreditReport
 from debt_app.services.experian_credit_report import ExperianImportResult
 from debt_app.tests.test_experian_assessment_wiring import REF, _case, _cr_account, _pdf_report
@@ -17,14 +18,56 @@ from debt_app.tests.test_experian_assessment_wiring import REF, _case, _cr_accou
 URL = "/api/v1/criteria/credit-report/"
 FETCH = "debt_app.views.criteria_views.fetch_case_by_reference"
 ENSURE = "debt_app.views.criteria_views.ensure_experian_credit_report"
+HTML_QUERY = "debt_app.integrations.experian_db.ExperianSession.fetch_search_html"
+CONNECT = "debt_app.integrations.experian_db.ExperianDBClient._connect"
 
 
 class CreditReportFetchViewTests(TestCase):
 
-    def _get(self, reference=REF, experian=ExperianImportResult(None, "flag_disabled")):
-        with patch(FETCH, return_value=_case()) as fetch, patch(ENSURE, return_value=experian) as ensure:
+    def _get(self, reference=REF, experian=ExperianImportResult(None, "flag_disabled"),
+             html="<html>report</html>", html_error=None):
+        html_patch = (patch(HTML_QUERY, side_effect=html_error) if html_error
+                      else patch(HTML_QUERY, return_value=html))
+        with patch(FETCH, return_value=_case()) as fetch, patch(ENSURE, return_value=experian) as ensure, \
+                patch(CONNECT), html_patch as html_query:
             resp = APIClient().get(URL, {"aryza_reference": reference} if reference is not None else {})
+        self.html_query = html_query
         return resp, fetch, ensure
+
+    def _experian_report(self, **kwargs):
+        return CreditReport.objects.create(
+            aryza_reference=REF, source=CREDIT_REPORT_SOURCE_EXPERIAN_DB, source_report_id=77,
+            agency="Experian", extraction_status="extracted",
+            extracted_data={"accounts": [_cr_account("ALPHA BANK", "Alpha Bank", 600000)]}, **kwargs,
+        )
+
+    def test_experian_report_includes_its_rendered_html(self):
+        self._experian_report()
+        resp, _, _ = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["report_html"], "<html>report</html>")
+        self.assertEqual(resp.data["report_html_status"], "ok")
+        # The search is read for THIS case only.
+        self.html_query.assert_called_once_with(77, REF)
+
+    def test_pdf_upload_has_no_html_and_never_reads_experian(self):
+        _pdf_report()
+        resp, _, _ = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.data["report_html"])
+        self.assertEqual(resp.data["report_html_status"], "not_experian")
+        self.html_query.assert_not_called()
+
+    def test_html_failure_still_returns_the_json(self):
+        self._experian_report()
+        for exc, code in ((ExperianDataError("x"), "experian_data_error"),
+                          (ExperianConnectionError("x"), "experian_unavailable")):
+            with self.subTest(code=code):
+                resp, _, _ = self._get(html_error=exc)
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(resp.data["accounts_found"], 1)
+                self.assertIsNone(resp.data["report_html"])
+                self.assertEqual(resp.data["report_html_status"], code)
 
     def test_missing_reference_is_422(self):
         resp, fetch, _ = self._get(reference=None)

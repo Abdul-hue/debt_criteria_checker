@@ -50,7 +50,9 @@ from debt_app.models import (
 from debt_app.credit_report_extractor import extract_credit_report, normalise_start_date_iso
 from debt_app.integrations.council_tax_evidence import extract_council_tax_evidence
 from debt_app.services.crm_vote_sync import run_crm_vote_sync, get_recent_vote_tally, get_last_5_tally
-from debt_app.services.experian_credit_report import ensure_experian_credit_report
+from debt_app.services.experian_credit_report import (
+    ensure_experian_credit_report, experian_request_scope, fetch_experian_report_html,
+)
 import threading
 
 logger = logging.getLogger(__name__)
@@ -3436,6 +3438,11 @@ class CreditReportFetchView(APIView):
     (newest usable, PDF upload or Experian import). The case's newest
     identity-matched Experian search is imported first, exactly as an
     assessment does, so a case with no upload still gets its automatic report.
+
+    Drafter only: also returns the rendered Experian report (HTMLData) as
+    report_html, read on demand and never stored. It is null for a PDF upload
+    or when Experian fails (report_html_status says which); the JSON is
+    returned either way.
     """
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -3474,16 +3481,19 @@ class CreditReportFetchView(APIView):
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        experian = ensure_experian_credit_report(aryza_reference, case_data_obj)
-        report = select_credit_report(aryza_reference, sources=ASSESSMENT_CREDIT_REPORT_SOURCES)
-        if report is None:
-            return Response({
-                "success": False,
-                "aryza_reference": aryza_reference,
-                "code": "NO_CREDIT_REPORT",
-                "error": "No usable credit report for this case.",
-                "experian_reason": experian.reason,
-            }, status=status.HTTP_404_NOT_FOUND)
+        # One Experian connection for the import and the HTML read.
+        with experian_request_scope() as experian_client:
+            experian = ensure_experian_credit_report(aryza_reference, case_data_obj, client=experian_client)
+            report = select_credit_report(aryza_reference, sources=ASSESSMENT_CREDIT_REPORT_SOURCES)
+            if report is None:
+                return Response({
+                    "success": False,
+                    "aryza_reference": aryza_reference,
+                    "code": "NO_CREDIT_REPORT",
+                    "error": "No usable credit report for this case.",
+                    "experian_reason": experian.reason,
+                }, status=status.HTTP_404_NOT_FOUND)
+            report_html, report_html_status = fetch_experian_report_html(report, client=experian_client)
 
         data = report.extracted_data or {}
         return Response({
@@ -3503,6 +3513,8 @@ class CreditReportFetchView(APIView):
             "mortgage_accounts": data.get("mortgage_accounts", []),
             "other_accounts": data.get("other_accounts", []),
             "public_information": data.get("public_information", {}),
+            "report_html": report_html,
+            "report_html_status": report_html_status,
         })
 
 

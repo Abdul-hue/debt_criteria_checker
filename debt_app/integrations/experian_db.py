@@ -103,6 +103,7 @@ ORDER BY DateCreated DESC, ID DESC
 
 # CRM_Ref is repeated so a search ID can never return another case's document.
 SEARCH_DOCUMENT_SQL = "SELECT JsonData FROM dbo.Credit_Searches WHERE ID = %s AND CRM_Ref = %s"
+SEARCH_HTML_SQL = "SELECT HTMLData FROM dbo.Credit_Searches WHERE ID = %s AND CRM_Ref = %s"
 
 ACCOUNT_TYPE_CODES_SQL = "SELECT EXPERIAN_CODE, EXPERIAN_DESC FROM dbo.experian_codes"
 PUBLIC_INFO_TYPE_CODES_SQL = "SELECT Code, Type FROM dbo.PublicInfo_Type_Codes"
@@ -239,6 +240,19 @@ class ExperianSession:
         if not isinstance(document, dict) or not isinstance(document.get("Response"), dict):
             raise ExperianDataError(f"Experian search {search_id} has no Response object")
         return document
+
+    def fetch_search_html(self, search_id: int, crm_ref: str) -> str:
+        """The rendered HTMLData of one search belonging to `crm_ref`.
+
+        Returned to the caller only; never stored or logged.
+        """
+        rows = self.query(SEARCH_HTML_SQL, (int(search_id), str(crm_ref).strip()))
+        if not rows or not rows[0][0]:
+            raise ExperianDataError(f"Experian search {search_id} has no HTMLData for this case")
+        html = rows[0][0]
+        if isinstance(html, (bytes, bytearray)):
+            html = html.decode("utf-8", errors="replace")
+        return html
 
     def load_code_tables(self, refresh: bool = False) -> ExperianCodeTables:
         """Account-type and public-record code tables, cached per process."""
