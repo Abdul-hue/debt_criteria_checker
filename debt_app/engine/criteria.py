@@ -8118,8 +8118,12 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     for entry in dividend_analysis["below_min"]:
         # A council's DIV is judged by COUNCIL-DIV-REQUIRED-DI once it applies
         # (with the fee and the real term); this older estimate would contradict it.
-        if (c.get("_council_div_rule_applied") and isinstance(entry, dict)
-                and entry.get("code") == "COUNCIL-DIVIDEND-BELOW-MIN"):
+        # ⚠️ AND ONLY WHILE IT IS SWITCHED ON. `_run` calls a disabled rule
+        # whose function name does not map to its key (this one) and drops the
+        # result afterwards -- the marker is set either way, so it alone would
+        # silence the older flag with the new rule off.
+        if (c.get("_council_div_rule_applied") and COUNCIL_DIV_RULE_ID not in _disabled_rules
+                and isinstance(entry, dict) and entry.get("code") == "COUNCIL-DIVIDEND-BELOW-MIN"):
             continue
         cname = entry["creditor_name"] if isinstance(entry, dict) else entry
         min_p = entry["min_dividend_pence"] if isinstance(entry, dict) else "?"

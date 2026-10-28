@@ -137,6 +137,17 @@ class CouncilDivAssessCaseTest(TestCase):
         all_ids = sum((self._ids(result, k) for k in ("hard_blocks", "flags", "info", "passed")), [])
         self.assertNotIn(COUNCIL_DIV_RULE_ID, all_ids)
 
+    #: DI low enough for the OLD estimate to fail the council's 25p minimum:
+    #: £50 x 60 / £20,000 = 15p in the pound.
+    LOW_DI_CASE = {**CASE, "monthly_di": 50.0}
+
+    def test_switched_off_rule_leaves_the_old_council_dividend_flag(self):
+        """The rule's function still runs when it is off (its name does not map
+        to its key) -- that must not silence the flag it replaces."""
+        result = assess_case(dict(self.LOW_DI_CASE), set())
+        self.assertTrue([r for r in result["flags"]
+                         if r.rule_id == "DIVIDEND-BELOW-MIN" and "Testshire" in r.message])
+
     def test_switched_on_rule_returns_the_case(self):
         GlobalCriteria.objects.filter(rule_key=COUNCIL_DIV_RULE_ID).update(is_active=True)
         result = assess_case(dict(self.CASE), set())
@@ -153,7 +164,9 @@ class CouncilDivAssessCaseTest(TestCase):
 
     def test_old_council_dividend_flag_is_dropped_once_the_rule_applies(self):
         GlobalCriteria.objects.filter(rule_key=COUNCIL_DIV_RULE_ID).update(is_active=True)
-        result = assess_case(dict(self.CASE), set())
+        result = assess_case(dict(self.LOW_DI_CASE), set())
         council_below_min = [r for r in result["flags"]
                              if r.rule_id == "DIVIDEND-BELOW-MIN" and "Testshire" in r.message]
         self.assertEqual(council_below_min, [])
+        # ...and the new rule stands in its place.
+        self.assertIn(COUNCIL_DIV_RULE_ID, [r.rule_id for r in result["hard_blocks"]])
