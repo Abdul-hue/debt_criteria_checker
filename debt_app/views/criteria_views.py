@@ -91,6 +91,7 @@ def _rule_to_dict(r) -> dict:
             "title": r.get("title"),
             "description": r.get("description"),
             "action": r.get("action"),
+            "required_before": r.get("required_before", "drafting"),
         }
     return {
         "rule_id": r.rule_id,
@@ -99,6 +100,7 @@ def _rule_to_dict(r) -> dict:
         "message": r.message,
         "threshold": r.threshold,
         "actual_value": r.actual_value,
+        "required_before": getattr(r, "required_before", "drafting"),
     }
 
 
@@ -451,6 +453,7 @@ def enrich_rules_with_meta(rule_list):
                 "threshold": r.threshold,
                 "actual_value": r.actual_value,
                 "creditors": r.creditors if hasattr(r, 'creditors') else [],
+                "required_before": getattr(r, "required_before", "drafting"),
             }
         else:
             r_dict = {**r}

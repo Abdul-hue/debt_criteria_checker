@@ -113,3 +113,129 @@ Parsed from each element of `case_json.creditors[]`.
 1. **Precedence:** Top-level `case_json` keys win over `clientInfo` / `client` for client flags where `_parse_case` nests `.get()` calls that way (see `has_partner_on_case`, `is_currently_in_dmp`, etc.).
 2. **Assess endpoint shape:** Live assess payloads use `clientInfo` (camelCase) and `creditors[]` per `debt_app/views/assess_view.py` validation — not the `client` / `debts` keys used in some internal sketches.
 3. **ORM vs parser:** `ClientFlags` and extended `Voter` columns exist in `debt_app/models.py` for persistence; the running engine only sees the parsed dict from JSON today.
+
+---
+
+## Proposed: Case Rejection Criteria (Missing Evidence) — October 2026
+
+**Status: PROPOSED — awaiting CAT team sign-off.** Phase 1 is in: `_parse_case` reads every field
+below (tests: `debt_app/tests/test_missing_evidence_parsing.py`), but **no rule uses them yet**, so
+sending them changes no assessment result. The parser also derives `self_employed_months`
+(completed calendar months to `assessment_date`) and `ccj_creditors` / `ccj_balance` /
+`ccj_is_majority` (CCJ debt > 50% of unsecured debt; a CCJ is a creditor with `has_ccj: true`, a
+`creditor_type` of "CCJ", or Aryza's "CCJ" placeholder name). An out-of-range `div_returned`
+(e.g. `25` for 25%) is ignored and logged, not converted.
+
+The new "Case Rejection Criteria (Missing Evidence)" requirement splits between the two systems:
+
+* **Criteria engine:** decides whether each check applies to the case (HMRC, self-employed, council
+  status, arrears type, CCJ majority), whether the evidence is in place, and calculates the council
+  DIV requirement. Results come back as `hard_block` / `flag` as today.
+* **CAT:** collects the evidence (POD uploads, call sheets, creditor-call outcomes, the DIV a
+  council returned), sends the fields below, blocks the case at drafting / SIP, and shows
+  Required DI / Actual DI / Shortfall.
+
+A check only runs when its trigger applies. A case with no HMRC debt is never asked for an HMRC
+call sheet.
+
+### Tri-state convention
+
+Every new evidence flag is tri-state, matching `first_payment_made` above:
+
+| Value sent | Meaning | Engine behaviour when the check applies |
+|------------|---------|------------------------------------------|
+| `true` | Evidence is in place | Pass |
+| `false` | Evidence has been confirmed missing | Return the case (or flag, where the table says so) |
+| absent / `null` | CAT does not know | Flag for the caseworker to confirm. Never returns the case. |
+
+CAT must send `false` only when it has positively established that the evidence is missing. If it
+sends `false` because the field is not wired up yet, cases will be returned wrongly.
+
+### Client-level fields
+
+| Field | Type | Meaning | Default if missing | Will be used by |
+|-------|------|---------|--------------------|-----------------|
+| `has_call_sheet` | bool / null | A client call sheet has been completed and uploaded | `null` | Self-employed (12+ months) call-sheet rule only. **Not** HMRC, which reads the HMRC creditor's `creditor_call_completed` |
+| `self_employed_since` | ISO `YYYY-MM-DD` / null | Date the client's current self-employment started | `null` (self-employed cases are flagged to confirm) | Self-employed call-sheet rule: required when 12+ months before `assessment_date` |
+| `iva_term_months` | int, `60` or `72` | Proposed IVA term. **Already read.** | `60` | The existing dividend estimate only. **Not** the council DIV calculation, which takes its term from the mortgage (see below) |
+| `monthly_di` | number | Monthly disposable income. **Already read.** | `financial_summary.net_balance` | Council DIV calculation ("Actual DI") |
+
+### Per-creditor fields (`creditors[i]`)
+
+| Field | Type | Meaning | Default if missing | Will be used by |
+|-------|------|---------|--------------------|-----------------|
+| `has_pod` | bool / null | Proof of debt is on file for this creditor | `null` | Debt-level-evidenced rule; POD over £500 rule; council tax POD for non-voting councils |
+| `creditor_call_completed` | bool / null | A creditor call has been made and recorded (call sheet) for this creditor | `null` | Mortgage / rent / HP arrears rule; council tax call sheet for accepting / rejecting / DIV councils |
+| `in_arrears` | bool / null | This mortgage or hire purchase account is in arrears (from its matched credit-report account) | `null` → the arrears rule flags the account to confirm, never returns the case | Arrears rule: a mortgage or HP creditor needs the call only when in arrears. Rent creditors always do |
+| `div_returned` | decimal / null, e.g. `0.25` for 25% | Minimum dividend the council has returned for this case. **Decimal, not a percentage or pence.** | `null` → the engine uses the council's stored `CouncilRule.min_dividend_pence ÷ 100` | Council DIV calculation |
+| `original_creditor` | string / null | The original lender behind a CCJ | `null` → the engine falls back to the existing `linked_creditor` | CCJ-majority rule |
+
+### Rules these fields feed
+
+| Proposed rule id | Applies when | Passes when | Otherwise |
+|------------------|--------------|-------------|-----------|
+| `COUNCIL-DIV-REQUIRED-DI` | Council debt is **over 50%** of unsecured debt **and** a DIV is known | `monthly_di` ≥ Required DI | Return the case: `threshold` = Required DI, `actual_value` = Actual DI, the message states all three |
+| `DEBT-LEVEL-EVIDENCED` | Always | Evidenced unsecured debt ≥ £6,000 | Return the case |
+| `POD-OVER-500` | A creditor balance is over £500 | `has_pod` is `true` | Flag only, provided `DEBT-LEVEL-EVIDENCED` passes (the case can go to drafting) |
+| `HMRC-CALL-SHEET` | HMRC is a creditor | Every HMRC creditor has `creditor_call_completed: true` (the call to HMRC, on CAT's call sheet) | Return the case |
+| `SELF-EMPLOYED-CALL-SHEET` | Self-employed for 12 months or more | `has_call_sheet` is `true` | Return the case |
+| `COUNCIL-TAX-EVIDENCE` | A council tax creditor | Non-voting council: `has_pod`. Accepting / rejecting / DIV council: `creditor_call_completed` | Return the case; required **before SIP** |
+| `ARREARS-CREDITOR-CALL` | A rent creditor, or a mortgage / HP creditor with `in_arrears: true` (`null` only flags) | `creditor_call_completed` is `true` | Return the case |
+| `CCJ-ORIGINAL-CREDITOR` | CCJs make up the majority of the debt | Every CCJ has `original_creditor` (or `linked_creditor`) | Return the case |
+
+**Council DIV formula (built, `_council_div_required_di`, migration 0095):**
+`Required DI = ((Debt Level × DIV) + fee) ÷ term`.
+
+* **Debt Level** — total unsecured debt.
+* **DIV** — the creditor's `div_returned`, else the council's stored `min_dividend_pence ÷ 100`;
+  the highest when several councils have one.
+* **fee** — the rule's `GlobalCriteria.threshold_value` (seeded £4,250), so it changes without a release.
+* **term** — 72 months when the client has a mortgage, else 60 (WATCH-22.2's test). CAT's
+  `iva_term_months` is not used.
+
+Worked example: £20,000 debt, 25% DIV, no mortgage → (5,000 + 4,250) ÷ 60 = **£154.17**. With an
+actual DI of £150.00 the shortfall is £4.17 and the case is returned. Once the rule applies to a case,
+the older `DIVIDEND-BELOW-MIN` flag is no longer raised for councils (it estimated without the fee).
+
+The debt-type matcher reads "rent" as a word (`helpers.normalise_debt_type`): Aryza's
+`current_account` used to count as rent.
+
+### Rollout
+
+1. The engine reads these fields; nothing changes for existing cases.
+2. `COUNCIL-DIV-REQUIRED-DI` goes live first. It works before CAT changes anything because it falls
+   back to the stored council DIV.
+3. Every evidence rule ships **switched off** (`GlobalCriteria.is_active = False`). Each one is
+   switched on only once CAT is sending its field, so cases are not flagged for evidence CAT cannot
+   send yet.
+4. **Done (Phase 4):** every result in `hard_blocks` / `flags` / `info` / `passed` now carries
+   `required_before: "drafting" | "sip"`, so CAT knows which stage to block. It is `"drafting"`
+   (block now) for every rule except `COUNCIL-TAX-EVIDENCE`, which is `"sip"` when everything it
+   found is a council call sheet, and `"drafting"` if any council is missing a POD or is not in
+   the council criteria list. The engine does not know the case stage itself; CAT enforces it.
+   **CAT's decision (October 2026): every result, `"sip"` included, blocks at Send to Manager** —
+   CAT's first forward gate — so CAT does not read `required_before` today.
+
+### Open decisions (manager)
+
+These must be answered before the engine rules are built:
+
+1. **Council majority threshold.** The engine's `council_is_majority` is currently > 25% (a blocking
+   minority). "Majority" normally means > 50%. Which applies to the DIV rule?
+2. **Councils requiring DIV.** Is it any council with a stored minimum dividend, or only
+   "Will Consider" councils? "Will Consider" and "Conditional Voter" councils with no DIV are not
+   covered by the requirement as written.
+3. **Debt Level in the DIV formula.** Total unsecured debt, or evidenced debt only?
+4. **Several councils with a DIV.** Use the highest DIV?
+5. **Hire purchase.** Is a call needed for every HP creditor, or only where there are arrears
+   (`vehicle_arrears_months > 0`)?
+6. **Existing dividend flag.** `COUNCIL-DIVIDEND-BELOW-MIN` estimates the dividend without the £4,250
+   fee and only flags. Should it be retired for councils the new DIV rule covers?
+
+### Open decisions (CAT team)
+
+1. Confirm the field names and types above, or propose alternatives.
+2. **HMRC call sheet:** is it a single client-level call sheet (`has_call_sheet`), or a call sheet
+   against the HMRC creditor (`creditor_call_completed` on that creditor)?
+3. **Council tax call sheet:** confirm it is recorded per council creditor (`creditor_call_completed`).
+4. Can CAT always send `iva_term_months` as 60 or 72?

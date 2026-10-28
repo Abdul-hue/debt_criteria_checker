@@ -126,7 +126,9 @@ def normalise_debt_type(raw: str) -> str:
         return DEBT_TYPE_OVERDRAFT
     if "mortgage" in s:
         return DEBT_TYPE_MORTGAGE
-    if "rent" in s:
+    # A WORD, not a substring: Aryza's "current_account" contains "rent", and
+    # read as rent it would demand a rent-arrears creditor call.
+    if "rent" in _tokens:
         return DEBT_TYPE_RENT
     if "mobile" in s:
         return DEBT_TYPE_MOBILE

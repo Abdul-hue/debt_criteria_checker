@@ -41,7 +41,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Optional
 
 from debt_app.helpers import CREDITOR_ALIAS_MAP, normalise_creditor_name
@@ -61,6 +61,10 @@ class RuleResult:
     threshold: Optional[float] = None    # Threshold compared against (numeric rules)
     actual_value: Optional[float] = None # Actual value from the case (numeric rules)
     creditors: list = field(default_factory=list)
+    # The CAT stage this result must be resolved before: "drafting" (blocks
+    # the case now) or "sip" (e.g. council tax call sheets). The engine does
+    # not know the case stage, so CAT enforces it.
+    required_before: str = "drafting"
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +361,36 @@ def _is_unidentified_creditor_name(name: str) -> bool:
     return any(marker in n for marker in _UNIDENTIFIED_NAME_MARKERS)
 
 
+_CCJ_WORD_RE = re.compile(r"\bccj\b")
+
+
+def _is_ccj_creditor(cr: dict) -> bool:
+    """A County Court Judgment debt: flagged by the caller, typed as a CCJ, or
+    sent under Aryza's "CCJ" placeholder name ("CCJ (creditor not yet identified)")."""
+    if cr.get("has_ccj"):
+        return True
+    return bool(
+        _CCJ_WORD_RE.search((cr.get("creditor_type") or "").lower())
+        or _CCJ_WORD_RE.search((cr.get("name") or "").lower())
+    )
+
+
+def _parse_div_decimal(value) -> Optional[Decimal]:
+    """A council DIV as a decimal fraction (25% -> 0.25). None when absent or
+    outside (0, 1] -- a 25 sent for 25% is rejected, never guessed at."""
+    if value is None or value == "":
+        return None
+    try:
+        div = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        logger.warning("Ignoring unreadable div_returned value: %r", value)
+        return None
+    if not (Decimal("0") < div <= Decimal("1")):
+        logger.warning("Ignoring div_returned outside 0-1 (send 25%% as 0.25): %r", value)
+        return None
+    return div
+
+
 def _is_gambling_tx(t: dict) -> bool:
     """Return True if this transaction is a gambling payment.
 
@@ -454,6 +488,17 @@ def _compute_age(dob_str: Optional[str], reference: Optional[date] = None) -> Op
         return (today - dob).days // 365
     except (ValueError, AttributeError):
         return None
+
+
+def _whole_months_between(start: Optional[date], end: date) -> Optional[int]:
+    """Completed calendar months from start to end (15 Jan -> 15 Feb is 1,
+    -> 14 Feb is 0). None when start is unknown or after end."""
+    if start is None or start > end:
+        return None
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return months
 
 
 def _todo_flag(rule_id: str, field_name: str) -> RuleResult:
@@ -586,6 +631,16 @@ def _parse_case(case_json: dict) -> dict:
             "guarantee_called_up": c.get("guarantee_called_up"),
             "months_since_last_payment": months_since_lp,
             "linked_creditor": c.get("linked_creditor"),
+            # Missing-evidence criteria (CA_TOOL_DEPENDENCIES.md, October 2026).
+            # Tri-state like first_payment_made: None = CAT does not know.
+            "has_ccj": bool(c.get("has_ccj", False)),
+            "has_pod": _optional_bool(c.get("has_pod")),
+            "creditor_call_completed": _optional_bool(c.get("creditor_call_completed")),
+            # Is this mortgage / HP account in arrears? From the matched
+            # credit-report account; None = no account matched.
+            "in_arrears": _optional_bool(c.get("in_arrears")),
+            "div_returned": _parse_div_decimal(c.get("div_returned")),
+            "original_creditor": (c.get("original_creditor") or "").strip() or None,
             # The declared monthly instalment (Aryza `monthly`), read for
             # vehicle HP below.
             "monthly_repayment": c.get("monthly_repayment"),
@@ -813,6 +868,22 @@ def _parse_case(case_json: dict) -> dict:
     # is a blocking minority (75% threshold cannot be reached)
     council_is_majority = (council_balance / total_debt > 0.25) if total_debt > 0 else False
 
+    # --- CCJ creditors (unsecured, measured against the unsecured total_debt) ---
+    ccj_creditors = [c for c in creditors if not c["is_secured"] and _is_ccj_creditor(c)]
+    ccj_balance = sum(c["balance"] for c in ccj_creditors)
+    ccj_is_majority = (ccj_balance / total_debt > 0.5) if total_debt > 0 else False
+
+    # --- Missing-evidence criteria: client-level (CA_TOOL_DEPENDENCIES.md, October 2026) ---
+    # Tri-state: None = CAT does not know whether a call sheet exists.
+    has_call_sheet = _optional_bool(
+        case_json["has_call_sheet"] if "has_call_sheet" in case_json
+        else client_info.get("has_call_sheet")
+    )
+    self_employed_since = _parse_any_date(
+        case_json.get("self_employed_since") or client_info.get("self_employed_since")
+    )
+    self_employed_months = _whole_months_between(self_employed_since, assessment_date_parsed)
+
     # --- Link Financial ---
     link_creditors = [c for c in creditors if _is_link_financial_name(c["name"])]
     link_balance = sum(c["balance"] for c in link_creditors)
@@ -1018,6 +1089,14 @@ def _parse_case(case_json: dict) -> dict:
         "is_currently_trading": case_json.get("is_currently_trading"),
         "has_vat_arrangement": case_json.get("has_vat_arrangement"),
         "employer_paye_obligations_current": case_json.get("employer_paye_obligations_current"),
+        # Missing-evidence criteria (CA_TOOL_DEPENDENCIES.md, October 2026).
+        # Parsed only -- no rule reads these yet.
+        "has_call_sheet": has_call_sheet,
+        "self_employed_since": self_employed_since,
+        "self_employed_months": self_employed_months,
+        "ccj_creditors": ccj_creditors,
+        "ccj_balance": ccj_balance,
+        "ccj_is_majority": ccj_is_majority,
     }
 
 
@@ -2971,6 +3050,414 @@ def _bank_statements(c: dict) -> RuleResult:
         triggered=True,
         message="\n".join(lines),
         creditors=[acct["name"] for acct, _, _ in problems],
+    )
+
+
+# ---------------------------------------------------------------------------
+# MISSING-EVIDENCE RULES — Case Rejection Criteria (October 2026)
+# ---------------------------------------------------------------------------
+# Each rule applies only when its trigger is met, and reads CAT's tri-state
+# evidence fields (CA_TOOL_DEPENDENCIES.md): True passes, None ("CAT does not
+# know") flags for the caseworker to confirm, False returns the case. They are
+# seeded switched off and switched on as CAT starts sending each field —
+# before then every field is None and the rules would only flag.
+
+_POD_REQUIRED_OVER = 500.0
+_ARREARS_CALL_TYPES = {
+    "mortgage": "mortgage arrears",
+    "rent": "rent arrears",
+    "hire_purchase": "hire purchase arrears",
+}
+# A rent creditor IS an arrears debt. A mortgage or HP agreement is the
+# borrowing itself, so it needs the call only when the account is in arrears.
+_ARREARS_ONLY_WHEN_IN_ARREARS = frozenset({"mortgage", "hire_purchase"})
+
+
+def _money_list(entries: list) -> str:
+    return ", ".join(f"{cr.get('original_name') or cr['name']} (£{cr['balance']:,.2f})" for cr in entries)
+
+
+def _call_sheet_rule(c: dict, rule_id: str, subject: str) -> RuleResult:
+    """Shared outcome for the client-level call-sheet rules, once triggered."""
+    has_call_sheet = c.get("has_call_sheet")
+    if has_call_sheet:
+        return _pass(rule_id, f"{subject} A call sheet has been completed.")
+    if has_call_sheet is None:
+        return RuleResult(
+            rule_id=rule_id, severity="flag", triggered=True,
+            message=(
+                f"{subject} A call sheet is required, but it is not known whether one has been completed. "
+                "The caseworker must confirm the call sheet is on file before the case can proceed."
+            ),
+        )
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block", triggered=True,
+        message=f"{subject} A call sheet is required and none has been completed, so the case must be returned.",
+    )
+
+
+def _hmrc_call_sheet(c: dict) -> RuleResult:
+    """HMRC-CALL-SHEET: any case with HMRC debt requires a call sheet.
+
+    The call sheet is the creditor call to HMRC, recorded against each HMRC
+    creditor (`creditor_call_completed`, CAT's call sheet) -- not a client-level
+    call sheet (CAT team, October 2026)."""
+    rule_id = "HMRC-CALL-SHEET"
+    if not c["hmrc_is_creditor"]:
+        return _pass(rule_id, "HMRC is not a creditor, so an HMRC call sheet is not required.")
+    hmrc = c["hmrc_creditors"]
+    missing = [cr for cr in hmrc if cr.get("creditor_call_completed") is False]
+    unknown = [cr for cr in hmrc if cr.get("creditor_call_completed") is None]
+    if not missing and not unknown:
+        return _pass(rule_id, "HMRC is one of the customer's creditors and the HMRC call sheet has been completed.")
+    if missing:
+        return RuleResult(
+            rule_id=rule_id, severity="hard_block", triggered=True,
+            message=(
+                f"HMRC is one of the customer's creditors ({_money_list(missing + unknown)}). "
+                "A call sheet is required and none has been completed, so the case must be returned."
+            ),
+            creditors=[cr["name"] for cr in missing + unknown],
+        )
+    return RuleResult(
+        rule_id=rule_id, severity="flag", triggered=True,
+        message=(
+            f"HMRC is one of the customer's creditors ({_money_list(unknown)}). A call sheet is required, "
+            "but it is not known whether one has been completed. The caseworker must confirm the call "
+            "sheet is on file before the case can proceed."
+        ),
+        creditors=[cr["name"] for cr in unknown],
+    )
+
+
+def _self_employed_call_sheet(c: dict) -> RuleResult:
+    """SELF-EMPLOYED-CALL-SHEET: self-employed for 12 months or longer requires a call sheet."""
+    rule_id = "SELF-EMPLOYED-CALL-SHEET"
+    if c["income_source"] != "self_employed":
+        return _pass(rule_id, "The customer is not self-employed, so a self-employment call sheet is not required.")
+    months = c.get("self_employed_months")
+    if months is None:
+        if c.get("has_call_sheet"):
+            return _pass(rule_id, "The customer is self-employed and a call sheet has been completed.")
+        return RuleResult(
+            rule_id=rule_id, severity="flag", triggered=True,
+            message=(
+                "The customer is self-employed, but the date their self-employment started is not recorded. "
+                "A call sheet is required if they have been self-employed for 12 months or longer. "
+                "The caseworker must confirm the start date, or that a call sheet is on file."
+            ),
+        )
+    if months < 12:
+        return _pass(rule_id, f"The customer has been self-employed for {months} month(s), under 12, so a call sheet is not required.")
+    return _call_sheet_rule(c, rule_id, f"The customer has been self-employed for {months} months (12 or more).")
+
+
+def _arrears_creditor_call(c: dict) -> RuleResult:
+    """ARREARS-CREDITOR-CALL: mortgage arrears, rent arrears and hire purchase
+    arrears each need a creditor call confirming the outstanding arrears and
+    any repayment arrangement (for rent, whether the arrears can be included).
+
+    Rent creditors are always in scope. A mortgage or HP creditor is in scope
+    only when `in_arrears` is True; when it is None (no credit-report account
+    to tell) the rule flags it for the caseworker and never returns the case."""
+    rule_id = "ARREARS-CREDITOR-CALL"
+    typed = [cr for cr in c["creditors"] if cr["debt_type_normalised"] in _ARREARS_CALL_TYPES]
+    in_scope = [
+        cr for cr in typed
+        if cr["debt_type_normalised"] not in _ARREARS_ONLY_WHEN_IN_ARREARS or cr.get("in_arrears") is True
+    ]
+    arrears_unknown = [
+        cr for cr in typed
+        if cr["debt_type_normalised"] in _ARREARS_ONLY_WHEN_IN_ARREARS
+        and cr.get("in_arrears") is None and cr.get("creditor_call_completed") is not True
+    ]
+    if not in_scope and not arrears_unknown:
+        return _pass(rule_id, "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.")
+    missing = [cr for cr in in_scope if cr.get("creditor_call_completed") is False]
+    unknown = [cr for cr in in_scope if cr.get("creditor_call_completed") is None]
+    if not missing and not unknown and not arrears_unknown:
+        return _pass(rule_id, "A creditor call has been completed for every mortgage arrears, rent arrears and hire purchase arrears creditor.")
+
+    def _label(cr):
+        return f"{cr.get('original_name') or cr['name']} ({_ARREARS_CALL_TYPES[cr['debt_type_normalised']]}, £{cr['balance']:,.2f})"
+
+    lines = []
+    if missing:
+        lines.append(
+            "A creditor call has not been completed for: " + ", ".join(_label(cr) for cr in missing) + ". "
+            "The call must confirm the outstanding arrears and any repayment arrangement "
+            "(for rent arrears, also whether they can be included in the IVA), so the case must be returned."
+        )
+    if unknown:
+        lines.append(
+            "It is not known whether a creditor call has been completed for: " + ", ".join(_label(cr) for cr in unknown) + ". "
+            "The caseworker must confirm each call is on file before the case can proceed."
+        )
+    if arrears_unknown:
+        lines.append(
+            "It is not known whether these accounts are in arrears: "
+            + ", ".join(f"{cr.get('original_name') or cr['name']} (£{cr['balance']:,.2f})" for cr in arrears_unknown) + ". "
+            "If an account is in arrears, a creditor call confirming the arrears and any repayment arrangement is required."
+        )
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block" if missing else "flag", triggered=True,
+        message="\n".join(lines),
+        creditors=[cr["name"] for cr in missing + unknown + arrears_unknown],
+    )
+
+
+def _is_debt_evidenced(cr: dict) -> bool:
+    # A credit report match counts as evidence of the debt, as it does for TIG-10.
+    return bool(cr.get("has_pod")) or bool(cr.get("from_credit_report"))
+
+
+def _debt_level_evidenced(c: dict) -> RuleResult:
+    """DEBT-LEVEL-EVIDENCED: the debt backed by proof of debt (or a credit
+    report match) must itself meet the IVA minimum debt level."""
+    rule_id = "DEBT-LEVEL-EVIDENCED"
+    min_debt = 6000.0  # mirrors TIG-01's minimum unsecured debt threshold
+    unsecured = [cr for cr in c["creditors"] if not cr["is_secured"] and cr["balance"] > 0]
+    evidenced = sum(cr["balance"] for cr in unsecured if _is_debt_evidenced(cr))
+    if evidenced >= min_debt:
+        return _pass(rule_id, f"£{evidenced:,.2f} of debt is evidenced, which meets the £{min_debt:,.2f} minimum for an IVA.")
+    unknown = [cr for cr in unsecured if not _is_debt_evidenced(cr) and cr.get("has_pod") is None]
+    unknown_total = sum(cr["balance"] for cr in unknown)
+    if evidenced + unknown_total >= min_debt:
+        return RuleResult(
+            rule_id=rule_id, severity="flag", triggered=True,
+            message=(
+                f"Only £{evidenced:,.2f} of the customer's debt is confirmed as evidenced, below the £{min_debt:,.2f} "
+                f"minimum for an IVA. It is not known whether proof of debt is held for £{unknown_total:,.2f} more "
+                f"({_money_list(unknown)}). The caseworker must confirm enough proof of debt is on file to meet the minimum."
+            ),
+            threshold=min_debt, actual_value=evidenced,
+            creditors=[cr["name"] for cr in unknown],
+        )
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block", triggered=True,
+        message=(
+            f"Only £{evidenced:,.2f} of the customer's debt is evidenced by proof of debt or a credit report, "
+            f"below the £{min_debt:,.2f} minimum for an IVA. There is not enough proof of debt to meet the IVA "
+            "criteria, so the case must be returned."
+        ),
+        threshold=min_debt, actual_value=evidenced,
+    )
+
+
+def _pod_over_500(c: dict) -> RuleResult:
+    """POD-OVER-500: debts over £500 require proof of debt. Flag only — the case
+    can go to drafting without individual PODs while DEBT-LEVEL-EVIDENCED passes."""
+    rule_id = "POD-OVER-500"
+    in_scope = [cr for cr in c["creditors"] if not cr["is_secured"] and cr["balance"] > _POD_REQUIRED_OVER]
+    missing = [cr for cr in in_scope if cr.get("has_pod") is False]
+    unknown = [cr for cr in in_scope if cr.get("has_pod") is None]
+    if not missing and not unknown:
+        return _pass(rule_id, "Proof of debt is held for every debt over £500.")
+    lines = []
+    if missing:
+        lines.append(f"Proof of debt has not been received for these debts over £500: {_money_list(missing)}.")
+    if unknown:
+        lines.append(f"It is not known whether proof of debt is held for these debts over £500: {_money_list(unknown)}.")
+    lines.append(
+        "The case can proceed to drafting without these if the overall debt level is evidenced, "
+        "but proof of debt should still be obtained for each."
+    )
+    return RuleResult(
+        rule_id=rule_id, severity="flag", triggered=True,
+        message="\n".join(lines),
+        creditors=[cr["name"] for cr in missing + unknown],
+    )
+
+
+def _council_tax_evidence(c: dict, council_positions: list) -> RuleResult:
+    """COUNCIL-TAX-EVIDENCE: evidence a council tax creditor needs, by its voting position.
+
+    Non-voting councils need proof of debt. Accepting, rejecting and DIV councils
+    (a minimum dividend recorded, or a DIV returned on the case) need a creditor
+    call sheet before SIP. Will Consider / Conditional Voter councils with no DIV
+    are not covered by the requirement and are not checked.
+    """
+    from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX
+    rule_id = "COUNCIL-TAX-EVIDENCE"
+    ct_creditors = {
+        cr["_idx"]: cr for cr in c["creditors"]
+        if cr["debt_type_normalised"] == DEBT_TYPE_COUNCIL_TAX and cr["balance"] > 0
+    }
+    if not ct_creditors:
+        return _pass(rule_id, "There is no council tax debt, so no council tax evidence is required.")
+
+    positions_by_idx = {
+        p.get("_creditor_idx"): p for p in council_positions
+        if p.get("_creditor_idx") in ct_creditors
+    }
+    missing, unknown, no_criteria = [], [], []
+    drafting_stage = False  # any problem not deferrable to SIP (a POD, an unknown council)
+    for idx, cr in ct_creditors.items():
+        pos = positions_by_idx.get(idx)
+        label = cr.get("original_name") or cr["name"]
+        if pos is None:
+            no_criteria.append(label)
+            continue
+        status = (pos.get("effective_status") or "").upper()
+        has_div = cr.get("div_returned") is not None or any(
+            f.get("code") == "INFO-MIN-DIVIDEND" for f in pos.get("findings") or []
+        )
+        if status in ("DO_NOT_VOTE", "POD_ONLY"):
+            field, need = "has_pod", "proof of debt (non-voting council)"
+        elif status in ("ACCEPT", "REJECT") or has_div:
+            kind = "DIV" if has_div and status not in ("ACCEPT", "REJECT") else status.lower() + "ing"
+            field, need = "creditor_call_completed", f"a call sheet before SIP ({kind} council)"
+        else:
+            continue
+        value = cr.get(field)
+        if value is False:
+            missing.append(f"{label}: {need}")
+        elif value is None:
+            unknown.append(f"{label}: {need}")
+        if value is not True and field == "has_pod":
+            drafting_stage = True
+
+    if not missing and not unknown and not no_criteria:
+        return _pass(rule_id, "The evidence required for each council tax creditor is in place.")
+    lines = []
+    if missing:
+        lines.append("Required council tax evidence is missing, so the case must be returned:\n- " + "\n- ".join(missing))
+    if unknown:
+        lines.append("It is not known whether this council tax evidence is on file; the caseworker must confirm it:\n- " + "\n- ".join(unknown))
+    if no_criteria:
+        lines.append(
+            "These councils are not in the council criteria list, so the evidence they need could not be "
+            "determined; the caseworker must check them manually: " + ", ".join(no_criteria) + "."
+        )
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block" if missing else "flag", triggered=True,
+        message="\n".join(lines),
+        required_before="drafting" if drafting_stage or no_criteria else "sip",
+    )
+
+
+COUNCIL_DIV_RULE_ID = "COUNCIL-DIV-REQUIRED-DI"
+#: The fixed costs added to the council's share before dividing by the term.
+#: The live value is `GlobalCriteria.threshold_value` on the rule's row; this
+#: is the fallback when that row or value is missing.
+COUNCIL_DIV_DEFAULT_FEE = Decimal("4250")
+#: Council debt above this share of unsecured debt is "the majority".
+COUNCIL_DIV_MAJORITY_SHARE = Decimal("0.5")
+_PENNY = Decimal("0.01")
+
+
+def _council_div_fee() -> Decimal:
+    """The fee in the council DIV formula: the rule's `GlobalCriteria.threshold_value`,
+    so it can change without a release; the default when it is not set."""
+    try:
+        from debt_app.models import GlobalCriteria
+        value = (GlobalCriteria.objects.filter(rule_key=COUNCIL_DIV_RULE_ID)
+                 .values_list("threshold_value", flat=True).first())
+    except Exception as e:
+        logger.warning("Council DIV fee not read from GlobalCriteria, using %s: %s", COUNCIL_DIV_DEFAULT_FEE, e)
+        return COUNCIL_DIV_DEFAULT_FEE
+    return Decimal(value) if value is not None else COUNCIL_DIV_DEFAULT_FEE
+
+
+def _council_div_required_di(c: dict, council_positions: list, fee: Decimal = COUNCIL_DIV_DEFAULT_FEE) -> RuleResult:
+    """COUNCIL-DIV-REQUIRED-DI: where council debt is the majority and a DIV is
+    known, the case DI must cover the council's minimum.
+
+        Required DI = ((Debt Level x DIV) + fee) / term
+
+    * Council debt: the unsecured creditors with a council position (final, so
+      after the county merge and TIG-17), over half of unsecured debt.
+    * DIV: the one CAT sends for that creditor (`div_returned`, a decimal),
+      else the council's stored `min_dividend_pence / 100`. With several DIV
+      councils the highest applies.
+    * Debt Level: total unsecured debt.
+    * Term: 72 months when the client has a mortgage, else 60 -- WATCH-22.2's
+      test, not the `iva_term_months` CAT sends.
+    * Actual DI: `monthly_di`.
+
+    Returns the case when Actual DI is below Required DI, with Required DI as
+    `threshold` and Actual DI as `actual_value` (the shortfall is the
+    difference). Not applicable (pass) otherwise.
+    """
+    rule_id = COUNCIL_DIV_RULE_ID
+    total_debt = Decimal(str(c.get("total_debt") or 0))
+    if total_debt <= 0:
+        return _pass(rule_id, "There is no unsecured debt, so the council DIV requirement does not apply.")
+
+    by_idx = {cr["_idx"]: cr for cr in c["creditors"]}
+    councils = {}
+    for pos in council_positions:
+        cr = by_idx.get(pos.get("_creditor_idx"))
+        if cr is None or cr["is_secured"] or cr["balance"] <= 0:
+            continue
+        councils[cr["_idx"]] = (cr, pos)
+    council_debt = sum((Decimal(str(cr["balance"])) for cr, _ in councils.values()), Decimal("0"))
+    if council_debt / total_debt <= COUNCIL_DIV_MAJORITY_SHARE:
+        return _pass(rule_id, "Council debt is not the majority of the debt, so the council DIV requirement does not apply.")
+
+    divs = []
+    for cr, pos in councils.values():
+        if cr.get("div_returned") is not None:
+            divs.append((Decimal(cr["div_returned"]), cr, "returned on this case"))
+        elif pos.get("min_dividend_pence") is not None:
+            divs.append((Decimal(pos["min_dividend_pence"]) / 100, cr, "the council's stored minimum"))
+    if not divs:
+        return _pass(rule_id, "Council debt is the majority, but no council has a DIV, so there is no DI requirement to check.")
+    div, div_cr, div_source = max(divs, key=lambda d: d[0])
+    # This rule now owns the council's DIV, so assess_case drops the older
+    # COUNCIL-DIVIDEND-BELOW-MIN flag (an estimate without the fee) for it.
+    c["_council_div_rule_applied"] = True
+
+    term = 72 if _watch_22_2_has_mortgage(c) else 60
+    required = (((total_debt * div) + fee) / term).quantize(_PENNY, rounding=ROUND_HALF_UP)
+    actual = Decimal(str(c.get("monthly_di") or 0)).quantize(_PENNY, rounding=ROUND_HALF_UP)
+    council = div_cr.get("original_name") or div_cr["name"]
+    working = (
+        f"((£{total_debt:,.2f} debt x {div.normalize():f} DIV) + £{fee:,.2f}) ÷ {term} months = £{required:,.2f}. "
+        f"DIV of {(div * 100).normalize():f}% from {council} ({div_source}); "
+        f"{term}-month term because the client {'has' if term == 72 else 'has no'} mortgage."
+    )
+    if actual >= required:
+        return _pass(
+            rule_id,
+            f"Council debt is the majority and the case DI meets the council's requirement. "
+            f"Required DI: £{required:,.2f}. Actual DI: £{actual:,.2f}. {working}",
+            threshold=float(required), actual_value=float(actual),
+        )
+    shortfall = required - actual
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block", triggered=True,
+        message=(
+            "Council debt is the majority and the case DI is below the council's minimum requirement, "
+            "so the case must be returned.\n"
+            f"Required DI: £{required:,.2f}\nActual DI: £{actual:,.2f}\nShortfall: £{shortfall:,.2f}\n"
+            f"{working}"
+        ),
+        threshold=float(required), actual_value=float(actual),
+        creditors=[div_cr["name"]],
+    )
+
+
+def _ccj_original_creditor(c: dict) -> RuleResult:
+    """CCJ-ORIGINAL-CREDITOR: where CCJs make up the majority of the debt, the
+    original creditor behind every CCJ must be identified."""
+    rule_id = "CCJ-ORIGINAL-CREDITOR"
+    if not c.get("ccj_is_majority"):
+        return _pass(rule_id, "CCJs do not make up the majority of the debt.")
+    unidentified = [
+        cr for cr in c["ccj_creditors"]
+        if not (cr.get("original_creditor") or (cr.get("linked_creditor") or "").strip())
+    ]
+    if not unidentified:
+        return _pass(rule_id, "CCJs make up the majority of the debt, and the original creditor is identified for each.")
+    return RuleResult(
+        rule_id=rule_id, severity="hard_block", triggered=True,
+        message=(
+            f"CCJs make up £{c['ccj_balance']:,.2f} of the customer's £{c['total_debt']:,.2f} unsecured debt, "
+            "which is the majority. The original creditor must be identified for every CCJ, but it is not "
+            f"recorded for: {_money_list(unidentified)}. The case must be returned until they are identified."
+        ),
+        creditors=[cr["name"] for cr in unidentified],
     )
 
 
@@ -5054,6 +5541,9 @@ def _check_council_rules(case: dict) -> list[dict]:
             "reason": reason,
             "_creditor_idx": cr.get("_idx"),
             "debt_type_normalised": cr.get("debt_type_normalised"),
+            # The council's stored minimum dividend (its DIV) as a number --
+            # COUNCIL-DIV-REQUIRED-DI's fallback when CAT sends no DIV.
+            "min_dividend_pence": rule.min_dividend_pence,
         })
 
     return positions
@@ -7400,6 +7890,9 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
         _watch_22_11,  # gambling as primary cause of debt
         _bpo_debt,     # debts listed under a BPO (agency) name — real creditor needed
         _bank_statements,  # 12 months of statements per credit-report bank account
+        # Missing-evidence criteria (seeded switched off until CAT sends the fields)
+        _hmrc_call_sheet, _self_employed_call_sheet, _arrears_creditor_call,
+        _debt_level_evidenced, _pod_over_500, _ccj_original_creditor,
     ]
     for fn in tig_rules:
         _run(fn)
@@ -7568,6 +8061,10 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
                     + (_cp.get("reason") or "")
                 ).strip()
 
+    # Needs each council's final voting position, so runs after TIG-17 propagation.
+    _run(_council_tax_evidence, council_positions)
+    _run(_council_div_required_di, council_positions, _council_div_fee())
+
     for r in _check_special_employer(c):
         _route(r)
     for r in _check_ie_match(c):
@@ -7619,6 +8116,11 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
 
     # EXCEL_CRITERIA_REFERENCE.md — Dividends: below-minimum surfaced as actionable flag
     for entry in dividend_analysis["below_min"]:
+        # A council's DIV is judged by COUNCIL-DIV-REQUIRED-DI once it applies
+        # (with the fee and the real term); this older estimate would contradict it.
+        if (c.get("_council_div_rule_applied") and isinstance(entry, dict)
+                and entry.get("code") == "COUNCIL-DIVIDEND-BELOW-MIN"):
+            continue
         cname = entry["creditor_name"] if isinstance(entry, dict) else entry
         min_p = entry["min_dividend_pence"] if isinstance(entry, dict) else "?"
         est_p = entry.get("estimated_pence", dividend_analysis["estimated_pence"]) if isinstance(entry, dict) else dividend_analysis["estimated_pence"]
