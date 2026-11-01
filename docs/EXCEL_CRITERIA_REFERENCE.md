@@ -14,7 +14,7 @@ Rules applied by TIG (The Insolvency Group) before accepting a case into an IVA.
 ### Debt Thresholds
 | Rule | Value | Note |
 |------|-------|------|
-| Minimum unsecured debt | £6,000 | Hard block — cases below this are not viable |
+| Minimum unsecured debt | £5,400 (was £6,000 until 2026-11-02) | Hard block — cases below this are not viable |
 | Minimum disposable income (DI) | £100/month | Hard block — below this IVA is unsustainable |
 
 ### Income Evidence Requirements

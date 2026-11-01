@@ -1108,9 +1108,15 @@ def _parse_case(case_json: dict) -> dict:
 # TIG RULES — run for ALL cases
 # ---------------------------------------------------------------------------
 
+#: The IVA minimum unsecured debt (£6,000 until 2026-11-02). One figure for
+#: TIG-01 (total debt), TIG-10 (debt left once unverified sub-£1,000 debts
+#: are taken out) and DEBT-LEVEL-EVIDENCED (debt backed by proof of debt).
+IVA_MIN_DEBT = 5400.0
+
+
 def _tig_01(c: dict) -> RuleResult:
-    """TIG-01: Total unsecured debt must be >= £6,000."""
-    threshold = 6000.0
+    """TIG-01: Total unsecured debt must be >= IVA_MIN_DEBT (£5,400)."""
+    threshold = IVA_MIN_DEBT
     actual = c["total_debt"]
     if actual < threshold:
         return RuleResult(
@@ -1408,7 +1414,7 @@ def _tig_10(c: dict) -> RuleResult:
     """
     creditors = c.get("creditors", [])
     total_debt = float(c.get("total_debt") or 0)
-    MIN_DEBT = 6000.0  # mirrors TIG-01's minimum unsecured debt threshold
+    MIN_DEBT = IVA_MIN_DEBT
 
     hard_block_unverified = []  # >= £1,000, unidentified — always hard_block
     sub_1k_unverified = []      # < £1,000, unidentified — flag, unless load-bearing
@@ -1467,7 +1473,7 @@ def _tig_10(c: dict) -> RuleResult:
                     f"The debt with {name}, balance £{balance:,.0f}, is unverified and under £1,000. "
                     "Verbal confirmation would normally be acceptable for a debt this size, but removing it and the other "
                     f"unverified sub-£1,000 debts would drop the total debt to £{provable:,.0f}, below the "
-                    "£6,000 minimum required for an IVA. Because this affects whether the case qualifies at all, "
+                    f"£{MIN_DEBT:,.0f} minimum required for an IVA. Because this affects whether the case qualifies at all, "
                     "proof of the debt is required rather than a verbal confirmation."
                 )
                 severity = "hard_block"
@@ -3307,9 +3313,9 @@ def _is_debt_evidenced(cr: dict) -> bool:
 
 def _debt_level_evidenced(c: dict) -> RuleResult:
     """DEBT-LEVEL-EVIDENCED: the debt backed by proof of debt (or a credit
-    report match) must itself meet the IVA minimum debt level."""
+    report match) must itself meet the IVA minimum debt level (IVA_MIN_DEBT)."""
     rule_id = "DEBT-LEVEL-EVIDENCED"
-    min_debt = 6000.0  # mirrors TIG-01's minimum unsecured debt threshold
+    min_debt = IVA_MIN_DEBT
     unsecured = [cr for cr in c["creditors"] if not cr["is_secured"] and cr["balance"] > 0]
     evidenced = sum(cr["balance"] for cr in unsecured if _is_debt_evidenced(cr))
     if evidenced >= min_debt:

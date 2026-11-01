@@ -48,8 +48,8 @@ class Command(BaseCommand):
                 'rule_name': 'Minimum debt',
                 'severity': 'hard_block',
                 'is_active': True,
-                'threshold_value': Decimal('6000.00'),
-                'description': 'Total unsecured debt must be at least £6,000. Below this threshold the case cannot proceed.',
+                'threshold_value': Decimal('5400.00'),
+                'description': 'Total unsecured debt must be at least £5,400. Below this threshold the case cannot proceed.',
             },
             {
                 'criteria_set': 'TIG',
@@ -179,7 +179,7 @@ class Command(BaseCommand):
                                'exception (debts under £1,000 may be verbal if no POD is '
                                'available) is implemented inside TIG-10, including the Excel '
                                '"unless it is a debt level issue" caveat — a sub-£1,000 debt '
-                               'cannot be verbal when it is load-bearing for the £6,000 '
+                               'cannot be verbal when it is load-bearing for the £5,400 '
                                'minimum (TIG-01), in which case TIG-10 hard-blocks. No separate '
                                'TIG-14 engine rule exists; this row is kept inactive for history.',
             },

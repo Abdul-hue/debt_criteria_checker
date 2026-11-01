@@ -175,7 +175,7 @@ sends `false` because the field is not wired up yet, cases will be returned wron
 | Proposed rule id | Applies when | Passes when | Otherwise |
 |------------------|--------------|-------------|-----------|
 | `COUNCIL-DIV-REQUIRED-DI` | Council debt is **over 50%** of unsecured debt **and** a DIV is known | `monthly_di` ≥ Required DI | Return the case: `threshold` = Required DI, `actual_value` = Actual DI, the message states all three |
-| `DEBT-LEVEL-EVIDENCED` | Always | Evidenced unsecured debt ≥ £6,000 | Return the case |
+| `DEBT-LEVEL-EVIDENCED` | Always | Evidenced unsecured debt (POD or credit report match) ≥ £5,400, the same IVA minimum as TIG-01 | Return the case |
 | `POD-OVER-500` | A creditor balance is over £500 | `has_pod` is `true` | Flag only, provided `DEBT-LEVEL-EVIDENCED` passes (the case can go to drafting) |
 | `HMRC-CALL-SHEET` | HMRC is a creditor | Every HMRC creditor has `creditor_call_completed: true` (the call to HMRC, on CAT's call sheet) | Return the case |
 | `SELF-EMPLOYED-CALL-SHEET` | Self-employed for 12 months or more | `has_call_sheet` is `true` | Return the case |

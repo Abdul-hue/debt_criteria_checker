@@ -164,6 +164,16 @@ class DebtLevelEvidencedTest(SimpleTestCase):
                      {"creditor_name": "B", "balance": 3000, "has_pod": False}])
         self.assertEqual(_outcome(_debt_level_evidenced(c)), "pass")
 
+    def test_minimum_is_5400(self):
+        at = _parsed([{"creditor_name": "A", "balance": 5400, "has_pod": True},
+                      {"creditor_name": "B", "balance": 3000, "has_pod": False}])
+        self.assertEqual(_outcome(_debt_level_evidenced(at)), "pass")
+        below = _parsed([{"creditor_name": "A", "balance": 5399.99, "has_pod": True},
+                         {"creditor_name": "B", "balance": 3000, "has_pod": False}])
+        r = _debt_level_evidenced(below)
+        self.assertEqual(_outcome(r), "hard_block")
+        self.assertEqual(r.threshold, 5400)
+
     def test_credit_report_match_counts_as_evidence(self):
         c = _parsed([{"creditor_name": "A", "balance": 6500, "from_credit_report": True}])
         self.assertEqual(_outcome(_debt_level_evidenced(c)), "pass")
