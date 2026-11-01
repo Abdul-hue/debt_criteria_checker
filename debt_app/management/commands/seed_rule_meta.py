@@ -708,11 +708,11 @@ class Command(BaseCommand):
             {
                 'criteria_set': 'TIG',
                 'rule_key': 'BPO-DEBT',
-                'rule_name': 'Debt collector listed instead of debt provider',
+                'rule_name': 'Debt Collection Agency (DCA) listed instead of the actual creditor',
                 'severity': 'flag',
                 'is_active': True,
-                'description': 'A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.',
-                'action': 'Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.',
+                'description': 'A debt is listed in Aryza under a Debt Collection Agency (DCA) — a debt collector, bailiff or enforcement agency — not the company the debt is owed to. The agencies are kept in the Debt Collectors list.',
+                'action': 'Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.',
             },
             {
                 'criteria_set': 'TIG',

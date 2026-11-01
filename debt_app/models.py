@@ -495,6 +495,10 @@ class DebtCollector(models.Model):
 
     Only collectors acting FOR someone else belong here — NOT debt purchasers
     (Cabot, Lowell, Intrum, ...), which own the debt and are valid creditors.
+
+    A creditor name matches when it equals `name` or an alias, ignoring case,
+    punctuation, "&"/"and" and a trailing Ltd/plc/LLP (engine
+    `_collector_key`). Every other trading name must be listed as an alias.
     """
 
     name = models.CharField(max_length=255, unique=True)

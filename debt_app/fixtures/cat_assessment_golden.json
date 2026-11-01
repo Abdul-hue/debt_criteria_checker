@@ -672,16 +672,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -1473,16 +1473,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -2457,16 +2457,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -3304,16 +3304,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -4261,16 +4261,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -5096,16 +5096,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -6011,16 +6011,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -6817,16 +6817,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -7823,16 +7823,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -8716,16 +8716,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -9720,16 +9720,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -10613,16 +10613,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -11519,16 +11519,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -12314,16 +12314,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -13275,16 +13275,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -14124,16 +14124,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -15050,16 +15050,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -15852,16 +15852,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -16764,16 +16764,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -17565,16 +17565,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -18537,16 +18537,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -19398,16 +19398,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -20359,16 +20359,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -21314,16 +21314,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {
@@ -22345,16 +22345,16 @@
           "triggered": false
         },
         {
-          "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+          "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
           "actual_value": null,
           "creditors": [],
-          "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-          "message": "No debts are listed under a debt collector.",
+          "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+          "message": "No debts are listed under a Debt Collection Agency (DCA).",
           "required_before": "drafting",
           "rule_id": "BPO-DEBT",
           "severity": "pass",
           "threshold": null,
-          "title": "Debt collector listed instead of debt provider",
+          "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
           "triggered": false
         },
         {
@@ -23146,16 +23146,16 @@
             "triggered": false
           },
           {
-            "action": "Change the creditor name in Aryza to the actual debt provider and upload proof of debt from that provider, not from the collector.",
+            "action": "Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.",
             "actual_value": null,
             "creditors": [],
-            "description": "A debt is listed in Aryza under a debt collector (BPO), not the company the debt is owed to. The collectors are kept in the Debt Collectors list.",
-            "message": "No debts are listed under a debt collector.",
+            "description": "A debt is listed in Aryza under a Debt Collection Agency (DCA) \u2014 a debt collector, bailiff or enforcement agency \u2014 not the company the debt is owed to. The agencies are kept in the Debt Collectors list.",
+            "message": "No debts are listed under a Debt Collection Agency (DCA).",
             "required_before": "drafting",
             "rule_id": "BPO-DEBT",
             "severity": "pass",
             "threshold": null,
-            "title": "Debt collector listed instead of debt provider",
+            "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
             "triggered": false
           },
           {

@@ -596,6 +596,10 @@ def _parse_case(case_json: dict) -> dict:
 
         creditors.append({
             "_idx": _idx,
+            # The caller's own identity for this debt (CAT: `aryza:<debt id>`,
+            # `creditor:<id>`, `cr:<id>`, `pod:<id>`). Echoed by BPO-DEBT so
+            # each DCA hit names its debt exactly, never by name or balance.
+            "liability_key": c.get("liability_key"),
             "name": c.get("creditor_name") or c.get("name", ""),
             "original_name": c.get("original_name") or c.get("original_aryza_name") or c.get("name", ""),
             "balance": balance,
@@ -2620,34 +2624,122 @@ def _tig_21_5(c: dict) -> RuleResult:
     )
 
 
-def _name_words(s: str) -> str:
-    """Lowercase, punctuation -> spaces, padded so ' marston ' is a whole-word test."""
-    return " " + " ".join(re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split()) + " "
+_LEGAL_FORM_WORDS = {"ltd", "limited", "plc", "llp", "lp", "llc", "inc"}
+
+
+def _collector_key(s: str) -> str:
+    """A name reduced to what identifies it: lowercase, "&" -> "and",
+    punctuation and spacing ignored, trailing legal form (Ltd, Limited, plc,
+    LLP...) dropped. "MARSTON (Holdings) Ltd." -> "marston holdings";
+    "Bristow and Sutor" == "Bristow & Sutor".
+    """
+    words = re.sub(r"[^a-z0-9]+", " ", (s or "").lower().replace("&", " and ")).split()
+    while words and words[-1] in _LEGAL_FORM_WORDS:
+        words.pop()
+    return " ".join(words)
 
 
 def _matching_debt_collector(name: str, collectors: list) -> Optional[str]:
-    """Return the collector whose name/alias appears as whole words in `name`.
+    """Return the collector whose name or alias IS `name`, once both are
+    reduced by `_collector_key`.
 
-    "Marston Holdings Ltd" matches "Marston"; "Abmarston" does not.
+    ⚠️ EXACT, NOT CONTAINS (2026-10-30, the DCA brief). Whole-word containment
+    flagged any creditor whose name held a collector's words; a Hard Flag in
+    CAT needs no guessing. A trading-name variant ("Marston Holdings" for
+    "Marston") is an alias on the DebtCollector row, not a looser match.
     """
-    words = _name_words(name)
+    key = _collector_key(name)
+    if not key:
+        return None
     for collector_name, patterns in collectors:
-        if any(p.strip() and p in words for p in patterns):
+        if key in patterns:
             return collector_name
     return None
 
 
-def _bpo_debt(c: dict) -> RuleResult:
-    """BPO-DEBT: a debt listed under a debt collector (BPO) is not the actual debt.
+def _debt_collector_entry(dc) -> tuple:
+    """(name, {name/alias keys}) for one active DebtCollector row.
 
-    Flag only (never a block). The caseworker changes the creditor name in
-    Aryza to the debt provider and uploads POD from that provider — the next
-    assessment then evaluates the real creditor and the flag clears.
+    ⚠️ `aliases` IS A FREE JSON FIELD (2026-11-01). Spread as-is, a bare string
+    gave one single-letter key per character (a creditor named "M" matched
+    "Marston"), and a number raised and emptied the WHOLE list -- every case
+    then passed BPO-DEBT. A string is read as one alias; any other non-list
+    value, and any non-text item, is ignored and logged. The row still
+    matches on its own name.
+    """
+    raw = dc.aliases
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        if raw:
+            logger.error("DebtCollector %r: aliases is %s, not a list -- ignored", dc.name, type(raw).__name__)
+        raw = []
+    aliases = [a for a in raw if isinstance(a, str)]
+    if len(aliases) != len(raw):
+        logger.error("DebtCollector %r: %d non-text aliases ignored", dc.name, len(raw) - len(aliases))
+    return dc.name, {k for k in map(_collector_key, [dc.name or "", *aliases]) if k}
+
+
+#: BPO-DEBT's hard block when the Debt Collectors list could not be read. Plain
+#: words only -- the cause is in the log, never in a result an advisor or an
+#: API caller sees.
+DEBT_COLLECTOR_LIST_FAILED_MESSAGE = (
+    "The Debt Collection Agency (DCA) check could not be completed because the list of "
+    "agencies could not be read. A caseworker must review this case manually."
+)
+
+#: ⚠️ A CONTRACT WITH THE CASE-ASSESSMENT TOOL (2026-11-01): `failure_code` on
+#: BPO-DEBT's hard block is how CAT tells "the DCA list could not be read" from
+#: every other hard block -- never the message, which is wording. CAT holds the
+#: same string (`lifecycle.py :: DCA_LIST_UNAVAILABLE`); change both or neither.
+DEBT_COLLECTOR_LIST_FAILURE_CODE = "DCA_LIST_UNAVAILABLE"
+
+
+@dataclass
+class DebtCollectorListFailure(RuleResult):
+    """BPO-DEBT's hard block when the Debt Collectors list could not be read.
+    `failure_code` names that failure for callers; a subclass so no other
+    result grows the field."""
+    failure_code: str = DEBT_COLLECTOR_LIST_FAILURE_CODE
+
+
+@dataclass
+class DebtCollectorResult(RuleResult):
+    """BPO-DEBT's triggered result: `liability_keys[i]` is the caller's key for
+    the debt `creditors[i]` names (None where the caller sent none).
+
+    A subclass, not a RuleResult field, so no other rule's result -- nor
+    BPO-DEBT's pass -- grows a key (`dataclasses.asdict` serialises it).
+    """
+    liability_keys: list = field(default_factory=list)
+
+
+def _bpo_debt(c: dict) -> RuleResult:
+    """BPO-DEBT: a debt listed under a Debt Collection Agency (DCA) is not the
+    actual debt. BPO-DEBT is the internal id; advisors read "DCA".
+
+    A flag (never a block) for a match. The caseworker finds the actual
+    creditor and corrects the creditor name in Aryza — the next assessment then
+    evaluates the real creditor and the flag clears.
+
+    ⚠️ THE DCA'S PROOF OF DEBT IS NOT REJECTED (2026-10-30): it stays on the
+    case, and POD from the actual creditor is needed as well. The wording says
+    so; no POD rule reads this one.
     Collectors come from the DebtCollector table, pre-fetched into
     c["_debt_collectors"] by _assess_case_impl. Checks both the matched name
     and the original Aryza name, since alias resolution can replace one with
     the other.
+
+    ⚠️ FAILS CLOSED (2026-11-01, approved): when that list could not be read
+    (`c["_debt_collectors_failed"]`), the case was not checked, so it is a
+    HARD BLOCK -- the shape `_run` gives a rule that raised, without the
+    exception text (logged where the load failed), carrying
+    `failure_code` so a caller can tell it apart (`DebtCollectorListFailure`).
+    An empty list is not a failure.
     """
+    if c.get("_debt_collectors_failed"):
+        return DebtCollectorListFailure(rule_id="BPO-DEBT", severity="hard_block", triggered=True,
+                                        message=DEBT_COLLECTOR_LIST_FAILED_MESSAGE)
     collectors = c.get("_debt_collectors") or []
     hits = []
     for cr in c.get("creditors", []):
@@ -2658,22 +2750,24 @@ def _bpo_debt(c: dict) -> RuleResult:
         if collector:
             hits.append((cr, collector))
     if not hits:
-        return _pass("BPO-DEBT", "No debts are listed under a debt collector.")
+        return _pass("BPO-DEBT", "No debts are listed under a Debt Collection Agency (DCA).")
 
     lines = []
     for cr, collector in hits:
         name = cr.get("original_name") or cr.get("name")
         lines.append(
-            f"The debt listed as '{name}', balance £{cr['balance']:,.0f}, is with {collector}, a debt collector, "
-            "not the company the debt is owed to. Change the creditor name in Aryza to the actual debt provider "
-            "and upload proof of debt from that provider, not from the collector."
+            f"The debt listed as '{name}', balance £{cr['balance']:,.0f}, is with {collector}, a Debt Collection "
+            "Agency (DCA), not the company the debt is owed to. Identify the actual creditor and correct the "
+            f"creditor name in Aryza. Do not reject the proof of debt from {collector} at this stage; proof of "
+            "debt from the actual creditor will also be needed."
         )
-    return RuleResult(
+    return DebtCollectorResult(
         rule_id="BPO-DEBT",
         severity="flag",
         triggered=True,
         message="\n".join(lines),
         creditors=[cr.get("original_name") or cr.get("name") for cr, _ in hits],
+        liability_keys=[cr.get("liability_key") or None for cr, _ in hits],
     )
 
 
@@ -7823,16 +7917,21 @@ def _assess_case_impl(case_json: dict, detected_representatives: Optional[set] =
     # (TIG-16 must not point WATCH cases to a retired WATCH-22.4).
     c["_disabled_rules"] = _disabled_rules
 
-    # Debt collectors (BPO-DEBT) — loaded once, as (name, [padded word patterns]).
+    # Debt collectors (BPO-DEBT) — loaded once, as (name, {name/alias keys}).
+    # ⚠️ A LIST THAT CANNOT BE READ FAILS CLOSED (2026-11-01, approved): the
+    # error is logged here, with the case, and BPO-DEBT returns a hard block
+    # (`_bpo_debt`) instead of passing a case it never checked. A list that
+    # loads EMPTY is not a failure -- nothing is listed, so nothing matches.
+    # One bad ROW never fails the list (`_debt_collector_entry`).
     try:
         from debt_app.models import DebtCollector as _DC
-        c["_debt_collectors"] = [
-            (dc.name, [_name_words(n) for n in [dc.name, *(dc.aliases or [])]])
-            for dc in _DC.objects.filter(is_active=True)
-        ]
+        c["_debt_collectors"] = [_debt_collector_entry(dc) for dc in _DC.objects.filter(is_active=True)]
+        c["_debt_collectors_failed"] = False
     except Exception as _e:
-        logger.warning("Could not load DebtCollector list: %s", _e)
+        logger.error("Could not load the DebtCollector list for case %r -- BPO-DEBT fails closed: %s",
+                     c.get("aryza_reference"), _e, exc_info=True)
         c["_debt_collectors"] = []
+        c["_debt_collectors_failed"] = True
 
     hard_blocks: list[RuleResult] = []
     flags: list[RuleResult] = []
