@@ -69,10 +69,23 @@ class DirectAssessView(APIView):
                     aryza_reference=aryza_reference,
                     extraction_status="extracted",
                 ).order_by("-created_at")
-                cr_obj = next(
-                    (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
-                    None,
-                )
+                # CAT sends the id of the report it shows (an upload wins over
+                # an Experian import there); enrich from exactly that one, scoped
+                # to this reference. Unknown or absent: the newest, as before.
+                pinned = None
+                pinned_id = case_json.get("credit_report_id")
+                if pinned_id not in (None, ""):
+                    try:
+                        pinned = recent_reports.filter(id=int(pinned_id)).first()
+                    except (TypeError, ValueError):
+                        pinned = None
+                if pinned is not None:
+                    cr_obj = pinned if (pinned.extracted_data or {}).get('accounts') else None
+                else:
+                    cr_obj = next(
+                        (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
+                        None,
+                    )
                 if cr_obj and cr_obj.extracted_data:
                     # Merge accounts and mortgage accounts
                     cr_accounts = (

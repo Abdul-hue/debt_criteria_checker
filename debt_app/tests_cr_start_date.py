@@ -93,3 +93,46 @@ class DirectAssessCrStartDateTests(TestCase):
         """A creditor with no CR match must expose the key as None, not omit it."""
         for position in self._assess().values():
             self.assertIn("cr_start_date", position)
+
+
+class DirectAssessPinnedReportTests(TestCase):
+    """CAT sends `credit_report_id`: the report it shows, which need not be the
+    newest the engine holds (an upload wins in CAT over an Experian import)."""
+
+    def setUp(self):
+        self.client = Client()
+
+        def report(start_date):
+            return CreditReport.objects.create(
+                aryza_reference="TEST-CR-PIN", extraction_status="extracted",
+                extracted_data={"accounts": [{
+                    "raw_name": "MBNA LTD", "matched_creditor": "MBNA - IVA", "type_code": "CC",
+                    "current_balance": 810900, "account_status": "Active",
+                    "start_date": start_date,
+                }]},
+            )
+        self.shown = report("2018-01-01")      # older: the one CAT shows
+        self.newest = report("2021-03-19")
+
+    def _start_date(self, **extra):
+        response = self.client.post(
+            "/api/v1/assess/",
+            data=json.dumps({"application_id": "TEST-CR-PIN",
+                             "creditors": [{"name": "MBNA LTD", "balance": 8109.00}], **extra}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content[:400])
+        [position] = [p for p in response.json()["creditor_positions"]
+                      if (p.get("cr_raw_name") or p.get("creditor_name")) == "MBNA LTD"]
+        return position.get("cr_start_date")
+
+    def test_the_pinned_report_is_used(self):
+        self.assertEqual(self._start_date(credit_report_id=self.shown.id), "2018-01-01")
+
+    def test_no_pin_is_the_newest_as_before(self):
+        self.assertEqual(self._start_date(), "2021-03-19")
+
+    def test_a_pin_to_another_cases_report_is_ignored(self):
+        other = CreditReport.objects.create(aryza_reference="OTHER", extraction_status="extracted",
+                                            extracted_data={"accounts": []})
+        self.assertEqual(self._start_date(credit_report_id=other.id), "2021-03-19")
