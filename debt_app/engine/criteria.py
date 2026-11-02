@@ -1411,6 +1411,12 @@ def _tig_10(c: dict) -> RuleResult:
     this engine, so we don't second-guess a named entry). Escalation only
     fires for genuinely unidentified debts, per Excel: "Debts under £1,000
     can be verbal if not able to get a POD (unless it's a debt level issue)".
+
+    ⚠️ A HELD PROOF OF DEBT VERIFIES THE DEBT (`has_pod: true`, sent by CAT
+    when the debt's ledger row carries the creditor's letter or a satisfied
+    call). The block's own wording asks for exactly that proof, yet an
+    unidentified debt stayed blocked with it on file (case 146305: "OTHER"
+    £1,043, letter from The Sheriffs Office held).
     """
     creditors = c.get("creditors", [])
     total_debt = float(c.get("total_debt") or 0)
@@ -1437,7 +1443,7 @@ def _tig_10(c: dict) -> RuleResult:
         # Verified if the debt came from the credit report
         has_credit_report = bool(creditor.get("from_credit_report"))
 
-        if is_aryza_sourced or has_credit_report:
+        if is_aryza_sourced or has_credit_report or creditor.get("has_pod") is True:
             continue
 
         # Genuinely unidentified. Prefer original_name for the message so a

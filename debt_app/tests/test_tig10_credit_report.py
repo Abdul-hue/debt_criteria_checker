@@ -51,6 +51,17 @@ class Tig10ReadsFromCreditReport(SimpleTestCase):
                   {"creditor_name": "Lendable", "balance": 9000})
         self.assertEqual(_tig_10(c).severity, "hard_block")
 
+    def test_case_146305_a_held_pod_verifies_an_unidentified_debt(self):
+        c = _case({"creditor_name": "OTHER (creditor not yet identified)", "balance": 1043, "has_pod": True},
+                  {"creditor_name": "Lendable", "balance": 9000})
+        self.assertFalse(_tig_10(c).triggered)
+
+    def test_a_missing_or_unknown_pod_still_blocks(self):
+        for has_pod in (False, None):
+            c = _case({"creditor_name": "OTHER (creditor not yet identified)", "balance": 1043, "has_pod": has_pod},
+                      {"creditor_name": "Lendable", "balance": 9000})
+            self.assertEqual(_tig_10(c).severity, "hard_block", has_pod)
+
     def test_only_the_unproven_one_is_named(self):
         c = _case({"creditor_name": "Other", "balance": 6165, "from_credit_report": True},
                   {"creditor_name": "CCJ (creditor not yet identified)", "balance": 2181},

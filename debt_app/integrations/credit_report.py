@@ -197,6 +197,14 @@ CREDITOR_ALIAS_MAP = {
     "dwp": "DWP",
     "department for work and pensions": "DWP",
     "department of work and pensions": "DWP",
+    # Government -- the Driver and Vehicle Licensing Agency. Aryza sends
+    # "DVLA", its letters print the full name (case 146305). Mirrored by CAT's
+    # `common/creditor_identity.py`. ⚠️ NOT in `helpers.py`'s map: no
+    # workbook row is named DVLA, and that map may only target one
+    # (`test_pre_deploy_audit_regressions.AliasMapIntegrityTests`).
+    "dvla": "DVLA",
+    "driver and vehicle licensing agency": "DVLA",
+    "driver & vehicle licensing agency": "DVLA",
 }
 
 # ---------------------------------------------------------------------------
