@@ -68,7 +68,7 @@ class DirectAssessView(APIView):
                 recent_reports = CreditReport.objects.filter(
                     aryza_reference=aryza_reference,
                     extraction_status="extracted",
-                ).order_by("-created_at")
+                ).order_by("-created_at", "-id")
                 # CAT sends the id of the report it shows (an upload wins over
                 # an Experian import there); enrich from exactly that one, scoped
                 # to this reference. Unknown or absent: the newest, as before.
