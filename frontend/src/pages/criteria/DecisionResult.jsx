@@ -140,7 +140,7 @@ function BlockCard({ item, type }) {
       {open && (
         <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
           {item.message && (
-            <p className="text-xs text-slate-700 leading-relaxed">{String(item.message)}</p>
+            <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{String(item.message)}</p>
           )}
           {item.action_required && (
             <div className="flex items-start gap-1.5">

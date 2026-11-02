@@ -1544,24 +1544,36 @@ def _tig_11_gambling(c: dict) -> RuleResult:
         seen.add(key)
         all_gtx.append(t)
 
-    # Short, grouped summary instead of listing every individual transaction —
-    # e.g. eight small lottery payments collapse into one clause.
-    def _tx_summary(txs):
+    # One bullet per payee instead of listing every individual transaction —
+    # e.g. eight small lottery payments collapse into one line. Bank feeds pad
+    # descriptions with currency-conversion and posting-date text, so that is
+    # stripped first or the same payee splits across several lines.
+    def _tx_lines(txs):
         if not txs:
-            return "no transactions on record"
-        groups: dict[str, list] = {}
+            return ["- No transactions on record"]
+        groups: dict[str, tuple[str, list]] = {}
         for t in txs:
-            payee = (t.get("description") or "an unnamed payee").strip()
-            groups.setdefault(payee, []).append(t)
-        clauses = []
-        for payee, group_txs in groups.items():
+            payee = _clean_payee(t.get("description")) or "An unnamed payee"
+            groups.setdefault(payee.lower(), (payee, []))[1].append(t)
+        rows = []
+        for payee, group_txs in groups.values():
             total = sum(abs(_parse_amount(t.get("amount", 0))) for t in group_txs)
+            days = sorted(d for d in (_tx_day(t) for t in group_txs) if d)
             if len(group_txs) == 1:
-                date = group_txs[0].get("transaction_date") or group_txs[0].get("date") or "an unknown date"
-                clauses.append(f"a £{total:,.2f} payment to {payee} on {date}")
+                when = f" on {_format_day(days[0])}" if days else ""
+                rows.append((total, f"- {payee}: £{total:,.2f}{when}"))
+                continue
+            if days and days[0] != days[-1]:
+                when = f" ({_format_day(days[0])} to {_format_day(days[-1])})"
+            elif days:
+                when = f" (all on {_format_day(days[0])})"
             else:
-                clauses.append(f"{len(group_txs)} payments to {payee} totalling £{total:,.2f}")
-        return "; ".join(clauses)
+                when = ""
+            rows.append((total, f"- {payee}: {len(group_txs)} payments totalling £{total:,.2f}{when}"))
+        return [line for _, line in sorted(rows, key=lambda r: -r[0])]
+
+    def _message(lead, txs, guidance):
+        return "\n".join([lead, *_tx_lines(txs), guidance])
 
     all_total = sum(
         abs(_parse_amount(t.get("amount", 0))) for t in all_gtx
@@ -1571,9 +1583,10 @@ def _tig_11_gambling(c: dict) -> RuleResult:
     if gm >= 1000:
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="hard_block", triggered=True,
-            message=(
-                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which meets or exceeds "
-                f"the £1,000 threshold at which the case cannot proceed ({_tx_summary(all_gtx)})."
+            message=_message(
+                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days:",
+                all_gtx,
+                "This meets or exceeds the £1,000 threshold, so the case cannot proceed.",
             ),
             threshold=1000.0, actual_value=gm,
         )
@@ -1583,19 +1596,20 @@ def _tig_11_gambling(c: dict) -> RuleResult:
         if c.get("gamstop_registered"):
             return RuleResult(
                 rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-                message=(
-                    f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200 "
-                    f"({_tx_summary(all_gtx)}). The customer is registered with GAMSTOP (the gambling "
-                    "self-exclusion scheme) — the caseworker must confirm this registration is still active."
+                message=_message(
+                    f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200:",
+                    all_gtx,
+                    "The customer is registered with GAMSTOP (the gambling self-exclusion scheme). The "
+                    "caseworker must confirm this registration is still active.",
                 ),
                 threshold=200.0, actual_value=gm,
             )
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-            message=(
-                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200 "
-                f"({_tx_summary(all_gtx)}). Proof of GAMSTOP registration (the gambling self-exclusion scheme) "
-                "is required."
+            message=_message(
+                f"The customer has spent £{gm:,.2f} on gambling in the last 30 days, which is above £200:",
+                all_gtx,
+                "Proof of GAMSTOP registration (the gambling self-exclusion scheme) is required.",
             ),
             threshold=200.0, actual_value=gm,
         )
@@ -1604,10 +1618,10 @@ def _tig_11_gambling(c: dict) -> RuleResult:
     if gm > 0:
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-            message=(
-                f"Some gambling transactions were found in the last 30 days, totalling £{gm:,.2f} "
-                f"({_tx_summary(all_gtx)}). This is within the acceptable limit, but the caseworker should "
-                "still review this with the customer."
+            message=_message(
+                f"Some gambling transactions were found in the last 30 days, totalling £{gm:,.2f}:",
+                all_gtx,
+                "This is within the acceptable limit, but the caseworker should still review this with the customer.",
             ),
             threshold=0.0, actual_value=gm,
         )
@@ -1616,16 +1630,44 @@ def _tig_11_gambling(c: dict) -> RuleResult:
     if all_total > 0:
         return RuleResult(
             rule_id="TIG-11-GAMBLING", severity="flag", triggered=True,
-            message=(
-                f"Gambling transactions were found in the customer's bank statements, totalling £{all_total:,.2f} "
-                f"and all outside the last 30 days ({_tx_summary(all_gtx)}). There has been no recent gambling, "
-                "so this is within the acceptable limit, but the caseworker should still review this with the "
-                "customer."
+            message=_message(
+                f"Gambling transactions totalling £{all_total:,.2f} were found in the customer's bank "
+                "statements, all outside the last 30 days:",
+                all_gtx,
+                "There has been no recent gambling, so this is within the acceptable limit, but the "
+                "caseworker should still review this with the customer.",
             ),
             threshold=0.0, actual_value=all_total,
         )
 
     return _pass("TIG-11-GAMBLING", "No gambling transactions were found in the customer's bank statements.")
+
+
+# Bank-feed noise around a payee name: a currency-conversion tail
+# ("5.000000GBP at 1.00000"), the same conversion left as a prefix
+# ("5. at 1.00000 ..."), and a posting-date suffix ("Effective Date 30 Aug 2026").
+_PAYEE_NOISE = [
+    re.compile(r"\s*\d+(?:\.\d+)?\s*[A-Z]{3}\s+at\s+\d+(?:\.\d+)?\s*$"),
+    re.compile(r"^\s*\d+(?:\.\d*)?\s+at\s+\d+(?:\.\d+)?\s+"),
+    re.compile(r"\s+Effective Date\b.*$", re.IGNORECASE),
+]
+
+
+def _clean_payee(description) -> str:
+    payee = str(description or "")
+    for pattern in _PAYEE_NOISE:
+        payee = pattern.sub("", payee)
+    return " ".join(payee.split())
+
+
+def _tx_day(t: dict) -> Optional[date]:
+    raw = t.get("transaction_date") or t.get("date")
+    if isinstance(raw, date):
+        return raw
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except (TypeError, ValueError):
+        return None
 
 
 def _tig_12(c: dict) -> RuleResult:
@@ -3177,6 +3219,10 @@ def _money_list(entries: list) -> str:
     return ", ".join(f"{cr.get('original_name') or cr['name']} (£{cr['balance']:,.2f})" for cr in entries)
 
 
+def _money_lines(entries: list) -> list[str]:
+    return [f"- {cr.get('original_name') or cr['name']}: £{cr['balance']:,.2f}" for cr in entries]
+
+
 def _call_sheet_rule(c: dict, rule_id: str, subject: str) -> RuleResult:
     """Shared outcome for the client-level call-sheet rules, once triggered."""
     has_call_sheet = c.get("has_call_sheet")
@@ -3355,9 +3401,11 @@ def _pod_over_500(c: dict) -> RuleResult:
         return _pass(rule_id, "Proof of debt is held for every debt over £500.")
     lines = []
     if missing:
-        lines.append(f"Proof of debt has not been received for these debts over £500: {_money_list(missing)}.")
+        lines.append("Proof of debt has not been received for these debts over £500:")
+        lines.extend(_money_lines(missing))
     if unknown:
-        lines.append(f"It is not known whether proof of debt is held for these debts over £500: {_money_list(unknown)}.")
+        lines.append("It is not known whether proof of debt is held for these debts over £500:")
+        lines.extend(_money_lines(unknown))
     lines.append(
         "The case can proceed to drafting without these if the overall debt level is evidenced, "
         "but proof of debt should still be obtained for each."

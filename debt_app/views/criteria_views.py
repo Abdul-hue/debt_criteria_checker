@@ -2307,6 +2307,63 @@ class CountyCouncilDetailView(APIView):
 
 
 # ---------------------------------------------------------------------------
+# Rejecting creditors (Drafter)
+# ---------------------------------------------------------------------------
+
+class RejectingCreditorsView(APIView):
+    """
+    GET /api/v1/criteria/rejecting/?type=general|councils[&search=<text>]
+    Open endpoint — no JWT required, matching CreditReportFetchView. Called
+    by the Drafter tool.
+
+    Returns every creditor of the chosen type whose standing status is REJECT:
+      general  -- active CreditorCriteria rows from the General Creditors sheet
+                  (source_sheet GENERAL_CREDITOR), as _creditor_to_dict.
+      councils -- CouncilRule rows, as _council_to_dict.
+    Only the standing status counts: a creditor that rejects conditionally
+    (e.g. a council with reject_if_employed) depends on the case and is not
+    listed. A service caller has no department, so no visibility filtering.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [AssessRateThrottle]
+
+    TYPES = ("general", "councils")
+
+    def get(self, request):
+        kind = (request.query_params.get("type") or "").strip().lower()
+        if kind not in self.TYPES:
+            return error_response(
+                f"type must be one of: {', '.join(self.TYPES)}",
+                "INVALID_TYPE", status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        search = (request.query_params.get("search") or "").strip()
+
+        if kind == "general":
+            queryset = CreditorCriteria.objects.filter(
+                status="REJECT", is_active=True, source_sheet="GENERAL_CREDITOR",
+            ).order_by("creditor_name")
+            if search:
+                queryset = queryset.filter(
+                    Q(creditor_name__icontains=search) |
+                    Q(trading_names__icontains=search)
+                )
+            results = [_creditor_to_dict(c) for c in queryset]
+        else:
+            queryset = CouncilRule.objects.filter(status="REJECT").order_by("council_name")
+            if search:
+                queryset = queryset.filter(council_name__icontains=search)
+            results = [_council_to_dict(c) for c in queryset]
+
+        return Response({
+            "success": True,
+            "type": kind,
+            "count": len(results),
+            "results": results,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
 # Application CRUD
 # ---------------------------------------------------------------------------
 
