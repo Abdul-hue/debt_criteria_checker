@@ -25,12 +25,14 @@ CONNECT = "debt_app.integrations.experian_db.ExperianDBClient._connect"
 class CreditReportFetchViewTests(TestCase):
 
     def _get(self, reference=REF, experian=ExperianImportResult(None, "flag_disabled"),
-             html="<html>report</html>", html_error=None, response_format=None):
+             html="<html>report</html>", html_error=None, response_format=None, source=None):
         html_patch = (patch(HTML_QUERY, side_effect=html_error) if html_error
                       else patch(HTML_QUERY, return_value=html))
         params = {"aryza_reference": reference} if reference is not None else {}
         if response_format is not None:
             params["response_format"] = response_format
+        if source is not None:
+            params["source"] = source
         with patch(FETCH, return_value=_case()) as fetch, patch(ENSURE, return_value=experian) as ensure, \
                 patch(CONNECT), html_patch as html_query:
             resp = APIClient().get(URL, params)
@@ -132,6 +134,40 @@ class CreditReportFetchViewTests(TestCase):
         newer = _pdf_report(extracted_data={"accounts": [_cr_account("BETA", "Beta Loans", 450000)]})
         resp, _, _ = self._get()
         self.assertEqual(resp.data["credit_report_id"], newer.id)
+
+    def test_experian_source_is_not_hidden_by_a_newer_pdf(self):
+        """Case 423139: a matched search, then a PDF the next day. CAT files
+        Experian searches only, so it asks for those and gets the search."""
+        experian = self._experian_report()
+        pdf = _pdf_report()
+        resp, _, _ = self._get()
+        self.assertEqual(resp.data["credit_report_id"], pdf.id)
+        for source in ("experian_db", "EXPERIAN_DB"):
+            with self.subTest(source=source):
+                resp, _, ensure = self._get(source=source)
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(resp.data["credit_report_id"], experian.id)
+                self.assertEqual(resp.data["source"], CREDIT_REPORT_SOURCE_EXPERIAN_DB)
+                ensure.assert_called_once()
+
+    def test_experian_source_with_only_a_pdf_is_not_found_with_the_reason(self):
+        _pdf_report()
+        resp, _, _ = self._get(experian=ExperianImportResult(None, "no_candidates"), source="experian_db")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.data["code"], "NO_CREDIT_REPORT")
+        self.assertEqual(resp.data["experian_reason"], "no_candidates")
+
+    def test_any_source_is_the_default(self):
+        pdf = _pdf_report()
+        resp, _, _ = self._get(source="any")
+        self.assertEqual(resp.data["credit_report_id"], pdf.id)
+
+    def test_unknown_source_is_422(self):
+        resp, fetch, ensure = self._get(source="pdf")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.data["code"], "INVALID_SOURCE")
+        fetch.assert_not_called()
+        ensure.assert_not_called()
 
     def test_identity_mismatch_report_is_never_returned(self):
         CreditReport.objects.create(

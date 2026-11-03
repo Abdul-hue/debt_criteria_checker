@@ -3508,12 +3508,24 @@ class CreditReportFetchView(APIView):
       both           -- the JSON plus report_html / report_html_status
                         (null + reason when there is no HTML).
     The HTML is read on demand and never stored.
+
+    source narrows which reports may be returned:
+      any (default)  -- the assessment's choice above, PDF upload or Experian.
+      experian_db    -- Experian imports only. CAT's automatic fetch asks for
+                        this: it files Experian searches only, so a newer PDF
+                        the service holds -- e.g. uploaded on a CAT case since
+                        deleted -- must not hide the client's matched search
+                        (case 423139).
     """
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [AssessRateThrottle]
 
     RESPONSE_FORMATS = ("json", "html", "both")
+    SOURCES = {
+        "any": ASSESSMENT_CREDIT_REPORT_SOURCES,
+        CREDIT_REPORT_SOURCE_EXPERIAN_DB: (CREDIT_REPORT_SOURCE_EXPERIAN_DB,),
+    }
 
     def get(self, request):
         aryza_reference = (request.query_params.get("aryza_reference") or "").strip()
@@ -3527,6 +3539,12 @@ class CreditReportFetchView(APIView):
             return error_response(
                 f"response_format must be one of: {', '.join(self.RESPONSE_FORMATS)}",
                 "INVALID_RESPONSE_FORMAT", status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        source = (request.query_params.get("source") or "any").strip().lower()
+        if source not in self.SOURCES:
+            return error_response(
+                f"source must be one of: {', '.join(self.SOURCES)}",
+                "INVALID_SOURCE", status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         # Experian matching needs the client's current Aryza name and DOB.
@@ -3557,7 +3575,7 @@ class CreditReportFetchView(APIView):
         # One Experian connection for the import and the HTML read.
         with experian_request_scope() as experian_client:
             experian = ensure_experian_credit_report(aryza_reference, case_data_obj, client=experian_client)
-            report = select_credit_report(aryza_reference, sources=ASSESSMENT_CREDIT_REPORT_SOURCES)
+            report = select_credit_report(aryza_reference, sources=self.SOURCES[source])
             if report is None:
                 return Response({
                     "success": False,
