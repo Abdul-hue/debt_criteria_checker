@@ -610,9 +610,10 @@ class CommittedDcaListTests(TestCase):
         return hit[0].message.split("is with ")[1].split(", a Debt")[0] if hit else None
 
     def test_it_imports_with_no_conflict_or_duplicate(self):
-        self.assertIn("73 created, 2 updated, 1 unchanged, 0 reactivated, 0 inactive kept, "
+        # PRA Group is seeded by migration 0098 with the file's own aliases: unchanged.
+        self.assertIn("73 created, 2 updated, 2 unchanged, 0 reactivated, 0 inactive kept, "
                       "0 conflicts skipped, 0 duplicate rows.", self.out)
-        self.assertEqual(DebtCollector.objects.filter(is_active=True).count(), 77)
+        self.assertEqual(DebtCollector.objects.filter(is_active=True).count(), 78)
 
     def test_c_a_r_s_and_cars_stay_unmatched(self):
         for name in ("C.A.R.S", "CARS", "C.A.R.S Ltd", "c a r s"):
@@ -629,3 +630,64 @@ class CommittedDcaListTests(TestCase):
     def test_excluded_organisations_stay_unmatched(self):
         for name in ("Postbridge", "Enforcement Training & Services", "Enforcement of Judgments Office"):
             self.assertIsNone(self._flags(name), name)
+
+
+class PraGroupDcaTests(TestCase):
+    """PRA Group is a DCA (manager, 2026-11-03, migration 0098): a debt in
+    Aryza as "PRA GROUP" -- the original debt being with e.g. Barclaycard --
+    gets the DCA flag. Debt purchasers stay valid creditors."""
+
+    def _flagged(self, name):
+        result = assess_case({"creditors": [{"name": name, "balance": 1672.01, "creditor_type": "credit_card"}],
+                              "evidence_ledger": []}, set())
+        hit = [f for f in result["flags"] if f.rule_id == "BPO-DEBT"]
+        self.assertNotIn("BPO-DEBT", [r.rule_id for r in result["hard_blocks"]])
+        return hit[0] if hit else None
+
+    def test_seeded_active_with_its_aliases(self):
+        from importlib import import_module
+        seed = import_module("debt_app.migrations.0098_seed_pra_group_dca")
+        dc = DebtCollector.objects.get(name="PRA Group")
+        self.assertTrue(dc.is_active)
+        self.assertEqual(dc.aliases, seed.ALIASES)
+
+    def test_the_aryza_pra_names_flag_as_pra_group(self):
+        for name in ("PRA GROUP", "PRA Group", "PRA", "PRA Group (UK) Ltd", "PRA Group (UK) Limited",
+                     "PRA Group (UK) Limited (TIX)", "PRA Group (UK) Limited 01/10", "PRA Group (UK) Ltd c/o WPM",
+                     "Portfolio Recovery Associates Ltd", "Portfolio Recovery",
+                     "PRA (Portfolio Recovery Associates) - IVA", "PRA (Portfolio Recovery Associates) - TD"):
+            with self.subTest(name=name):
+                flag = self._flagged(name)
+                self.assertIsNotNone(flag)
+                self.assertEqual(flag.severity, "flag")
+                self.assertIn(f"'{name}', balance £1,672, is with PRA Group, a Debt Collection Agency (DCA)",
+                              flag.message)
+
+    def test_debt_purchasers_and_original_creditors_do_not_flag(self):
+        for name in ("Cabot Financial", "Lowell", "Lowell Portfolio I Ltd", "Intrum", "Lantern",
+                     "Barclaycard", "New Day / PRA - IVA or BKY", "Pratt Finance"):
+            with self.subTest(name=name):
+                self.assertIsNone(self._flagged(name))
+
+    def test_pra_portfolio_names_are_not_matched(self):
+        # Each carries an account code and resolves to the seller's row; their
+        # treatment is still open (tests/test_phase6_orange_pra.py).
+        for name in ("PRA-Barclays Bank BV23071IVB", "PRA-Tesco Bank TB21012TDF"):
+            with self.subTest(name=name):
+                self.assertIsNone(self._flagged(name))
+
+    def test_an_existing_row_gains_only_the_missing_aliases_and_stays_off(self):
+        from importlib import import_module
+        from django.apps import apps
+        seed = import_module("debt_app.migrations.0098_seed_pra_group_dca")
+        DebtCollector.objects.filter(name="PRA Group").delete()
+        DebtCollector.objects.create(name="pra group", aliases=["PRA Group UK Plc", "pra"], is_active=False)
+        seed.forward(apps, None)
+        dc = DebtCollector.objects.get(name__iexact="PRA Group")
+        self.assertEqual(DebtCollector.objects.filter(name__iexact="PRA Group").count(), 1)
+        self.assertFalse(dc.is_active)
+        self.assertEqual(dc.aliases[:2], ["PRA Group UK Plc", "pra"])
+        self.assertEqual(dc.aliases[2:], [a for a in seed.ALIASES if a != "PRA"])
+        # Reverse leaves a row this migration did not create.
+        seed.reverse(apps, None)
+        self.assertTrue(DebtCollector.objects.filter(name="pra group").exists())

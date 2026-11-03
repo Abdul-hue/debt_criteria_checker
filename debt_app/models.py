@@ -495,6 +495,8 @@ class DebtCollector(models.Model):
 
     Only collectors acting FOR someone else belong here — NOT debt purchasers
     (Cabot, Lowell, Intrum, ...), which own the debt and are valid creditors.
+    ⚠️ PRA Group IS listed (manager, 2026-11-03, migration 0098): the business
+    treats it as an agency whose original debt is with another creditor.
 
     A creditor name matches when it equals `name` or an alias, ignoring case,
     punctuation, "&"/"and" and a trailing Ltd/plc/LLP (engine
