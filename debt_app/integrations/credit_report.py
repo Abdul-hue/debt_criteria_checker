@@ -205,6 +205,18 @@ CREDITOR_ALIAS_MAP = {
     "dvla": "DVLA",
     "driver and vehicle licensing agency": "DVLA",
     "driver & vehicle licensing agency": "DVLA",
+    # Capital on Tap -- a trading name of New Wave Capital Ltd; the workbook
+    # row is "CAPITAL ON TAP (NEW WAVE)". Aryza sends "Capital On Tap", its
+    # letters and statements may print the legal entity or "New Wave Capital
+    # Ltd t/a Capital on Tap" (case 429331). Mirrored by CAT's
+    # `common/creditor_identity.py`, which keys the legal entity of a "t/a"
+    # name -- hence the Ltd / Limited spellings. ⚠️ NOT "capital one": a
+    # different lender.
+    "capital on tap": "Capital On Tap",
+    "capital on tap card": "Capital On Tap",
+    "new wave capital": "Capital On Tap",
+    "new wave capital ltd": "Capital On Tap",
+    "new wave capital limited": "Capital On Tap",
 }
 
 # ---------------------------------------------------------------------------
