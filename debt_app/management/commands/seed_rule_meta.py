@@ -714,16 +714,6 @@ class Command(BaseCommand):
                 'description': 'A debt is listed in Aryza under a Debt Collection Agency (DCA) — a debt collector, bailiff or enforcement agency — not the company the debt is owed to. The agencies are kept in the Debt Collectors list.',
                 'action': 'Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.',
             },
-            {
-                'criteria_set': 'TIG',
-                'rule_key': 'BANK-STATEMENTS',
-                'rule_name': '12 months of bank statements for each bank account',
-                'severity': 'flag',
-                'is_active': True,
-                'category': 'bank_statements',
-                'description': 'Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.',
-                'action': 'Upload the missing statements for each listed account, or record why the customer cannot provide them.',
-            },
             # Missing-evidence criteria (migration 0094) — seeded OFF until CAT sends the fields.
             {
                 'criteria_set': 'TIG',

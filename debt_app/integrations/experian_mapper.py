@@ -26,6 +26,7 @@ from debt_app.integrations.credit_report import (
     _months_since,
     _parse_amount,
     _parse_missed_payments_last_3_months,
+    _status_history_fields,
     match_creditor,
     normalise_start_date_iso,
 )
@@ -126,6 +127,42 @@ def _missed_payments_last_3_months(detail: dict) -> int:
     return _parse_missed_payments_last_3_months(lines)
 
 
+# A month the grid carries no status for -- left out, as the PDF path leaves
+# out its "-" months.
+_NO_STATUS_MARKS = {"", "-", "."}
+
+
+def _status_history(detail: dict) -> list[dict]:
+    """The payment grid as the Aryza Advize PDF path gives it
+    (`credit_report._extract_status_histories`): `[{"month": "YYYY-MM",
+    "status": str, "balance": pence | None}]`, oldest first, one entry per
+    month with a status. CAT's 12-month mortgage / vehicle-finance payment
+    check reads it.
+
+    The same grid `_missed_payments_last_3_months` reads: AccountStatusCodes,
+    newest first, its first code the LastUpdatedDate month. A month's balance
+    is AccountBalances at the same position (also newest first). [] when
+    there is no grid or no LastUpdatedDate -- no month is ever guessed.
+    """
+    balances = _list(detail.get("AccountBalances"))
+    codes = _text(detail.get("AccountStatusCodes"))
+    if not codes:
+        codes = "".join(_text(b.get("Status"))[:1] for b in balances)
+    last_updated = _iso_date(detail.get("LastUpdatedDate"))
+    if not codes or not last_updated:
+        return []
+    newest = int(last_updated[:4]) * 12 + int(last_updated[5:7]) - 1
+    history = []
+    for offset, code in enumerate(codes):
+        if code.strip() in _NO_STATUS_MARKS:
+            continue
+        year, month_index = divmod(newest - offset, 12)
+        balance = _text(balances[offset].get("AccountBalance")) if offset < len(balances) else ""
+        history.append({"month": f"{year:04d}-{month_index + 1:02d}", "status": code.upper(),
+                        "balance": _parse_amount(balance) if balance else None})
+    return list(reversed(history))
+
+
 def _map_account(detail: dict, code_tables: ExperianCodeTables) -> dict | None:
     """One CAISDetails record -> the dict _parse_experian_account() returns."""
     raw_name = _text(detail.get("SupplyCompanyName"))
@@ -182,6 +219,7 @@ def _map_account(detail: dict, code_tables: ExperianCodeTables) -> dict | None:
         "start_date": start_date,
         "cais_last_updated": _dmy(detail.get("LastUpdatedDate")),
         "reconciliation_only": type_code in RECONCILIATION_ONLY_TYPE_CODES,
+        **_status_history_fields(_status_history(detail)),
     }
 
 

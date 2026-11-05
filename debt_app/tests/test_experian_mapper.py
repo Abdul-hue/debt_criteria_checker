@@ -84,7 +84,7 @@ ACCOUNT_KEYS = [
     "missed_payments_last_3_months", "recent_spending", "current_balance", "start_balance",
     "credit_limit", "utilisation_pct", "account_status", "account_status_subjective", "worst_status",
     "payment_history_months", "monthly_payment", "account_number", "start_date", "cais_last_updated",
-    "reconciliation_only",
+    "reconciliation_only", "status_history", "latest_reported_month",
 ]
 PUBLIC_INFO_KEYS = ["has_ccj", "ccj_count", "ccj_total_pence", "ccjs", "iva_or_bankruptcy",
                     "debt_management", "aoe_in_place"]
@@ -370,6 +370,44 @@ class MissedPaymentTests(SimpleTestCase):
         self.assertEqual(self._missed("222", last_updated=None), 0)
 
 
+class StatusHistoryTests(SimpleTestCase):
+    """The grid month by month, as the Aryza Advize PDF path gives it -- read by
+    CAT's 12-month mortgage / vehicle-finance payment check."""
+
+    def test_codes_are_placed_back_from_the_last_updated_month_oldest_first(self):
+        account = _account(AccountStatusCodes="0100", LastUpdatedDate="2026-01-05", AccountBalances=[
+            {"AccountBalance": "0000300", "Status": "0"}, {"AccountBalance": "0000400", "Status": "1"}])
+        self.assertEqual(account["status_history"], [
+            {"month": "2025-10", "status": "0", "balance": None},
+            {"month": "2025-11", "status": "0", "balance": None},
+            {"month": "2025-12", "status": "1", "balance": 40000},
+            {"month": "2026-01", "status": "0", "balance": 30000},
+        ])
+        self.assertEqual(account["latest_reported_month"], "2026-01")
+
+    def test_months_with_no_status_are_left_out(self):
+        account = _account(AccountStatusCodes="0-.0", LastUpdatedDate="2026-04-01", AccountBalances=[])
+        self.assertEqual([e["month"] for e in account["status_history"]], ["2026-01", "2026-04"])
+
+    def test_letter_codes_are_kept_as_printed(self):
+        account = _account(AccountStatusCodes="d0", LastUpdatedDate="2026-04-01", AccountBalances=[])
+        self.assertEqual([e["status"] for e in account["status_history"]], ["0", "D"])
+
+    def test_falls_back_to_balance_statuses_when_codes_are_absent(self):
+        account = _account(AccountStatusCodes="", LastUpdatedDate="2026-04-01", AccountBalances=[
+            {"AccountBalance": "0000100", "Status": "2"}, {"AccountBalance": "0000150", "Status": "0"}])
+        self.assertEqual(account["status_history"], [
+            {"month": "2026-03", "status": "0", "balance": 15000},
+            {"month": "2026-04", "status": "2", "balance": 10000},
+        ])
+
+    def test_no_grid_or_no_last_updated_is_empty(self):
+        for overrides in ({"AccountStatusCodes": "", "AccountBalances": []}, {"LastUpdatedDate": None}):
+            with self.subTest(overrides=overrides):
+                account = _account(**overrides)
+                self.assertEqual((account["status_history"], account["latest_reported_month"]), ([], None))
+
+
 class PublicInformationTests(SimpleTestCase):
     def test_judgements_are_ccjs_with_amounts_dates_and_order_numbers(self):
         info = _map(public=[_public("02", pounds="£557"), _public("17", pounds="£1,200", camera="")])["public_information"]
@@ -606,6 +644,15 @@ def _parity_document():
     return _doc(details, public, debt_management="Y")
 
 
+def _drop_status_history(result):
+    """Documented, intended difference: the month-by-month grid. The JSON places
+    each status in its month; the Experian PDF text path does not read one."""
+    for key in ("accounts", "mortgage_accounts", "other_accounts"):
+        for account in result[key]:
+            account.pop("status_history")
+            account.pop("latest_reported_month")
+
+
 class PdfParityTests(SimpleTestCase):
     """The same search through extract_credit_report() (as report text) and through the mapper.
 
@@ -636,6 +683,7 @@ class PdfParityTests(SimpleTestCase):
             result.pop("client_name")
             for ccj in result["public_information"]["ccjs"]:
                 ccj.pop("court_name")
+        _drop_status_history(mapped)
         self.assertEqual(list(mapped), list(pdf))
         for key in pdf:
             with self.subTest(key=key):
@@ -649,4 +697,5 @@ class PdfParityTests(SimpleTestCase):
     def test_clean_report_matches_the_pdf_path(self):
         pdf, mapped = self._both(_doc([_detail()]))
         pdf.pop("client_name"), mapped.pop("client_name")
+        _drop_status_history(mapped)
         self.assertEqual(mapped, pdf)

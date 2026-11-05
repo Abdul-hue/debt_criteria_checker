@@ -685,19 +685,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -1483,19 +1470,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -2470,19 +2444,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "The credit report shows no active or defaulted bank accounts, so no bank statements are required by this check.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -3314,19 +3275,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "The credit report shows no active or defaulted bank accounts, so no bank statements are required by this check.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -4274,19 +4222,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -5106,19 +5041,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -6024,19 +5946,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -6827,19 +6736,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -7836,19 +7732,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -8726,19 +8609,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -9733,19 +9603,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -10623,19 +10480,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -11532,19 +11376,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -12324,19 +12155,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -13288,19 +13106,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -14134,19 +13939,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -15063,19 +14855,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -15862,19 +15641,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -16777,19 +16543,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -17575,19 +17328,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -18550,19 +18290,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -19408,19 +19135,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -20372,19 +20086,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -21324,19 +21025,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "No extracted credit report is on file, so no bank accounts could be identified from it.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
@@ -22358,19 +22046,6 @@
           "triggered": false
         },
         {
-          "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-          "actual_value": null,
-          "creditors": [],
-          "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-          "message": "The credit report shows no active or defaulted bank accounts, so no bank statements are required by this check.",
-          "required_before": "drafting",
-          "rule_id": "BANK-STATEMENTS",
-          "severity": "pass",
-          "threshold": null,
-          "title": "12 months of bank statements for each bank account",
-          "triggered": false
-        },
-        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -23156,19 +22831,6 @@
             "severity": "pass",
             "threshold": null,
             "title": "Debt Collection Agency (DCA) listed instead of the actual creditor",
-            "triggered": false
-          },
-          {
-            "action": "Upload the missing statements for each listed account, or record why the customer cannot provide them.",
-            "actual_value": null,
-            "creditors": [],
-            "description": "Every active or defaulted bank account on the credit report (current, savings or basic bank account) needs bank statements covering the 12 months before the case was added to CAT, or from when the account was opened if that is later. Flags any account with no matched statements, gaps in coverage, or statements whose period cannot be read.",
-            "message": "The credit report shows no active or defaulted bank accounts, so no bank statements are required by this check.",
-            "required_before": "drafting",
-            "rule_id": "BANK-STATEMENTS",
-            "severity": "pass",
-            "threshold": null,
-            "title": "12 months of bank statements for each bank account",
             "triggered": false
           },
           {
