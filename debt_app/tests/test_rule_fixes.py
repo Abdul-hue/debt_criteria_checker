@@ -224,6 +224,18 @@ class Tig07DualIncomeTests(TestCase):
         self.assertTrue(r.triggered)
         self.assertEqual(r.severity, "flag")
 
+    def test_on_uc_with_no_journal_says_none_uploaded(self):
+        """receives_uc (Aryza) without a journal on file is the hard block
+        'no journal uploaded' -- never 'uploaded, date not confirmed' (435294)."""
+        for source in ("employed", "universal_credit"):
+            c = _base_case(income_source=source, has_uc_journal=False,
+                           uc_journal_date=None)
+            c["receives_uc"] = True
+            r = _tig_07(c)
+            self.assertTrue(r.triggered, source)
+            self.assertEqual(r.severity, "hard_block", source)
+            self.assertIn("no Universal Credit journal has been uploaded", r.message)
+
     def test_valid_uc_journal_clears_tig07(self):
         c = _base_case(
             income_source="universal_credit",

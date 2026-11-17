@@ -987,6 +987,10 @@ def _parse_case(case_json: dict) -> dict:
         # Income / employment
         "income_source": income_source,
         "has_job": case_json.get("has_job", False),
+        # receives_uc: the client is on UC (Aryza). has_uc_journal: a UC
+        # journal is actually on file. Older CAT sent only has_uc_journal,
+        # meaning either -- a missing receives_uc falls back to it.
+        "receives_uc": case_json.get("receives_uc", case_json.get("has_uc_journal", False)),
         "has_uc_journal": case_json.get("has_uc_journal", False),
         "uc_journal_date": (
             date.fromisoformat(str(case_json["uc_journal_date"]).split("T")[0])
@@ -1324,6 +1328,7 @@ def _tig_07(c: dict) -> RuleResult:
     """
     has_uc = (
         c["income_source"] in ("uc", "universal_credit", "benefits_only")
+        or c.get("receives_uc")
         or c.get("has_uc_journal")
     )
     if not has_uc:
@@ -3059,13 +3064,21 @@ def _debt_level_evidenced(c: dict) -> RuleResult:
 
 def _pod_over_500(c: dict) -> RuleResult:
     """POD-OVER-500: debts over £500 require proof of debt. Flag only — the case
-    can go to drafting without individual PODs while DEBT-LEVEL-EVIDENCED passes."""
+    can go to drafting without individual PODs while DEBT-LEVEL-EVIDENCED passes.
+
+    ⚠️ A DEBT THE CREDIT REPORT CARRIES NEEDS NO POD (business, 2026-11-17;
+    reverses the 2026-11-02 "only has_pod clears it"). Proof of debt is needed
+    only for a debt Aryza declares that the report does not show — the same
+    `_is_debt_evidenced` test DEBT-LEVEL-EVIDENCED uses, and the same line CAT's
+    remedials draw (a report-verified debt is not a finding there)."""
     rule_id = "POD-OVER-500"
-    in_scope = [cr for cr in c["creditors"] if not cr["is_secured"] and cr["balance"] > _POD_REQUIRED_OVER]
+    in_scope = [cr for cr in c["creditors"]
+                if not cr["is_secured"] and cr["balance"] > _POD_REQUIRED_OVER
+                and not cr.get("from_credit_report")]
     missing = [cr for cr in in_scope if cr.get("has_pod") is False]
     unknown = [cr for cr in in_scope if cr.get("has_pod") is None]
     if not missing and not unknown:
-        return _pass(rule_id, "Proof of debt is held for every debt over £500.")
+        return _pass(rule_id, "Proof of debt is held for every debt over £500 that is not on the credit report.")
     lines = []
     if missing:
         lines.append("Proof of debt has not been received for these debts over £500:")

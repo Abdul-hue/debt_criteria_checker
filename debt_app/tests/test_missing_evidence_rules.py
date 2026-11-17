@@ -214,6 +214,22 @@ class PodOver500Test(SimpleTestCase):
                      {"creditor_name": "Small", "balance": 200, "has_pod": False}])
         self.assertEqual(_outcome(_pod_over_500(c)), "pass")
 
+    def test_credit_report_debt_needs_no_pod(self):
+        """Only a debt the credit report does not carry needs proof of debt."""
+        on_report = _parsed([
+            {"creditor_name": "Barclaycard", "balance": 2501, "has_pod": False, "from_credit_report": True},
+            {"creditor_name": "Capital One", "balance": 1206, "from_credit_report": True},
+        ])
+        self.assertEqual(_outcome(_pod_over_500(on_report)), "pass")
+
+        mixed = _parsed([
+            {"creditor_name": "Barclaycard", "balance": 2501, "has_pod": False, "from_credit_report": True},
+            {"creditor_name": "Family loan", "balance": 3000, "has_pod": False, "from_credit_report": False},
+        ])
+        r = _pod_over_500(mixed)
+        self.assertEqual(_outcome(r), "flag")
+        self.assertEqual(r.creditors, ["Family loan"])
+
 
 class CouncilTaxEvidenceTest(SimpleTestCase):
 

@@ -53,7 +53,8 @@ tool now sends exactly this):
 | `is_police_officer` | `case_json.is_police_officer` → else `clientInfo.is_police_officer` | `False` | Not referenced in rule methods yet (`reject_if_police_employed` on ORM only) |
 | `previous_iva_failed` | `case_json.previous_iva_failed` → else `clientInfo.previous_iva_failed` | `False` | Not referenced in rule methods yet (`_tig_15_8` uses `previous_iva`, not this flag) |
 | `has_job` | `case_json.has_job` | `False` | `_tig_05`, `_tig_06`, `_tig_07` (income / payslip rules) |
-| `has_uc_journal` | `case_json.has_uc_journal` | `False` | `_tig_08` |
+| `receives_uc` | `case_json.receives_uc` → else `case_json.has_uc_journal` (older CAT) | `False` | `_tig_07` (client is on UC, per Aryza) |
+| `has_uc_journal` | `case_json.has_uc_journal` | `False` | `_tig_07` (a UC journal is actually on file) |
 | `has_property` | `case_json.has_property` | `False` | Equity helpers (`available_equity`); `_tig_16`, `_watch_22_4`, `_evolve_01` when `property_value` set |
 | `has_vehicle` | `case_json.has_vehicle` | `False` | Not referenced in rule methods yet |
 | `gambling_main_cause` | `crm_data.gambling_main_cause` | `False` | `_watch_22_11` (when active in engine) |
@@ -176,7 +177,7 @@ sends `false` because the field is not wired up yet, cases will be returned wron
 |------------------|--------------|-------------|-----------|
 | `COUNCIL-DIV-REQUIRED-DI` | Council debt is **over 50%** of unsecured debt **and** a DIV is known | `monthly_di` ≥ Required DI | Return the case: `threshold` = Required DI, `actual_value` = Actual DI, the message states all three |
 | `DEBT-LEVEL-EVIDENCED` | Always | Evidenced unsecured debt (POD or credit report match) ≥ £5,400, the same IVA minimum as TIG-01 | Return the case |
-| `POD-OVER-500` | A creditor balance is over £500 | `has_pod` is `true` | Flag only, provided `DEBT-LEVEL-EVIDENCED` passes (the case can go to drafting) |
+| `POD-OVER-500` | A creditor balance is over £500 **and** the debt is not on the credit report (`from_credit_report` is not `true`; ruled 2026-11-17) | `has_pod` is `true` | Flag only, provided `DEBT-LEVEL-EVIDENCED` passes (the case can go to drafting) |
 | `HMRC-CALL-SHEET` | HMRC is a creditor | Every HMRC creditor has `creditor_call_completed: true` (the call to HMRC, on CAT's call sheet) | Return the case |
 | `SELF-EMPLOYED-CALL-SHEET` | Self-employed for 12 months or more | `has_call_sheet` is `true` | Return the case |
 | `COUNCIL-TAX-EVIDENCE` | A council tax creditor | Non-voting council: `has_pod`. Accepting / rejecting / DIV council: `creditor_call_completed` | Return the case; required **before SIP** |

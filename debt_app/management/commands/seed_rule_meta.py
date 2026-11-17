@@ -762,7 +762,7 @@ class Command(BaseCommand):
                 'severity': 'flag',
                 'is_active': False,
                 'category': 'proof_of_debts',
-                'description': 'Debts over £500 require proof of debt. The case can proceed to drafting without individual PODs if the overall debt level is evidenced.',
+                'description': 'Debts over £500 that are not on the credit report require proof of debt. A debt the credit report carries needs none. The case can proceed to drafting without individual PODs if the overall debt level is evidenced.',
                 'action': 'Obtain proof of debt for each listed debt.',
             },
             {
