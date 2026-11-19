@@ -1191,32 +1191,59 @@ def _split_valid8_accounts(full_text: str) -> list[tuple[str, str]]:
     return blocks
 
 
+#: A grid year label: the year alone, or the year with that year's status
+#: codes on the same line ("2024 0 0 0 0 0 0 0 0 0 0 0 0") -- see below.
+_VALID8_GRID_YEAR_RE = re.compile(r"^(\d{4})((?:\s+[0-9A-Z]{1,2})*)$")
+#: How far past a year label its amount row may sit: a page break can put a
+#: page header between the two.
+_VALID8_AMOUNT_ROW_REACH = 4
+
+
+def _valid8_grid_amount_pence(token: str) -> int | None:
+    """One grid amount ("£1,529", "-£112", mojibake glyph alike) in pence.
+    `_parse_amount` keeps a leading "-" and then fails on "-£112"."""
+    negative = token.startswith("-")
+    pence = _parse_amount(token[1:] if negative else token)
+    return -pence if negative and pence is not None else pence
+
+
 def _valid8_latest_grid_balance_pence(lines: list[str]) -> int | None:
     """
-    Fallback balance source for accounts with no explicit "Current Balance:"
-    or "Balance:" field: take the last (most recent) token of the most
-    recent year's £-amount row.
+    The account's balance in its LATEST reported month: the last amount of
+    the newest year's amount row. The fallback for accounts that print no
+    balance of their own (a sold default, a current account, a utility).
 
-    Grid order in this format is [status-code row, year label, amount row]
-    — the amount row is the line immediately AFTER the year label.
+    Grid order in this format is [status-code row, year label, amount row];
+    each amount row runs January -> December, so its last amount is that
+    year's latest month.
+
+    ⚠️ A PAGE BREAK MOVES THE YEAR LABEL (case 436969, 2026-11-19). When the
+    grid's newest year starts at the foot of a page, the text reads
+    "2024 0 0 0 0 0 0 0 0 0 0 0 0" -- year and status codes on ONE line --
+    with the amounts at the top of the next page. The old reader matched only
+    a year alone on its line, so it skipped 2024 and read 2023's December:
+    a settled O2 loan, £0 since November 2024, came out at £177. A year line
+    may now carry its status codes, and the amount row is the first line of
+    amounts after it (within `_VALID8_AMOUNT_ROW_REACH`, never past the next
+    year label).
     """
-    year_re = re.compile(r"^\d{4}$")
-    best_year = -1
-    best_amount_line = ""
-
+    best_year, best_pence = -1, None
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if year_re.match(stripped):
-            year = int(stripped)
-            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
-            if year > best_year and nxt:
-                best_year = year
-                best_amount_line = nxt
-
-    if not best_amount_line:
-        return None
-    tokens = best_amount_line.split()
-    return _parse_amount(tokens[-1]) if tokens else None
+        match = _VALID8_GRID_YEAR_RE.match(line.strip())
+        if not match:
+            continue
+        year = int(match.group(1))
+        if not 1900 < year < 2200 or year <= best_year:
+            continue
+        for following in lines[i + 1:i + 1 + _VALID8_AMOUNT_ROW_REACH]:
+            text = following.strip()
+            if _VALID8_GRID_YEAR_RE.match(text):
+                break                                   # the next year's grid
+            tokens = text.split()
+            if tokens and all(_is_grid_balance_token(t) for t in tokens):
+                best_year, best_pence = year, _valid8_grid_amount_pence(tokens[-1])
+                break
+    return best_pence
 
 
 def _parse_valid8_account(address: str, block_text: str) -> dict | None:
@@ -1250,8 +1277,8 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
 
     # Balance precedence: explicit "Current Balance:" (Default-status
     # accounts always carry this) > explicit "Balance:" (either a £ amount
-    # or the literal word "Settled", which _parse_amount safely returns
-    # None for) > last grid value (the handful of accounts with no
+    # or the literal word "Settled", which is £0 -- below) > the grid's latest
+    # month (`_valid8_latest_grid_balance_pence`: the accounts with no
     # balance field printed at all).
     #
     # ⚠️ "Balance:" MUST BE THE LINE'S OWN LABEL. `_extract_field` matches
@@ -1263,11 +1290,14 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
     # KLARNA £44, both £0 since 2023, both counted at their default balance,
     # JACAMO alongside the CABOT account that bought it. The report's own
     # Summary "Total Balance" excludes them; the grid's latest month agrees.
+    #
+    # ⚠️ "Balance: Settled" IS £0 (case 436969, 2026-11-19): a settled
+    # account owes nothing, whatever its grid's last printed figure.
     current_balance = _parse_amount(_extract_field(lines, "Current Balance"))
     if current_balance is None:
         own_balance = next((ln.strip()[len("balance:"):] for ln in lines
-                            if ln.strip().lower().startswith("balance:")), "")
-        current_balance = _parse_amount(own_balance.strip())
+                            if ln.strip().lower().startswith("balance:")), "").strip()
+        current_balance = 0 if own_balance.lower() == "settled" else _parse_amount(own_balance)
     if current_balance is None:
         current_balance = _valid8_latest_grid_balance_pence(lines)
 
