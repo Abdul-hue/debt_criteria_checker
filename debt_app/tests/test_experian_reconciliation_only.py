@@ -83,8 +83,10 @@ class ExperianDebtsAreUnchanged(SimpleTestCase):
     """The fix moves insurance and multi-comms only."""
 
     def test_ordinary_categories_keep_their_codes(self):
+        # Telecommunications became TM on 2026-11-19 (`_EXPERIAN_CATEGORY_TO_TYPE`);
+        # "communications" stays UT, pending the business.
         for category, code in (("credit cards", "CC"), ("communications", "UT"),
-                               ("telecommunications", "UT"), ("current accounts", "CA"),
+                               ("telecommunications", "TM"), ("current accounts", "CA"),
                                ("mail order", "MO")):
             self.assertEqual(_EXPERIAN_CATEGORY_TO_TYPE[category], code, category)
         self.assertEqual(_VALID8_CATEGORY_TO_TYPE["communications"], "UT")

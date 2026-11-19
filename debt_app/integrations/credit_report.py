@@ -39,6 +39,10 @@ from datetime import date, datetime
 
 import pdfplumber
 
+from debt_app.integrations.account_categories import (
+    SOURCE_ARYZA_ADVIZE_PDF, SOURCE_EXPERIAN_PDF, SOURCE_EXPERIAN_VALID8_PDF, type_source,
+)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -251,6 +255,10 @@ def match_creditor(raw_name: str) -> str:
 _TYPE_CODE_RE = re.compile(
     r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT|TM|BD|MI|MU|DP|IL|EW|EE|BK)$"
 )
+#: The codes `_TYPE_CODE_RE` lists -- a code outside it reached the parser only
+#: through the fallback header, and its account is marked `type_unmapped`
+#: (`account_categories.type_source`). Pinned to the regex by a test.
+_ADVIZE_TYPE_CODES = frozenset("CC UL MG MO CA UT PL HP ST OT TM BD MI MU DP IL EW EE BK".split())
 
 # Fallback for any Aryza header whose type code is not in the list above.
 # Without this, an unlisted code silently deletes the account (see module
@@ -312,6 +320,20 @@ def _months_since(date_str: str) -> int | None:
         return (today.year - start.year) * 12 + (today.month - start.month)
     except ValueError:
         return None
+
+
+def _advize_type_wording(block_text: str) -> str:
+    """An Aryza Advize block's "Account Type:" wording ("Budget Account"), or "".
+
+    ⚠️ KEPT ONLY WHEN IT IS PLAINLY A TYPE ALONE ON ITS LINE: dropped when the
+    line goes on to another "Label:" (where the type ends cannot be told) or
+    holds a digit -- so an account number or a balance printed on that line can
+    never ride along into the source fields. Additive: nothing reads it to
+    classify the account."""
+    wording = _extract_field(block_text.split("\n"), "Account Type")
+    if ":" in wording or any(ch.isdigit() for ch in wording):
+        return ""
+    return wording[:60]
 
 
 def _extract_field(lines: list[str], label: str) -> str:
@@ -945,13 +967,29 @@ def _extract_agreed_monthly_payment_pence(block_text: str) -> int | None:
 # Maps Experian account category text → internal Aryza-style type codes.
 # These type codes feed into the same SKIP / CONDITIONAL filtering logic
 # already used for Aryza Advize reports.
+#
+# ⚠️ UTILITY vs TELECOM (2026-11-19). CAT raises a credit-report-only utility
+# account and a telecom account as two separate flag types, read off this
+# code: UT is a utility (and EW / EE on an Aryza Advize report), TM a telecom.
+# Mobile, Fixed Line and Broadband were unlisted and fell to "OT"; telecoms
+# read as UT. "Duel Fuel" is Experian's own spelling (dbo.experian_codes 43).
+# ⚠️ LEFT AS THEY WERE, pending the business: "communications" (Experian 18,
+# which can be TV as well as telephone -- still UT), and Cable / Satellite /
+# Business Line / Oil (still unlisted, "OT"). The description itself is kept
+# on every account as `source_account_type`, so CAT can tell them apart.
 _EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
     "water": "UT",
     "electricity": "UT",
     "gas": "UT",
+    "duel fuel": "UT",
+    "dual fuel": "UT",
     "communications": "UT",
-    "telecoms": "UT",
-    "telecommunications": "UT",
+    "telecom": "TM",            # `_EXPERIAN_HEADER_RE` accepts the singular
+    "telecoms": "TM",
+    "telecommunications": "TM",
+    "mobile": "TM",
+    "fixed line": "TM",
+    "broadband": "TM",
     "current accounts": "CA",
     "current account": "CA",
     "savings accounts": "CA",
@@ -1068,6 +1106,17 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
     "electricity": "UT",
     "gas": "UT",
     "water": "UT",
+    # The utility / telecom split, as `_EXPERIAN_CATEGORY_TO_TYPE` makes it
+    # (2026-11-19): the same Experian wordings on this layout map alike.
+    # "communications" below is left as it was, pending the business.
+    "duel fuel": "UT",
+    "dual fuel": "UT",
+    "telecom": "TM",
+    "telecoms": "TM",
+    "telecommunications": "TM",
+    "mobile": "TM",
+    "fixed line": "TM",
+    "broadband": "TM",
     # ⚠️ MU / MI, reconciliation only -- the same codes the Aryza Advize
     # format prints (see `_EXPERIAN_CATEGORY_TO_TYPE`). Unlisted categories
     # fall to "OT", which is debt.
@@ -1216,6 +1265,12 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
     return {
         "raw_name": raw_name,
         "type_code": type_code,
+        # The report's own wording for the type, where it was read and its
+        # category (`account_categories.type_source`) -- beside `type_code`,
+        # never replacing it. Valid8 prints no numeric code.
+        **type_source(source_system=SOURCE_EXPERIAN_VALID8_PDF, type_code=type_code,
+                      source_account_type=account_type,
+                      type_unmapped=account_type.lower().strip() not in _VALID8_CATEGORY_TO_TYPE),
         "normalised_name": normalised,
         "matched_creditor": matched,
         "account_age_months": account_age_months,
@@ -1458,6 +1513,12 @@ def _parse_experian_account(header: str, block_text: str) -> dict | None:
     return {
         "raw_name": raw_name,
         "type_code": type_code,
+        # The report's own wording for the type, where it was read and its
+        # category (`account_categories.type_source`) -- beside `type_code`,
+        # never replacing it. The PDF prints no numeric code.
+        **type_source(source_system=SOURCE_EXPERIAN_PDF, type_code=type_code,
+                      source_account_type=category,
+                      type_unmapped=category.lower() not in _EXPERIAN_CATEGORY_TO_TYPE),
         "normalised_name": normalised,
         "matched_creditor": matched,
         "account_age_months": account_age_months,
@@ -1800,6 +1861,13 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
     return {
         "raw_name": raw_name,
         "type_code": type_code,
+        # The printed code, and the block's own "Account Type:" wording where
+        # it prints one; a code only the fallback header accepted is marked
+        # `type_unmapped`.
+        **type_source(source_system=SOURCE_ARYZA_ADVIZE_PDF, type_code=type_code,
+                      source_account_code=type_code,
+                      source_account_type=_advize_type_wording(block_text),
+                      type_unmapped=type_code not in _ADVIZE_TYPE_CODES),
         "normalised_name": normalised,
         "matched_creditor": matched,
         "start_date": normalise_start_date_iso(start_date_str),

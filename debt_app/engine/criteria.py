@@ -604,6 +604,11 @@ def _parse_case(case_json: dict) -> dict:
             "balance": balance,
             "crm_balance": Decimal(str(balance)),
             "creditor_type": raw_type,
+            # The canonical account category the caller sent beside
+            # `creditor_type` (`integrations/account_categories.py`), or None
+            # from a caller that sends none. Carried only: no rule reads it,
+            # and `creditor_type` / `debt_type_normalised` are unchanged.
+            "account_category": c.get("account_category") or None,
             "debt_type_normalised": debt_type,
             "is_secured": is_secured,
             # ⚠️ CARRIED, NOT DROPPED. TIG-10 treats a placeholder-named debt

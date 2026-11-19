@@ -18,6 +18,7 @@ Pure functions: no database access, nothing stored, raw JSON never returned.
 import logging
 from datetime import datetime
 
+from debt_app.integrations.account_categories import SOURCE_EXPERIAN_JSON, type_source
 from debt_app.integrations.credit_report import (
     RECONCILIATION_ONLY_TYPE_CODES,
     _EXPERIAN_CATEGORY_TO_TYPE,
@@ -172,7 +173,11 @@ def _map_account(detail: dict, code_tables: ExperianCodeTables) -> dict | None:
         logger.warning("[EXPERIAN MAP] CAIS record without SupplyCompanyName skipped")
         return None
 
-    type_desc = code_tables.account_types.get(_text(detail.get("AccountType")), "")
+    # The raw code is kept as given (`source_account_code`); a code the table
+    # does not know, or a description the category map does not list, falls to
+    # "OT" exactly as before and is marked `type_unmapped`.
+    raw_type_code = _text(detail.get("AccountType"))
+    type_desc = code_tables.account_types.get(raw_type_code, "")
     type_code = _EXPERIAN_CATEGORY_TO_TYPE.get(type_desc.lower(), "OT")
 
     balances = _list(detail.get("AccountBalances"))
@@ -200,6 +205,14 @@ def _map_account(detail: dict, code_tables: ExperianCodeTables) -> dict | None:
     return {
         "raw_name": raw_name,
         "type_code": type_code,
+        # dbo.experian_codes' description ("Mobile", "Water"...) and the raw
+        # numeric code, kept so a type the code map collapses can still be told
+        # apart downstream; where it was read; its category
+        # (`account_categories.type_source`). `type_code` is unchanged.
+        **type_source(source_system=SOURCE_EXPERIAN_JSON, type_code=type_code,
+                      source_account_code=raw_type_code or None,
+                      source_account_type=type_desc,
+                      type_unmapped=not type_desc or type_desc.lower() not in _EXPERIAN_CATEGORY_TO_TYPE),
         "normalised_name": normalised,
         "matched_creditor": match_creditor(raw_name),
         "account_age_months": _months_since(start_date) if start_date else None,

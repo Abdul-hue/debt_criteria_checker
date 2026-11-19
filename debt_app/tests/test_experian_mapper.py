@@ -62,15 +62,18 @@ CODE_TABLES = ExperianCodeTables(ACCOUNT_TYPES, PUBLIC_INFO_TYPES)
 # What each Experian account type becomes through the existing PDF category
 # map. "OT" rows that are really mortgages, insurance or bank accounts are the
 # PDF path's own behaviour, kept for parity (open business decision D1).
+# 2026-11-19: 43 Duel Fuel -> UT (a utility); 53 Mobile, 54 Fixed Line and
+# 58 Broadband -> TM (telecoms). 18 Communications, 42 Oil and 55-57 Cable /
+# Satellite / Business Line are unchanged, pending the business.
 EXPECTED_TYPE_CODE = {
     "00": "OT", "01": "HP", "02": "PL", "03": "MG", "04": "OT", "05": "CC", "06": "CC", "07": "OT",
     "08": "MO", "11": "OT", "12": "OT", "13": "OT", "14": "OT", "15": "CA", "16": "OT", "17": "OT",
     "18": "UT", "19": "OT", "20": "OT", "21": "UT", "22": "OT", "23": "OT", "24": "OT", "25": "OT",
     "26": "OT", "27": "OT", "28": "OT", "29": "OT", "30": "OT", "31": "OT", "32": "OT", "33": "OT",
     "34": "OT", "35": "OT", "36": "OT", "37": "CC", "38": "OT", "39": "UT", "40": "UT", "41": "UT",
-    "42": "OT", "43": "OT", "44": "OT", "45": "OT", "46": "MI", "47": "OT", "48": "OT", "49": "OT",
-    "50": "OT", "51": "OT", "52": "OT", "53": "OT", "54": "OT", "55": "OT", "56": "OT", "57": "OT",
-    "58": "OT", "59": "MU", "60": "UL", "61": "UL", "62": "OT", "63": "OT", "64": "OT", "65": "OT",
+    "42": "OT", "43": "UT", "44": "OT", "45": "OT", "46": "MI", "47": "OT", "48": "OT", "49": "OT",
+    "50": "OT", "51": "OT", "52": "OT", "53": "TM", "54": "TM", "55": "OT", "56": "OT", "57": "OT",
+    "58": "TM", "59": "MU", "60": "UL", "61": "UL", "62": "OT", "63": "OT", "64": "OT", "65": "OT",
     "66": "OT", "67": "OT", "68": "OT", "69": "OT", "70": "OT", "71": "OT",
 }
 
@@ -80,7 +83,9 @@ TOP_LEVEL_KEYS = [
     "aoe_in_place",
 ]
 ACCOUNT_KEYS = [
-    "raw_name", "type_code", "normalised_name", "matched_creditor", "account_age_months",
+    "raw_name", "type_code", "source_account_type", "source_account_code", "source_system",
+    "account_category", "type_unmapped", "normalised_name", "matched_creditor",
+    "account_age_months",
     "missed_payments_last_3_months", "recent_spending", "current_balance", "start_balance",
     "credit_limit", "utilisation_pct", "account_status", "account_status_subjective", "worst_status",
     "payment_history_months", "monthly_payment", "account_number", "start_date", "cais_last_updated",
@@ -653,6 +658,16 @@ def _drop_status_history(result):
             account.pop("latest_reported_month")
 
 
+def _drop_source_trail(result):
+    """Documented, intended difference (Track A, 2026-11-19): where the account
+    was read, and the numeric code only the JSON carries. The wording, the
+    category and `type_unmapped` stay compared -- they must agree."""
+    for key in ("accounts", "mortgage_accounts", "other_accounts"):
+        for account in result[key]:
+            account.pop("source_system")
+            account.pop("source_account_code")
+
+
 class PdfParityTests(SimpleTestCase):
     """The same search through extract_credit_report() (as report text) and through the mapper.
 
@@ -684,6 +699,7 @@ class PdfParityTests(SimpleTestCase):
             for ccj in result["public_information"]["ccjs"]:
                 ccj.pop("court_name")
         _drop_status_history(mapped)
+        _drop_source_trail(mapped), _drop_source_trail(pdf)
         self.assertEqual(list(mapped), list(pdf))
         for key in pdf:
             with self.subTest(key=key):
@@ -698,4 +714,5 @@ class PdfParityTests(SimpleTestCase):
         pdf, mapped = self._both(_doc([_detail()]))
         pdf.pop("client_name"), mapped.pop("client_name")
         _drop_status_history(mapped)
+        _drop_source_trail(mapped), _drop_source_trail(pdf)
         self.assertEqual(mapped, pdf)

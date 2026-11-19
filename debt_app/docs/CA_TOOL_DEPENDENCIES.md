@@ -106,6 +106,7 @@ Parsed from each element of `case_json.creditors[]`.
 | `representative` | `creditors[i].representative` (payload or DB enrich) | `None` | Representative gating in `assess_case` |
 | `min_dividend_pence` | `creditors[i].min_dividend_pence` (payload or DB enrich) | `None` | Dividend advisory in `assess_case` |
 | `debt_type_normalised` | Derived from `creditors[i].creditor_type` via `normalise_debt_type()` | `UNKNOWN` if type missing/unknown | Not referenced in rule methods yet |
+| `account_category` | `creditors[i].account_category` — the canonical category (`integrations/account_categories.py`) CAT sends beside `creditor_type` since 2026-11-19 | `None` (an older CAT sends none) | Carried only; no rule reads it |
 
 ---
 
