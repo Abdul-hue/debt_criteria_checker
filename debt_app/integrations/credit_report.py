@@ -1080,7 +1080,7 @@ _EXPERIAN_HEADER_FALLBACK_RE = re.compile(
 # Ground truth confirmed against a real report (pdfplumber text extraction):
 # each CAIS record's block opens with the APPLICANT's own name (not the
 # creditor), then an "Address:" line, then a bare status word on its own
-# line (Active / Settled / Default), then labelled fields including
+# line (Active / Settled / Default / Delinquent), then labelled fields including
 # "Company:" — which holds the actual creditor name several lines in.
 # _EXPERIAN_HEADER_RE only matches "{Creditor} - {Category}" headers, which
 # never occur in this layout at all, so _split_experian_accounts() returns
@@ -1097,7 +1097,19 @@ _EXPERIAN_HEADER_FALLBACK_RE = re.compile(
 # "Current Balance:"/"Balance:" fields when present, falling back to the
 # grid only for the handful of accounts (seen for Utility/Bank company
 # types) that carry no balance field at all.
-_VALID8_STATUS_WORDS = {"Active", "Settled", "Default"}
+#: The badge printed under "Address:" that opens each record -- Experian's
+#: CAIS AccountStatus wordings, the same four `experian_mapper.
+#: ACCOUNT_STATUS_LABELS` holds (not imported: that module imports this one).
+#:
+#: ⚠️ "Delinquent" WAS MISSING (case 436877, 2026-11-19). A record whose badge
+#: is not here opened no block, so its lines were glued onto the record above
+#: -- and `_parse_valid8_account` takes the FIRST of every field. A dormant
+#: ZILCH account with no "Balance:" line swallowed the delinquent BRITISH GAS
+#: account below it: one "ZILCH, credit card, £13,218" account came out, and
+#: the real £13,218 British Gas debt and Zilch's £0 were lost.
+#: `_split_valid8_accounts` also opens a record on any badge that sits between
+#: "Address:" and "Date of Birth:", so an unknown wording cannot merge two.
+_VALID8_STATUS_WORDS = {"Active", "Settled", "Default", "Delinquent"}
 
 _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
     "credit card/store card": "CC",
@@ -1130,6 +1142,11 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
 }
 
 
+def _is_valid8_badge(text: str) -> bool:
+    """A status badge: one or two words of letters -- no colon, digit or £."""
+    return len(text) <= 30 and re.fullmatch(r"[A-Za-z]+(?: [A-Za-z]+)?", text) is not None
+
+
 def _split_valid8_accounts(full_text: str) -> list[tuple[str, str]]:
     """
     Split the report into (address, block_text) pairs for the Valid8-style
@@ -1148,12 +1165,19 @@ def _split_valid8_accounts(full_text: str) -> list[tuple[str, str]]:
 
     for i, line in enumerate(lines):
         stripped = line.strip()
-        is_anchor = (
+        after_address = i > 0 and lines[i - 1].strip().lower().startswith("address:")
+        # A badge the set above does not know still opens a record when the
+        # record's own next field follows it -- see `_VALID8_STATUS_WORDS`
+        # for what a missed record does to the one above.
+        next_is_dob = (i + 1 < len(lines)
+                       and lines[i + 1].strip().lower().startswith("date of birth:"))
+        is_anchor = after_address and (
             stripped in _VALID8_STATUS_WORDS
-            and i > 0
-            and lines[i - 1].strip().lower().startswith("address:")
+            or (next_is_dob and _is_valid8_badge(stripped))
         )
         if is_anchor:
+            if stripped not in _VALID8_STATUS_WORDS:
+                logger.warning("[VALID8] unknown account badge %r opened a record", stripped)
             if current is not None:
                 blocks.append((current_address, "\n".join(current)))
             current = [stripped]
@@ -1214,7 +1238,7 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
         return None
 
     # _split_valid8_accounts() anchors each block on the bare status word
-    # itself (Active/Settled/Default), so it is always line 0 — reading it
+    # itself (Active/Settled/Default/Delinquent), so it is always line 0 — reading it
     # straight from there is exact, unlike re-deriving it from other fields.
     account_status = lines[0].strip() if lines else "Active"
 
