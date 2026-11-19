@@ -3,7 +3,8 @@ Phase 3 of the Case Rejection Criteria (Missing Evidence) work: the evidence
 rules. Each applies only when its trigger is met, and reads CAT's tri-state
 evidence fields: True passes, None (CAT does not know) flags, False returns
 the case (hard_block). POD-OVER-500 is always a flag. All seven are seeded
-switched off (migration 0094) until CAT sends the fields.
+switched off (migration 0094) until CAT sends the fields; 0101 switches on
+the three creditor call-sheet rules (manager, 2026-11-20).
 """
 from django.test import SimpleTestCase, TestCase
 
@@ -19,6 +20,9 @@ from debt_app.engine.criteria import (
     assess_case,
 )
 from debt_app.models import CouncilRule, GlobalCriteria
+
+#: Switched on by migration 0101 (manager, 2026-11-20).
+SWITCHED_ON = ["HMRC-CALL-SHEET", "ARREARS-CREDITOR-CALL", "COUNCIL-TAX-EVIDENCE"]
 
 RULE_KEYS = [
     "HMRC-CALL-SHEET", "SELF-EMPLOYED-CALL-SHEET", "ARREARS-CREDITOR-CALL",
@@ -214,6 +218,20 @@ class PodOver500Test(SimpleTestCase):
                      {"creditor_name": "Small", "balance": 200, "has_pod": False}])
         self.assertEqual(_outcome(_pod_over_500(c)), "pass")
 
+    def test_lowell_needs_no_pod(self):
+        """Manager, 2026-11-20: "Exclude Lowell from POD list" -- every Lowell
+        company, and Lowell only (not debt buyers in general)."""
+        c = _parsed([
+            {"creditor_name": "Lowell Portfolio I Ltd", "balance": 2000, "has_pod": False},
+            {"creditor_name": "LOWELL FINANCIAL", "balance": 1340, "has_pod": False},
+            {"creditor_name": "Lowell Solutions", "balance": 900},
+            {"creditor_name": "Cabot Financial", "balance": 1200, "has_pod": False},
+            {"creditor_name": "Howell & Co", "balance": 800, "has_pod": False},
+        ])
+        r = _pod_over_500(c)
+        self.assertEqual(_outcome(r), "flag")
+        self.assertEqual(r.creditors, ["Cabot Financial", "Howell & Co"])
+
     def test_credit_report_debt_needs_no_pod(self):
         """Only a debt the credit report does not carry needs proof of debt."""
         on_report = _parsed([
@@ -265,8 +283,16 @@ class CouncilTaxEvidenceTest(SimpleTestCase):
         r = self._run("WILL_CONSIDER", div_returned=0.25, creditor_call_completed=False)
         self.assertEqual(_outcome(r), "hard_block")
 
-    def test_will_consider_without_div_not_checked(self):
-        self.assertEqual(_outcome(self._run("WILL_CONSIDER", creditor_call_completed=False)), "pass")
+    def test_will_consider_and_conditional_councils_need_call_sheet(self):
+        """Manager, 2026-11-20: every voting council needs the call -- Will
+        Consider and Conditional Voter too, with or without a DIV."""
+        for status, words in (("WILL_CONSIDER", "Will Consider council"),
+                              ("CONDITIONAL_VOTER", "Conditional Voter council")):
+            with self.subTest(status=status):
+                self.assertEqual(_outcome(self._run(status, creditor_call_completed=True)), "pass")
+                r = self._run(status, creditor_call_completed=False)
+                self.assertEqual(_outcome(r), "hard_block")
+                self.assertIn(words, r.message)
 
     def test_council_not_in_criteria_flags(self):
         c = _parsed([{"creditor_name": "Nowhere Council", "balance": 1500, "creditor_type": "council tax"}])
@@ -336,16 +362,25 @@ class MissingEvidenceRulesAssessCaseTest(TestCase):
                            "creditor_call_completed": False}],
         }
 
-    def test_migration_seeds_every_rule_switched_off(self):
+    def test_migrations_switch_on_only_the_call_sheet_rules(self):
+        """0094 seeds every rule OFF; 0101 switches on the three creditor
+        call-sheet rules (manager, 2026-11-20). The self-employed one stays off."""
         rows = {r.rule_key: r for r in GlobalCriteria.objects.filter(rule_key__in=RULE_KEYS)}
         self.assertEqual(set(rows), set(RULE_KEYS))
-        self.assertTrue(all(not r.is_active for r in rows.values()))
+        self.assertEqual({k for k, r in rows.items() if r.is_active}, set(SWITCHED_ON))
         self.assertEqual(rows["POD-OVER-500"].severity, "flag")
+        self.assertIn("Will Consider", rows["COUNCIL-TAX-EVIDENCE"].description)
 
     def test_switched_off_rules_do_not_run(self):
         ids = self._all_ids(assess_case(self._hmrc_case(), set()))
-        for key in RULE_KEYS:
+        for key in set(RULE_KEYS) - set(SWITCHED_ON):
             self.assertNotIn(key, ids)
+
+    def test_switched_on_rules_run_by_default(self):
+        result = assess_case(self._hmrc_case(), set())
+        self.assertIn("HMRC-CALL-SHEET", [r.rule_id for r in result["hard_blocks"]])
+        self.assertIn("ARREARS-CREDITOR-CALL", self._all_ids(result))
+        self.assertIn("COUNCIL-TAX-EVIDENCE", self._all_ids(result))
 
     def test_switched_on_rule_returns_the_case(self):
         GlobalCriteria.objects.filter(rule_key="HMRC-CALL-SHEET").update(is_active=True)

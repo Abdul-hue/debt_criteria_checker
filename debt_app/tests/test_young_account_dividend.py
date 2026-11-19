@@ -37,7 +37,8 @@ class YoungAccountDividendTests(TestCase):
         self.assertIn("DIVIDEND-CHECK-FAIL", _codes(pos))
         self.assertIn("30p/£ < 40p/£ (account is 4 month(s) old, under 6 months)", _reason(pos, "DIVIDEND-CHECK-FAIL"))
         self.assertNotIn("CREDITOR-LOAN-TOO-RECENT-REJECT", _codes(pos))
-        self.assertEqual(pos["effective_status"], "WILL_CONSIDER")
+        # Below the minimum dividend is a NO vote (2026-11-20, case 434115).
+        self.assertEqual(pos["effective_status"], "REJECT")
 
     def test_young_account_meeting_the_higher_minimum_passes(self):
         pos = self._position(age=4, dividend=45)
@@ -93,8 +94,11 @@ class RatesetterTwoTierTests(TestCase):
         self.assertIn("DIVIDEND-CHECK-FAIL", _codes(pos))
         self.assertIn("30p/£ < 50p/£ (account is 5 month(s) old, under 6 months)", _reason(pos, "DIVIDEND-CHECK-FAIL"))
         self.assertNotIn("CREDITOR-LOAN-TOO-RECENT-REJECT", _codes(pos))
-        self.assertEqual(pos["effective_status"], "ACCEPT")
-        self.assertIn("DIVIDEND-CHECK-PASS", _codes(self._position(age=5, dividend=50)))
+        # Not refused for its age -- refused for the dividend (2026-11-20).
+        self.assertEqual(pos["effective_status"], "REJECT")
+        passing = self._position(age=5, dividend=50)
+        self.assertIn("DIVIDEND-CHECK-PASS", _codes(passing))
+        self.assertEqual(passing["effective_status"], "ACCEPT")
 
     def test_exactly_six_months_is_standard_rate(self):
         pos = self._position(age=6, dividend=30)

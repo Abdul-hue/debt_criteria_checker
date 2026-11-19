@@ -1624,6 +1624,58 @@ def _ccj_amount_to_pence(text: str) -> int | None:
         return None
 
 
+def _judgment_identity(record: dict):
+    """What makes two judgment records ONE judgment, or None when the record
+    carries too little to tell.
+
+      * a court case number: the number, the amount and the date;
+      * no number: the court, the amount and the date, all three present.
+    """
+    def _clean(value):
+        return " ".join(str(value or "").split()).upper()
+
+    amount, date_text = record.get("amount_pence"), _clean(record.get("date"))
+    number, court = _clean(record.get("case_number")), _clean(record.get("court_name"))
+    if amount is None or not date_text:
+        return None
+    if number:
+        return ("number", number, amount, date_text)
+    if court:
+        return ("court", court, amount, date_text)
+    return None
+
+
+def unique_judgments(records: list) -> list:
+    """The judgment records with the same judgment printed twice kept once,
+    first copy first, in order.
+
+    ⚠️ WHY (2026-11-19, CAT case 436961). An Experian report printed one CCJ
+    three times -- the same case number, date, court and £475, word for word
+    (Experian lists public records against each address it matches). Each copy
+    became its own record: `ccj_count` 4 instead of 2, `ccj_total_pence`
+    £3,277 instead of £2,327, and CAT raised two "CCJ (Undeclared) £475"
+    debts that do not exist.
+
+    ⚠️ ONLY A PROVEN COPY GOES (`_judgment_identity`): same case number, amount
+    and date; or, with no number, same court, amount and date. Two £475
+    judgments with different numbers are two judgments, and a record too bare
+    to identify is always kept -- dropping a real judgment is worse than a
+    copy left in.
+    """
+    seen, out = set(), []
+    for record in records or []:
+        identity = _judgment_identity(record)
+        if identity is not None:
+            if identity in seen:
+                continue
+            seen.add(identity)
+        out.append(record)
+    if len(out) < len(records or []):
+        logger.info("[public-info] %d judgment record(s) printed twice dropped (%d kept)",
+                    len(records) - len(out), len(out))
+    return out
+
+
 def extract_public_information(full_text: str) -> dict:
     """
     Extract Public Information (CCJ / judgment, insolvency, debt-management)
@@ -1749,6 +1801,8 @@ def extract_public_information(full_text: str) -> dict:
     )
     exp_num = int(exp_num_m.group(1)) if exp_num_m else None
 
+    # One judgment printed more than once is one judgment (`unique_judgments`).
+    records = unique_judgments(records)
     if records:
         info["ccjs"] = records
         info["ccj_count"] = len(records)

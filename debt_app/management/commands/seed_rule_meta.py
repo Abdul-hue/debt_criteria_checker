@@ -715,12 +715,14 @@ class Command(BaseCommand):
                 'action': 'Identify the actual creditor and correct the creditor name in Aryza. Do not reject the proof of debt from the DCA at this stage; proof of debt from the actual creditor will also be needed.',
             },
             # Missing-evidence criteria (migration 0094) — seeded OFF until CAT sends the fields.
+            # HMRC-CALL-SHEET, ARREARS-CREDITOR-CALL and COUNCIL-TAX-EVIDENCE switched ON
+            # (migration 0101, manager 2026-11-20); SELF-EMPLOYED-CALL-SHEET left off for later.
             {
                 'criteria_set': 'TIG',
                 'rule_key': 'HMRC-CALL-SHEET',
                 'rule_name': 'HMRC debt requires a call sheet',
                 'severity': 'hard_block',
-                'is_active': False,
+                'is_active': True,
                 'category': 'hmrc',
                 'description': 'Any case with HMRC debt requires a completed call sheet.',
                 'action': 'Complete the call sheet and record it in CAT.',
@@ -740,7 +742,7 @@ class Command(BaseCommand):
                 'rule_key': 'ARREARS-CREDITOR-CALL',
                 'rule_name': 'Mortgage, rent and hire purchase arrears require a creditor call',
                 'severity': 'hard_block',
-                'is_active': False,
+                'is_active': True,
                 'category': 'creditor_specific',
                 'description': 'Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).',
                 'action': 'Call each listed creditor and record the call in CAT.',
@@ -770,9 +772,9 @@ class Command(BaseCommand):
                 'rule_key': 'COUNCIL-TAX-EVIDENCE',
                 'rule_name': 'Council tax evidence by council voting position',
                 'severity': 'hard_block',
-                'is_active': False,
+                'is_active': True,
                 'category': 'proof_of_debts',
-                'description': 'Non-voting councils require proof of debt. Accepting, rejecting and DIV councils require a call sheet before SIP.',
+                'description': 'Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.',
                 'action': 'Obtain the proof of debt or call sheet each listed council needs.',
             },
             {

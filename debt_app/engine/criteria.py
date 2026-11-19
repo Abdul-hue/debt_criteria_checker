@@ -2882,6 +2882,21 @@ def _format_day(d: date) -> str:
 # before then every field is None and the rules would only flag.
 
 _POD_REQUIRED_OVER = 500.0
+
+
+def _pod_exempt(cr: dict) -> bool:
+    """A creditor whose debts need no proof of debt (manager, 2026-11-20:
+    "Exclude Lowell from POD list"). Lowell only -- not debt buyers in
+    general -- and every Lowell company ("Lowell Portfolio I Ltd", "Lowell
+    Financial", "Lowell Solutions"): a name whose first word is "lowell".
+    Mirrors CAT's `ledger/rows.py :: pod_exempt_creditor`."""
+    for name in (cr.get("original_name"), cr.get("name")):
+        words = re.sub(r"[^a-z0-9 ]", " ", str(name or "").lower()).split()
+        if words and words[0] == "lowell":
+            return True
+    return False
+
+
 _ARREARS_CALL_TYPES = {
     "mortgage": "mortgage arrears",
     "rent": "rent arrears",
@@ -3075,11 +3090,13 @@ def _pod_over_500(c: dict) -> RuleResult:
     reverses the 2026-11-02 "only has_pod clears it"). Proof of debt is needed
     only for a debt Aryza declares that the report does not show — the same
     `_is_debt_evidenced` test DEBT-LEVEL-EVIDENCED uses, and the same line CAT's
-    remedials draw (a report-verified debt is not a finding there)."""
+    remedials draw (a report-verified debt is not a finding there).
+
+    ⚠️ NOR DOES A LOWELL DEBT (`_pod_exempt`, manager 2026-11-20)."""
     rule_id = "POD-OVER-500"
     in_scope = [cr for cr in c["creditors"]
                 if not cr["is_secured"] and cr["balance"] > _POD_REQUIRED_OVER
-                and not cr.get("from_credit_report")]
+                and not cr.get("from_credit_report") and not _pod_exempt(cr)]
     missing = [cr for cr in in_scope if cr.get("has_pod") is False]
     unknown = [cr for cr in in_scope if cr.get("has_pod") is None]
     if not missing and not unknown:
@@ -3102,13 +3119,26 @@ def _pod_over_500(c: dict) -> RuleResult:
     )
 
 
+#: A voting council's position -> how its call-sheet line names it.
+_COUNCIL_VOTING_KIND = {
+    "ACCEPT": "accepting",
+    "REJECT": "rejecting",
+    "WILL_CONSIDER": "Will Consider",
+    "CONDITIONAL_VOTER": "Conditional Voter",
+}
+
+
 def _council_tax_evidence(c: dict, council_positions: list) -> RuleResult:
     """COUNCIL-TAX-EVIDENCE: evidence a council tax creditor needs, by its voting position.
 
-    Non-voting councils need proof of debt. Accepting, rejecting and DIV councils
-    (a minimum dividend recorded, or a DIV returned on the case) need a creditor
-    call sheet before SIP. Will Consider / Conditional Voter councils with no DIV
-    are not covered by the requirement and are not checked.
+    Non-voting councils need proof of debt. Every VOTING council -- accepting,
+    rejecting, DIV (a minimum dividend recorded, or a DIV returned on the case),
+    Will Consider and Conditional Voter -- needs a creditor call sheet before
+    SIP.
+
+    ⚠️ WILL CONSIDER AND CONDITIONAL VOTER ADDED (manager, 2026-11-20). They
+    were skipped as "not covered by the requirement as written" (open decision
+    2 in CA_TOOL_DEPENDENCIES.md); the answer is that they need the call too.
     """
     from debt_app.helpers import DEBT_TYPE_COUNCIL_TAX
     rule_id = "COUNCIL-TAX-EVIDENCE"
@@ -3137,8 +3167,9 @@ def _council_tax_evidence(c: dict, council_positions: list) -> RuleResult:
         )
         if status in ("DO_NOT_VOTE", "POD_ONLY"):
             field, need = "has_pod", "proof of debt (non-voting council)"
-        elif status in ("ACCEPT", "REJECT") or has_div:
-            kind = "DIV" if has_div and status not in ("ACCEPT", "REJECT") else status.lower() + "ing"
+        elif status in _COUNCIL_VOTING_KIND or has_div:
+            kind = ("DIV" if has_div and status not in ("ACCEPT", "REJECT")
+                    else _COUNCIL_VOTING_KIND.get(status, "voting"))
             field, need = "creditor_call_completed", f"a call sheet before SIP ({kind} council)"
         else:
             continue
@@ -4660,6 +4691,13 @@ def _check_creditor_individual(case: dict, estimated_dividend_pence: Optional[in
                     "reason": f"Minimum dividend NOT met: {estimated_dividend_pence}p/£ < {min_div}p/£{min_div_note}",
                     "severity": "flag",
                 })
+                # ⚠️ BELOW THE MINIMUM DIVIDEND IS A NO VOTE (EXCEL_CRITERIA_REFERENCE.md,
+                # Dividends: "If the estimated IVA dividend is below this, the creditor
+                # will reject"). It was a finding only, so the creditor stayed ACCEPT and
+                # its balance counted toward the 75% while DIVIDEND-BELOW-MIN told the
+                # assessor it would reject -- case 434115, 2026-11-20: Castle Community
+                # Bank needs 30p, 11p offered, £13,986 in Accepted, Rejected £0.00.
+                reject_level = True
 
         if criteria.blocked_until_cleared:
             findings.append({

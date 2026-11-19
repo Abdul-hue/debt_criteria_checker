@@ -685,6 +685,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -721,6 +747,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -1473,6 +1512,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -1509,6 +1574,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -2444,6 +2522,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -2480,6 +2584,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -3278,6 +3395,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -3314,6 +3457,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -4222,6 +4378,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -4258,6 +4440,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -5044,6 +5239,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -5080,6 +5301,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -5946,6 +6180,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -5982,6 +6242,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -6739,6 +7012,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -6775,6 +7074,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -7732,6 +8044,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -7768,6 +8106,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -8612,6 +8963,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -8648,6 +9025,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -9603,6 +9993,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -9639,6 +10055,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -10483,6 +10912,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -10519,6 +10974,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -11376,6 +11844,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -11412,6 +11906,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -12158,6 +12665,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -12194,6 +12727,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -12537,6 +13083,19 @@
           "severity": "flag",
           "threshold": null,
           "title": "TIG-15.6",
+          "triggered": true
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "It is not known whether this council tax evidence is on file; the caseworker must confirm it:\n- Testshire Borough Council: a call sheet before SIP (accepting council)",
+          "required_before": "sip",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "flag",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": true
         }
       ],
@@ -13106,6 +13665,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -13161,7 +13746,7 @@
           "reasons": [],
           "status": "NEEDS_REVIEW",
           "to_confirm": [
-            "1 IVA point needs checking. See the IVA criteria results for details."
+            "2 IVA points need checking. See the IVA criteria results for details."
           ]
         },
         {
@@ -13373,6 +13958,19 @@
             "severity": "flag",
             "threshold": null,
             "title": "TIG-15.6",
+            "triggered": true
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "It is not known whether this council tax evidence is on file; the caseworker must confirm it:\n- Testshire Borough Council: a call sheet before SIP (accepting council)",
+            "required_before": "sip",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "flag",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": true
           }
         ],
@@ -13942,6 +14540,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -13997,7 +14621,7 @@
             "reasons": [],
             "status": "NEEDS_REVIEW",
             "to_confirm": [
-              "1 IVA point needs checking. See the IVA criteria results for details."
+              "2 IVA points need checking. See the IVA criteria results for details."
             ]
           },
           {
@@ -14855,6 +15479,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -14891,6 +15541,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -15644,6 +16307,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -15680,6 +16369,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -16543,6 +17245,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -16579,6 +17307,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -17331,6 +18072,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -17367,6 +18134,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -18290,6 +19070,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -18326,6 +19132,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -19138,6 +19957,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -19174,6 +20019,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -20086,6 +20944,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -20239,6 +21123,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -21028,6 +21925,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -21181,6 +22104,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],
@@ -22046,6 +22982,32 @@
           "triggered": false
         },
         {
+          "action": "Complete the call sheet and record it in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Any case with HMRC debt requires a completed call sheet.",
+          "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+          "required_before": "drafting",
+          "rule_id": "HMRC-CALL-SHEET",
+          "severity": "pass",
+          "threshold": null,
+          "title": "HMRC debt requires a call sheet",
+          "triggered": false
+        },
+        {
+          "action": "Call each listed creditor and record the call in CAT.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+          "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+          "required_before": "drafting",
+          "rule_id": "ARREARS-CREDITOR-CALL",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+          "triggered": false
+        },
+        {
           "action": null,
           "actual_value": null,
           "creditors": [],
@@ -22082,6 +23044,19 @@
           "severity": "pass",
           "threshold": null,
           "title": "PHASE4-COUNTY-COUNCIL",
+          "triggered": false
+        },
+        {
+          "action": "Obtain the proof of debt or call sheet each listed council needs.",
+          "actual_value": null,
+          "creditors": [],
+          "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+          "message": "There is no council tax debt, so no council tax evidence is required.",
+          "required_before": "drafting",
+          "rule_id": "COUNCIL-TAX-EVIDENCE",
+          "severity": "pass",
+          "threshold": null,
+          "title": "Council tax evidence by council voting position",
           "triggered": false
         }
       ],
@@ -22834,6 +23809,32 @@
             "triggered": false
           },
           {
+            "action": "Complete the call sheet and record it in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Any case with HMRC debt requires a completed call sheet.",
+            "message": "HMRC is not a creditor, so an HMRC call sheet is not required.",
+            "required_before": "drafting",
+            "rule_id": "HMRC-CALL-SHEET",
+            "severity": "pass",
+            "threshold": null,
+            "title": "HMRC debt requires a call sheet",
+            "triggered": false
+          },
+          {
+            "action": "Call each listed creditor and record the call in CAT.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Each mortgage arrears, rent arrears and hire purchase creditor needs a creditor call confirming the outstanding arrears and any repayment arrangement (for rent, also whether the arrears can be included in the IVA).",
+            "message": "There are no mortgage arrears, rent arrears or hire purchase arrears, so no creditor call is required.",
+            "required_before": "drafting",
+            "rule_id": "ARREARS-CREDITOR-CALL",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Mortgage, rent and hire purchase arrears require a creditor call",
+            "triggered": false
+          },
+          {
             "action": null,
             "actual_value": null,
             "creditors": [],
@@ -22870,6 +23871,19 @@
             "severity": "pass",
             "threshold": null,
             "title": "PHASE4-COUNTY-COUNCIL",
+            "triggered": false
+          },
+          {
+            "action": "Obtain the proof of debt or call sheet each listed council needs.",
+            "actual_value": null,
+            "creditors": [],
+            "description": "Non-voting councils require proof of debt. Every voting council (accepting, rejecting, DIV, Will Consider and Conditional Voter) requires a call sheet before SIP.",
+            "message": "There is no council tax debt, so no council tax evidence is required.",
+            "required_before": "drafting",
+            "rule_id": "COUNCIL-TAX-EVIDENCE",
+            "severity": "pass",
+            "threshold": null,
+            "title": "Council tax evidence by council voting position",
             "triggered": false
           }
         ],

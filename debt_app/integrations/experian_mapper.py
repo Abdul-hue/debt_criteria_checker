@@ -30,6 +30,7 @@ from debt_app.integrations.credit_report import (
     _status_history_fields,
     match_creditor,
     normalise_start_date_iso,
+    unique_judgments,
 )
 from debt_app.integrations.experian_db import ExperianCodeTables, ExperianDataError
 
@@ -299,6 +300,9 @@ def _public_information(consumer: dict, summary: dict, code_tables: ExperianCode
                 # No JSON field produces the printed "Court Name".
                 "court_name": None,
             })
+    # The PDF path's rule: one judgment listed under several addresses is one
+    # judgment (`credit_report.unique_judgments`, CAT case 436961).
+    ccjs = unique_judgments(ccjs)
 
     info = {
         "has_ccj": False,
