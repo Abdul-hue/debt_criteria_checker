@@ -83,5 +83,27 @@ class DelinquentBadgeTests(SimpleTestCase):
         text = "\n".join(["Address: 1 HIGH ST", "Balance: £5.00", "Date of Birth: 01/01/1990"])
         self.assertEqual(_split_valid8_accounts(text), [])
 
+    def test_a_sold_default_account_reads_the_latest_month_not_the_default_balance(self):
+        # JACAMO on a Valid8 report: no balance of its own, debt sold 8/8/2023,
+        # £0 in the grid from August. CAT read its £1,580 default balance.
+        block = "\n".join([
+            "Default", "Company Type: Mail Order", "Account Type: Mail Order",
+            "Default Balance: £1,580.00", "Company: JACAMO", "Default Date: 22/06/2023",
+            "Indicators", "Type: Debt sold to a CAIS member",
+            "Account Status & Balance Details", "J F M A M J J A S O N D",
+            "2 3 4 6 6 6 8 8", "2023", "£1,372 £1,421 £1,473 £1,580 £1,580 £1,580 £1,580 £0",
+            "0 0 0 0 0 0 0 0 0 0 1 1", "2022",
+            "£523 £561 £561 £578 £660 £780 £1,150 £1,102 £1,201 £1,247 £1,254 £1,313",
+        ])
+        account = _parse_valid8_account("", block)
+        self.assertEqual(account["current_balance"], 0)
+        self.assertEqual(account["default_balance"], 158000)
+
+    def test_a_printed_current_balance_still_wins(self):
+        # CABOT, the purchaser: prints its own current balance beside the default.
+        block = "\n".join(["Default", "Current Balance: £1,941.00", "Default Balance: £1,579.00",
+                           "Company: CABOT FINANCIAL (EUROPE) LTD", "2026", "£1,941 £1,941"])
+        self.assertEqual(_parse_valid8_account("", block)["current_balance"], 194100)
+
     def test_the_badges_are_experians_account_statuses(self):
         self.assertEqual(_VALID8_STATUS_WORDS, set(ACCOUNT_STATUS_LABELS.values()))

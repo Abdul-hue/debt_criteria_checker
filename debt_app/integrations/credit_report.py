@@ -1253,9 +1253,21 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
     # or the literal word "Settled", which _parse_amount safely returns
     # None for) > last grid value (the handful of accounts with no
     # balance field printed at all).
+    #
+    # ⚠️ "Balance:" MUST BE THE LINE'S OWN LABEL. `_extract_field` matches
+    # anywhere in a line, so it read "Default Balance: £1,580.00" as the
+    # balance of a default account that prints no balance of its own -- and
+    # the grid was never reached. A debt SOLD to a purchaser (Indicators:
+    # "Debt sold to a CAIS member") reads £0 in the grid from the month it
+    # was sold, while its default balance stays printed: JACAMO £1,580 and
+    # KLARNA £44, both £0 since 2023, both counted at their default balance,
+    # JACAMO alongside the CABOT account that bought it. The report's own
+    # Summary "Total Balance" excludes them; the grid's latest month agrees.
     current_balance = _parse_amount(_extract_field(lines, "Current Balance"))
     if current_balance is None:
-        current_balance = _parse_amount(_extract_field(lines, "Balance"))
+        own_balance = next((ln.strip()[len("balance:"):] for ln in lines
+                            if ln.strip().lower().startswith("balance:")), "")
+        current_balance = _parse_amount(own_balance.strip())
     if current_balance is None:
         current_balance = _valid8_latest_grid_balance_pence(lines)
 
