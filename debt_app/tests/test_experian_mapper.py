@@ -65,11 +65,13 @@ CODE_TABLES = ExperianCodeTables(ACCOUNT_TYPES, PUBLIC_INFO_TYPES)
 # 2026-11-19: 43 Duel Fuel -> UT (a utility); 53 Mobile, 54 Fixed Line and
 # 58 Broadband -> TM (telecoms). 18 Communications, 42 Oil and 55-57 Cable /
 # Satellite / Business Line are unchanged, pending the business.
+# 2026-11-24: 29 Balloon HP -> HP (user, case 432916: car finance with a
+# large final payment, secured on the vehicle like any HP).
 EXPECTED_TYPE_CODE = {
     "00": "OT", "01": "HP", "02": "PL", "03": "MG", "04": "OT", "05": "CC", "06": "CC", "07": "OT",
     "08": "MO", "11": "OT", "12": "OT", "13": "OT", "14": "OT", "15": "CA", "16": "OT", "17": "OT",
     "18": "UT", "19": "OT", "20": "OT", "21": "UT", "22": "OT", "23": "OT", "24": "OT", "25": "OT",
-    "26": "OT", "27": "OT", "28": "OT", "29": "OT", "30": "OT", "31": "OT", "32": "OT", "33": "OT",
+    "26": "OT", "27": "OT", "28": "OT", "29": "HP", "30": "OT", "31": "OT", "32": "OT", "33": "OT",
     "34": "OT", "35": "OT", "36": "OT", "37": "CC", "38": "OT", "39": "UT", "40": "UT", "41": "UT",
     "42": "OT", "43": "UT", "44": "OT", "45": "OT", "46": "MI", "47": "OT", "48": "OT", "49": "OT",
     "50": "OT", "51": "OT", "52": "OT", "53": "TM", "54": "TM", "55": "OT", "56": "OT", "57": "OT",

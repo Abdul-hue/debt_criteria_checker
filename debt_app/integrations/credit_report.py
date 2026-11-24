@@ -253,12 +253,18 @@ def match_creditor(raw_name: str) -> str:
 # Codes are ordered longest-alternatives-first only for readability; all are
 # two characters and the trailing $ anchor makes ordering irrelevant here.
 _TYPE_CODE_RE = re.compile(
-    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|ST|OT|TM|BD|MI|MU|DP|IL|EW|EE|BK)$"
+    r"^(.+?)\s+(CC|UL|MG|MO|CA|UT|PL|HP|BH|ST|OT|TM|BD|MI|MU|DP|IL|EW|EE|BK)$"
 )
 #: The codes `_TYPE_CODE_RE` lists -- a code outside it reached the parser only
 #: through the fallback header, and its account is marked `type_unmapped`
 #: (`account_categories.type_source`). Pinned to the regex by a test.
-_ADVIZE_TYPE_CODES = frozenset("CC UL MG MO CA UT PL HP ST OT TM BD MI MU DP IL EW EE BK".split())
+_ADVIZE_TYPE_CODES = frozenset("CC UL MG MO CA UT PL HP BH ST OT TM BD MI MU DP IL EW EE BK".split())
+
+#: A printed Advize code read as another (2026-11-24, user, case 432916): BH is
+#: Balloon Hire Purchase -- car finance with a large final payment, secured on
+#: the vehicle, so it is HP to everything downstream (CAT's vehicle checks,
+#: the secured split). The printed code stays on `source_account_code`.
+_ADVIZE_CODE_ALIASES = {"BH": "HP"}
 
 # Fallback for any Aryza header whose type code is not in the list above.
 # Without this, an unlisted code silently deletes the account (see module
@@ -1012,6 +1018,14 @@ _EXPERIAN_CATEGORY_TO_TYPE: dict[str, str] = {
     "hire purchase / conditional sale": "HP",
     "hire purchase": "HP",
     "conditional sale": "HP",
+    # ⚠️ BALLOON HP IS HIRE PURCHASE (user, 2026-11-24, case 432916): car
+    # finance with a large final payment, secured on the vehicle like any HP.
+    # Read as "OT" it was UNSECURED in CAT -- Close Brothers £13,973 counted
+    # toward the £5,400 IVA minimum, given a vote and a proof-of-debt flag,
+    # and missed by every vehicle check. The wording stays on
+    # `source_account_type`, so "Balloon HP" is still what the report said.
+    "balloon hp": "HP",
+    "balloon hire purchase": "HP",
     "mortgages": "MG",
     "mortgage": "MG",
     "home credit": "UL",
@@ -1139,6 +1153,28 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
     "car insurance": "MI",
     "insurance": "MI",
     "budget (revolving account)": "CC",
+    # ⚠️ HIRE PURCHASE, MORTGAGE, SECURED LOAN (2026-11-24, case 438519):
+    # unlisted, so they fell to "OT" -- three First Response Finance HP
+    # agreements read "Other", so CAT never treated them as vehicle finance
+    # (12-month payment check, link to the car), and a mortgage would have
+    # been counted as unsecured IVA debt. Valid8 prints "Hire Purchase/
+    # Conditional Sale" with NO spaces round the slash, which the Experian
+    # map's "hire purchase / conditional sale" does not match. EXACT
+    # WORDINGS ONLY, and only the ones `_EXPERIAN_CATEGORY_TO_TYPE` already
+    # maps, so both Experian routes agree: "Unsecured Loan ..." can never
+    # read as a secured loan, and "Second Mortgage", "Mortgage Protection" and
+    # the rest stay "OT" on both (open business decision D1). "Balloon HP" is
+    # HP on both since 2026-11-24 (user; see the Experian map).
+    "hire purchase/conditional sale": "HP",
+    "balloon hp": "HP",
+    "balloon hire purchase": "HP",
+    "hire purchase / conditional sale": "HP",
+    "hire purchase": "HP",
+    "conditional sale": "HP",
+    "mortgage": "MG",
+    "mortgages": "MG",
+    "secured loan": "MG",
+    "secured loans": "MG",
 }
 
 
@@ -1676,6 +1712,49 @@ def unique_judgments(records: list) -> list:
     return out
 
 
+def merge_public_signals(extracted: list) -> dict:
+    """Several reports' `extracted_data` as ONE case's public signals:
+    `{"has_ccj", "aoe_in_place", "public_information"}`.
+
+    ⚠️ WHY (2026-11-24, CAT: "both of the creditor reports are main reports").
+    A case can hold two reports for one client -- an Experian report and an
+    Aryza credit search -- and a CCJ, an attachment of earnings, an IVA /
+    bankruptcy or a DMP may be printed on only one. The engine read the newest
+    alone, so a judgment on the other never reached a rule.
+
+    A flag is set if ANY report sets it. Judgments are pooled, one printed on
+    two reports kept once (`unique_judgments`); `ccj_count` is never fewer
+    than any one report counted, `ccj_total_pence` the pooled sum when every
+    judgment has an amount. Pure."""
+    data = [e for e in extracted or [] if isinstance(e, dict)]
+    infos = [e.get("public_information") or {} for e in data]
+    infos = [i for i in infos if isinstance(i, dict)]
+    merged: dict = {}
+    for info in infos:
+        for key, value in info.items():
+            if isinstance(value, bool):
+                merged[key] = bool(merged.get(key)) or value
+            elif key not in merged:
+                merged[key] = value
+    records = [c for i in infos for c in (i.get("ccjs") or []) if isinstance(c, dict)]
+    judgments = unique_judgments(records)
+    if records or any("ccjs" in i for i in infos):
+        merged["ccjs"] = judgments
+    counts = [int(i.get("ccj_count") or 0) for i in infos if "ccj_count" in i]
+    if counts or judgments:
+        merged["ccj_count"] = max([len(judgments)] + counts)
+    amounts = [c.get("amount_pence") for c in judgments]
+    if judgments and all(isinstance(a, int) for a in amounts):
+        merged["ccj_total_pence"] = sum(amounts)
+    has_ccj = any(bool(e.get("has_ccj")) for e in data) or bool(merged.get("has_ccj")) or bool(judgments)
+    merged["has_ccj"] = has_ccj
+    return {
+        "has_ccj": has_ccj,
+        "aoe_in_place": any(bool(e.get("aoe_in_place")) for e in data),
+        "public_information": merged,
+    }
+
+
 def extract_public_information(full_text: str) -> dict:
     """
     Extract Public Information (CCJ / judgment, insolvency, debt-management)
@@ -1860,7 +1939,13 @@ def _split_into_account_blocks(full_text: str) -> list[tuple[str, str]]:
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
-        is_header = bool(_TYPE_CODE_RE.match(stripped))
+        # ⚠️ A FIELD LINE IS NEVER A HEADER (2026-11-24, case 432916). The
+        # detail line "Account Type: Balloon HP" ends in a known code, so it
+        # opened a new account named "Account Type: Balloon" holding the
+        # £14,377 balance, and cut the real header above it ("Close Consumer
+        # Finance BH") off with no balance. A creditor name carries no ":";
+        # every field line does -- the fallback pattern already refuses one.
+        is_header = bool(_TYPE_CODE_RE.match(stripped)) and ":" not in stripped
 
         if not is_header:
             fallback = _ARYZA_FALLBACK_HEADER_RE.match(stripped)
@@ -1914,7 +1999,8 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         return None
 
     raw_name = m.group(1).strip()
-    type_code = m.group(2).strip()
+    printed_code = m.group(2).strip()
+    type_code = _ADVIZE_CODE_ALIASES.get(printed_code, printed_code)
 
     lines = block_text.split("\n")
 
@@ -1985,9 +2071,9 @@ def _parse_account_block(header: str, block_text: str) -> dict | None:
         # it prints one; a code only the fallback header accepted is marked
         # `type_unmapped`.
         **type_source(source_system=SOURCE_ARYZA_ADVIZE_PDF, type_code=type_code,
-                      source_account_code=type_code,
+                      source_account_code=printed_code,
                       source_account_type=_advize_type_wording(block_text),
-                      type_unmapped=type_code not in _ADVIZE_TYPE_CODES),
+                      type_unmapped=printed_code not in _ADVIZE_TYPE_CODES),
         "normalised_name": normalised,
         "matched_creditor": matched,
         "start_date": normalise_start_date_iso(start_date_str),

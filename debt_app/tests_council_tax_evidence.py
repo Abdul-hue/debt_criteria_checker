@@ -13,8 +13,8 @@ verified: locally, via `winget install UB-Mannheim.TesseractOCR`).
 """
 import os
 import shutil
+import unittest
 
-import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
@@ -82,8 +82,13 @@ class FieldExtractionTests(TestCase):
         assert result["date_iso"] == "2026-01-01"
 
 
-@pytest.mark.skipif(not os.path.exists(SAMPLE_IMAGE), reason="sample image not present on this machine")
-@pytest.mark.skipif(not TESSERACT_AVAILABLE, reason="tesseract binary not installed on this machine")
+#: ⚠️ `unittest.skipIf`, NOT `pytest.mark.skipif` (2026-11-24). The suite runs
+#: under Django's runner (`manage.py test`), which ignores pytest marks -- so on
+#: every machine without this one developer's screenshot the test still ran,
+#: OCR read no file, and it failed on `account_reference`. pytest honours
+#: `unittest.skipIf` too, so both runners now skip it the same way.
+@unittest.skipIf(not os.path.exists(SAMPLE_IMAGE), "sample image not present on this machine")
+@unittest.skipIf(not TESSERACT_AVAILABLE, "tesseract binary not installed on this machine")
 class EndToEndOcrTests(TestCase):
     def test_extract_council_tax_evidence_from_real_screenshot(self):
         result = cte.extract_council_tax_evidence(SAMPLE_IMAGE, is_image=True)

@@ -156,6 +156,34 @@ class FallbackHeaderTests(SimpleTestCase):
                 self.assertIsNone(_ARYZA_FALLBACK_HEADER_RE.match(line))
 
 
+class FieldLineEndingInACodeTests(SimpleTestCase):
+    """Case 432916 (2026-11-24): "Account Type: Balloon HP" ends in the known
+    code HP and opened an account named "Account Type: Balloon" with the
+    £14,377 balance, leaving "Close Consumer Finance BH" with none."""
+
+    TEXT = "\n".join([
+        "Close Consumer Finance BH",
+        "Account Details:",
+        "Account Type: Balloon HP",
+        "Account Status: Up to date Account Status",
+        "Subjective Level: Good",
+        "Credit Limit: N/A Payments: Monthly X £404",
+        "Minimum Payment: No Promotional Rate: No",
+        "Balances Dates",
+        "Current Balance: £14377 Last Update: 2026-09-30",
+        "Start Balance: £26897 Start Date: 2024-02-29",
+        "Default Balance: N/A End Date: N/A",
+    ])
+
+    def test_one_account_with_its_own_balance(self):
+        text = "\n".join([self.TEXT, _account("Moneybarn", "HP", "1076")])
+        blocks = _split_into_account_blocks(text)
+        self.assertEqual(["Close Consumer Finance BH", "Moneybarn HP"], [h for h, _ in blocks])
+        close = _parse_account_block(*blocks[0])
+        self.assertEqual(1437700, close["current_balance"])
+        self.assertEqual("Close Consumer Finance", close["raw_name"])
+
+
 class SwallowedAccountTests(SimpleTestCase):
     """End-to-end: the two symptoms of the original bug."""
 

@@ -534,6 +534,19 @@ def _func_to_rule_id(name: str) -> str:
 # Payload parser — normalises raw JSON into a clean dict
 # ---------------------------------------------------------------------------
 
+def _report_ids(raw) -> list:
+    """CAT's `credit_report_ids` as ints, unreadable ones dropped, in order."""
+    out = []
+    for value in raw if isinstance(raw, (list, tuple)) else []:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number not in out:
+            out.append(number)
+    return out
+
+
 def _parse_case(case_json: dict) -> dict:
     """
     Extract and normalise all fields needed by the rule methods.
@@ -962,6 +975,9 @@ def _parse_case(case_json: dict) -> dict:
     return {
         # Metadata
         "aryza_reference": case_json.get("aryza_reference") or case_json.get("application_id", ""),
+        # Every report CAT shows for the case (2026-11-24) -- see
+        # `_enrich_from_credit_report`. [] when CAT sent none.
+        "credit_report_ids": _report_ids(case_json.get("credit_report_ids")),
         "client_name": case_json.get("client_name") or client_info.get("client_name", ""),
         "source_department": case_json.get("source_department"),
         # Core financials
@@ -6979,6 +6995,24 @@ def _enrich_from_credit_report(case_data: dict, sources=None) -> str:
         # AoE — credit report is authoritative over Aryza payload
         if _ccj_report and _ccj_report.extracted_data and "aoe_in_place" in _ccj_report.extracted_data:
             case_data["aoe_in_place"] = bool(_ccj_report.extracted_data.get("aoe_in_place"))
+
+        # ⚠️ EVERY REPORT CAT SHOWS, NOT THE NEWEST ALONE (2026-11-24, CAT:
+        # "both of the creditor reports are main reports"). A CCJ, an AoE, an
+        # IVA / bankruptcy or a DMP printed only on the case's OTHER report --
+        # an Experian report beside an Aryza credit search -- never reached a
+        # rule. CAT names its reports (`credit_report_ids`); only those, and
+        # only this reference's, are pooled (`merge_public_signals`), so an
+        # older search the case has moved on from is never brought back. One
+        # report or none named: exactly as before.
+        _shown = [r for r in _extracted if r.id in set(case_data.get("credit_report_ids") or [])]
+        if len(_shown) > 1:
+            from debt_app.integrations.credit_report import merge_public_signals
+            _signals = merge_public_signals([r.extracted_data or {} for r in _shown])
+            case_data["has_ccj"] = _signals["has_ccj"]
+            case_data["credit_report_public_information"] = _signals["public_information"]
+            case_data["aoe_in_place"] = _signals["aoe_in_place"]
+            logger.info("[CREDIT REPORT] ref=%s public signals pooled from %d reports: %s",
+                        ref, len(_shown), [r.id for r in _shown])
 
         # credit_report_iva_or_bankruptcy — surfaced from the credit report's
         # combined "IVA or Bankruptcy Detected" field (public_information),

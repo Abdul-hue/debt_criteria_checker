@@ -58,6 +58,7 @@ from debt_app.views.criteria_change_views import (
     CriteriaVersionRollbackView,
 )
 from debt_app.views.evaluation_history_view import EvaluationHistoryView
+from debt_app.views.internal_creditor_names_view import InternalCreditorNamesView
 from debt_app.views.internal_sfs_views import (
     InternalGuidelineListView,
     InternalGuidelineDetailView,
@@ -132,6 +133,8 @@ urlpatterns = [
     path("internal/sfs/guidelines/<int:key>/",           InternalGuidelineDetailView.as_view(),         name="internal-sfs-guideline-detail"),
     path("internal/sfs/categories/",                     InternalGuidelineCategoryListView.as_view(),   name="internal-sfs-category-list"),
     path("internal/sfs/categories/<int:pk>/",            InternalGuidelineCategoryDetailView.as_view(), name="internal-sfs-category-detail"),
+    # Creditor names + trading names, read only, for CA's creditor matching.
+    path("internal/creditor-names/",                     InternalCreditorNamesView.as_view(),           name="internal-creditor-names"),
     path("upload-credit-report/",         CreditReportUploadView.as_view(), name="upload-credit-report"),
     path("credit-report/",                CreditReportFetchView.as_view(),  name="credit-report"),
     path("council-tax-evidence/upload/",  CouncilTaxEvidenceUploadView.as_view(), name="council-tax-evidence-upload"),

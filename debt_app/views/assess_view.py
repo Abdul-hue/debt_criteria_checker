@@ -86,12 +86,29 @@ class DirectAssessView(APIView):
                         (r for r in recent_reports if (r.extracted_data or {}).get('accounts')),
                         None,
                     )
+                # ⚠️ EVERY REPORT CAT SHOWS (2026-11-24, CAT: "both of the
+                # creditor reports are main reports"): with `credit_report_ids`
+                # naming more than one of this reference's reports, their
+                # accounts are pooled -- a creditor only the case's OTHER report
+                # printed is enriched too. The match below takes each account
+                # once, so an account on both reports is used once.
+                shown_ids = set()
+                for value in case_json.get("credit_report_ids") or []:
+                    try:
+                        shown_ids.add(int(value))
+                    except (TypeError, ValueError):
+                        continue
+                shown = [r for r in recent_reports if r.id in shown_ids
+                         and (r.extracted_data or {}).get('accounts')] if len(shown_ids) > 1 else []
+                if len(shown) > 1:
+                    cr_obj = shown[0]
                 if cr_obj and cr_obj.extracted_data:
                     # Merge accounts and mortgage accounts
-                    cr_accounts = (
-                        (cr_obj.extracted_data.get('accounts', []) or []) +
-                        (cr_obj.extracted_data.get('mortgage_accounts', []) or [])
-                    )
+                    cr_accounts = [
+                        acc for r in (shown if len(shown) > 1 else [cr_obj])
+                        for acc in ((r.extracted_data.get('accounts', []) or []) +
+                                    (r.extracted_data.get('mortgage_accounts', []) or []))
+                    ]
 
                     # Build list of (normalised_name, balance_pence, full_account)
                     cr_list = []
