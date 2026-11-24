@@ -1175,6 +1175,17 @@ _VALID8_CATEGORY_TO_TYPE: dict[str, str] = {
     "mortgages": "MG",
     "secured loan": "MG",
     "secured loans": "MG",
+    # ⚠️ FOUR MORE VALID8 WORDINGS (2026-11-25, user): they fell to "OT".
+    # The same type each already has elsewhere -- Mail Order / Home Credit /
+    # Charge Card as on `_EXPERIAN_CATEGORY_TO_TYPE`, BNPL as the "DP"
+    # (deferred payment) an Aryza Advize search prints for Klarna Pay Later.
+    # All stay debt. "Credit Sale Fixed Term" stays "OT": no route types it.
+    "mail order": "MO",
+    "home credit": "UL",
+    "charge card": "CC",
+    "bnpl/deferred payment": "DP",
+    "bnpl / deferred payment": "DP",
+    "deferred payment": "DP",
 }
 
 
@@ -1280,6 +1291,164 @@ def _valid8_latest_grid_balance_pence(lines: list[str]) -> int | None:
                 best_year, best_pence = year, _valid8_grid_amount_pence(tokens[-1])
                 break
     return best_pence
+
+
+# ---------------------------------------------------------------------------
+# The Valid8 month-by-month record (2026-11-25, user): the status each month,
+# for the 12-month payment check on a mortgage, secured loan or vehicle finance
+# (CAT `ledger/secured_payments.py`). Before this only the Aryza Advize layout
+# was read for it, so every such account on a Valid8 report raised "the credit
+# report shows no month-by-month payment record for it" -- though the report
+# prints one -- and its Assets card showed no payment grid.
+#
+# Layout, per account (verified on two real reports, 72 accounts):
+#
+#     J F M A M J J A S O N D        <- month header, one per account
+#     0 0 0 0 0 0 0 0 0 0 0          <- statuses        } one group
+#     2026                           <- year label      } per year,
+#     £512 £498 ...                  <- balances        } newest first
+#
+# ⚠️ A MONTH IS ITS POSITION, NEVER ITS PLACE IN THE ROW. A part-year fills
+# only its own columns -- the newest year from January, the oldest up to
+# December -- so each word is placed under the month letter it sits beneath.
+# ⚠️ A GRID CAN CROSS A PAGE, with no header on the new page: the columns and
+# the account are carried over (the status row and year can end one page and
+# their balances open the next).
+# ---------------------------------------------------------------------------
+_VALID8_MONTH_LETTERS = list("JFMAMJJASOND")
+#: A status code under a month: "0", "1"-"6", "8", "D", "U", "?" (a Lowell
+#: current account, an AA policy: 2 of 72 accounts). Kept AS PRINTED, as the
+#: Experian API route keeps the same bureau's codes (`experian_mapper.
+#: _status_history`: only "", "-" and "." are no status) -- CAT words "?" as
+#: "Unknown", and only "0" counts as paid.
+_VALID8_STATUS_TOKEN_RE = re.compile(r"[0-9A-Z]{1,2}|\?")
+_VALID8_NO_DATA = (None, "-", ".")
+
+
+def _valid8_month_columns(words: list[dict]) -> list[float] | None:
+    """The 12 month columns' x0 from a "J F M A M J J A S O N D" line, else None."""
+    if [w["text"] for w in words] != _VALID8_MONTH_LETTERS:
+        return None
+    return [w["x0"] for w in words]
+
+
+def _valid8_month_at(columns: list[float], x0: float) -> int | None:
+    """1-12 for the column a word starting at `x0` sits under, else None.
+    Balances start a few points left of their letter; anything further than
+    half a column from every letter belongs to none."""
+    pitch = (columns[-1] - columns[0]) / 11
+    nearest = min(range(12), key=lambda i: abs(columns[i] - x0))
+    return nearest + 1 if abs(columns[nearest] - x0) <= pitch / 2 else None
+
+
+def _extract_valid8_status_histories(pdf) -> list[list[dict]]:
+    """Every Valid8 account's month-by-month record, one per month header, in
+    document order -- the same order `_split_valid8_accounts` returns the
+    accounts. Each is `[{"month": "YYYY-MM", "status": str, "balance": pence
+    | None}]`, oldest first, the shape `_extract_status_histories` gives an
+    Aryza Advize account.
+
+    A grid ends at its next month header or at the next account's "Address:"
+    line. Pairing these with the accounts, and checking each, is
+    `_valid8_histories_for`'s.
+    """
+    grids: list[dict] = []
+    cells: dict | None = None          # (year, month) -> {"status", "balance"}
+    columns: list[float] | None = None
+    year: int | None = None            # the year whose balances come next
+    pending: list[dict] | None = None  # a status row waiting for its year label
+
+    def put(words, field, value_of):
+        for word in words:
+            month = _valid8_month_at(columns, word["x0"])
+            if month is None:
+                continue
+            cell = cells.setdefault((year, month), {"status": None, "balance": None})
+            if cell[field] is None:
+                cell[field] = value_of(word["text"])
+
+    for page in pdf.pages:
+        for _top, words in _page_lines(page):
+            header = _valid8_month_columns(words)
+            if header:
+                cells, columns, year, pending = {}, header, None, None
+                grids.append(cells)
+                continue
+            if cells is None:
+                continue
+            if words[0]["text"].lower().startswith("address:"):
+                cells = None                       # the next account has begun
+                continue
+            first = words[0]
+            if (re.fullmatch(r"\d{4}", first["text"]) and 1900 < int(first["text"]) < 2200
+                    and first["x1"] < columns[0] - _GRID_COLUMN_LEAD):
+                # A year label -- with its statuses on the same line when a
+                # page break pulled them together (see the grid-balance reader).
+                year = int(first["text"])
+                rest = words[1:]
+                statuses = rest if rest and all(_VALID8_STATUS_TOKEN_RE.fullmatch(w["text"]) for w in rest) else pending
+                pending = None
+                put(statuses or [], "status", lambda text: text)
+                continue
+            if all(_VALID8_STATUS_TOKEN_RE.fullmatch(w["text"]) for w in words):
+                pending = words
+                continue
+            if year is not None and all(_is_grid_balance_token(w["text"]) for w in words):
+                put(words, "balance", _valid8_grid_amount_pence)
+                year = None                        # one balance row per year
+                continue
+
+    return [
+        [{"month": f"{y:04d}-{m:02d}", "status": c["status"], "balance": c["balance"]}
+         for (y, m), c in sorted(grid.items()) if c["status"] not in _VALID8_NO_DATA]
+        for grid in grids
+    ]
+
+
+def _valid8_histories_for(pdf, blocks: list[tuple[str, str]]) -> list[list[dict] | None]:
+    """One month-by-month record per Valid8 account block (None where it
+    cannot be trusted), never raising -- the record is extra evidence and
+    must never cost the report its accounts.
+
+    ⚠️ PAIRED BY ORDER, SO BOTH COUNTS MUST AGREE. Every account prints one
+    month header; if the headers and the accounts differ in number, no account
+    gets a record -- one lender's months must never land on another lender.
+    ⚠️ EACH RECORD IS CHECKED against the account's own text: its newest
+    month's balance must equal the grid balance the text reader finds
+    (`_valid8_latest_grid_balance_pence`), or that account gets none.
+    """
+    try:
+        histories = _extract_valid8_status_histories(pdf)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("[VALID8] month-by-month read failed: %s", exc, exc_info=True)
+        return [None] * len(blocks)
+    if len(histories) != len(blocks):
+        logger.warning("[VALID8] %d month grids for %d accounts -- no month-by-month record kept",
+                       len(histories), len(blocks))
+        return [None] * len(blocks)
+    paired: list[list[dict] | None] = []
+    for (_address, block_text), history in zip(blocks, histories):
+        expected = _valid8_latest_grid_balance_pence(block_text.split("\n"))
+        if history and expected is not None and history[-1]["balance"] == expected:
+            paired.append(history)
+        else:
+            if history:
+                logger.warning("[VALID8] month grid does not match its account's balance -- dropped")
+            paired.append(None)
+    return paired
+
+
+#: "Payment Terms: £250 X 48 (Monthly)" -- the amount, any currency glyph.
+_VALID8_MONTHLY_TERMS_RE = re.compile(r"(\S+)\s+X\s+\d+\s+\(Monthly\)", re.IGNORECASE)
+
+
+def _valid8_agreed_monthly_payment_pence(lines: list[str]) -> int | None:
+    """The agreed monthly payment from "Payment Terms: £250 X 48 (Monthly)",
+    in pence. None for any other frequency ("(Weekly)") or no terms: nothing
+    is converted or invented -- the rule `_extract_agreed_monthly_payment_pence`
+    keeps for an Aryza Advize account."""
+    match = _VALID8_MONTHLY_TERMS_RE.fullmatch(_extract_field(lines, "Payment Terms").strip())
+    return _parse_amount(match.group(1)) if match else None
 
 
 def _parse_valid8_account(address: str, block_text: str) -> dict | None:
@@ -1393,6 +1562,12 @@ def _parse_valid8_account(address: str, block_text: str) -> dict | None:
         "cais_last_updated": cais_last_updated,
         "reconciliation_only": reconciliation_only,
         "address": address or None,
+        # "Payment Terms: £250 X 48 (Monthly)", pence -- the same key an Aryza
+        # Advize account's "Payments: Monthly X £308" fills (2026-11-25).
+        "agreed_monthly_payment": _valid8_agreed_monthly_payment_pence(lines),
+        # Filled from the PDF's word positions by `extract_credit_report`
+        # (`_valid8_histories_for`); the block text cannot place a month.
+        **_status_history_fields(None),
     }
 
 
@@ -2127,10 +2302,14 @@ def extract_credit_report(pdf_path: str) -> dict:
         with pdfplumber.open(pdf_path) as pdf:
             page_texts = [page.extract_text() or "" for page in pdf.pages]
             full_text = "\n".join(page_texts)
-            # Aryza Advize only -- the month grid is that layout's. Read while
-            # the PDF is open; never raises (`_safe_status_histories`).
-            status_histories = (_safe_status_histories(pdf)
-                                if _detect_agency(full_text) != "Experian" else {})
+            # The month-by-month record, read from word positions while the
+            # PDF is open; neither reader raises. Aryza Advize: keyed by
+            # header (`_safe_status_histories`). Valid8: one per account
+            # block, in order (`_valid8_histories_for`, 2026-11-25).
+            is_experian = _detect_agency(full_text) == "Experian"
+            status_histories = _safe_status_histories(pdf) if not is_experian else {}
+            valid8_blocks = _split_valid8_accounts(full_text) if is_experian else []
+            valid8_histories = _valid8_histories_for(pdf, valid8_blocks) if valid8_blocks else []
 
         printed_report_date = _extract_printed_report_date(page_texts[0] if page_texts else "")
         agency = _detect_agency(full_text)
@@ -2164,10 +2343,10 @@ def extract_credit_report(pdf_path: str) -> dict:
             # blocks (when present) always take precedence.
             parsed_accounts = []
             client_address = ""
-            valid8_blocks = _split_valid8_accounts(full_text)
-            for address, block_text in valid8_blocks:
+            for (address, block_text), history in zip(valid8_blocks, valid8_histories):
                 parsed = _parse_valid8_account(address, block_text)
                 if parsed is not None:
+                    parsed.update(_status_history_fields(history))
                     parsed_accounts.append(parsed)
                     if not client_address and parsed.get("address"):
                         # Every account normally repeats the client's current

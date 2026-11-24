@@ -75,7 +75,7 @@ class NothingNearbyMovesTests(SimpleTestCase):
     def test_the_d1_variants_stay_other_as_on_the_experian_map(self):
         for wording in ("Second Mortgage", "Residential Mortgage", "Buy To Let Mortgage",
                         "Flexible Mortgages", "Mortgage Protection", "Mortgage and Unsecured Loan",
-                        "Credit Sale Fixed Term", "BNPL/Deferred Payment"):
+                        "Credit Sale Fixed Term"):
             self.assertEqual(_code(wording), "OT", wording)
             self.assertNotIn(wording.lower(), _EXPERIAN_CATEGORY_TO_TYPE, wording)
 
@@ -88,3 +88,24 @@ class NothingNearbyMovesTests(SimpleTestCase):
         parsed = _parse_valid8_account("1 High Street", _valid8("Car Insurance"))
         self.assertEqual(parsed["type_code"], "MI")
         self.assertTrue(parsed["reconciliation_only"])
+
+
+class MoreValid8WordingsTests(SimpleTestCase):
+    """Mail Order, Home Credit, Charge Card and BNPL on a Valid8 report
+    (2026-11-25): the type each already has on another route, never "OT"."""
+
+    def test_each_wording_takes_its_type(self):
+        for wording, code in (("Mail Order", "MO"), ("Home Credit", "UL"), ("Charge Card", "CC"),
+                              ("BNPL/Deferred Payment", "DP"), ("BNPL / Deferred Payment", "DP")):
+            with self.subTest(wording=wording):
+                parsed = _parse_valid8_account("1 High Street", _valid8(wording))
+                self.assertEqual(parsed["type_code"], code)
+                self.assertFalse(parsed["reconciliation_only"], "still debt")
+                self.assertFalse(parsed["type_unmapped"])
+
+    def test_the_three_agree_with_the_experian_map(self):
+        for wording in ("mail order", "home credit", "charge card"):
+            self.assertEqual(_VALID8_CATEGORY_TO_TYPE[wording], _EXPERIAN_CATEGORY_TO_TYPE[wording], wording)
+
+    def test_credit_sale_is_still_other(self):
+        self.assertEqual(_code("Credit Sale Fixed Term"), "OT")
