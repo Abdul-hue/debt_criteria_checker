@@ -2,6 +2,9 @@
 integrations/credit_report.py
 
 Extracts structured per-creditor data from Aryza Advize credit report PDFs.
+(Experian and Valid8 layouts are read below too; a TransUnion "SHARE" report
+has its own reader, `transunion_report.py`, dispatched from
+`extract_credit_report`.)
 
 PDF structure (confirmed from real report):
   - Account header:  "{Creditor Name} {TYPE_CODE}"
@@ -42,6 +45,7 @@ import pdfplumber
 from debt_app.integrations.account_categories import (
     SOURCE_ARYZA_ADVIZE_PDF, SOURCE_EXPERIAN_PDF, SOURCE_EXPERIAN_VALID8_PDF, type_source,
 )
+from debt_app.integrations import transunion_report
 
 logger = logging.getLogger(__name__)
 
@@ -2306,10 +2310,17 @@ def extract_credit_report(pdf_path: str) -> dict:
             # PDF is open; neither reader raises. Aryza Advize: keyed by
             # header (`_safe_status_histories`). Valid8: one per account
             # block, in order (`_valid8_histories_for`, 2026-11-25).
-            is_experian = _detect_agency(full_text) == "Experian"
-            status_histories = _safe_status_histories(pdf) if not is_experian else {}
+            # ⚠️ A TRANSUNION "SHARE" REPORT HAS A READER OF ITS OWN
+            # (2026-11-25, case 438769): it used to fall to the Aryza Advize
+            # reader below and come out with no accounts at all. Its
+            # accounts, grids included, are read from word positions here.
+            is_transunion = transunion_report.is_transunion_share_report(full_text)
+            is_experian = not is_transunion and _detect_agency(full_text) == "Experian"
+            status_histories = (_safe_status_histories(pdf)
+                                if not (is_experian or is_transunion) else {})
             valid8_blocks = _split_valid8_accounts(full_text) if is_experian else []
             valid8_histories = _valid8_histories_for(pdf, valid8_blocks) if valid8_blocks else []
+            transunion_accounts = transunion_report.read_accounts(pdf) if is_transunion else []
 
         printed_report_date = _extract_printed_report_date(page_texts[0] if page_texts else "")
         agency = _detect_agency(full_text)
@@ -2320,8 +2331,39 @@ def extract_credit_report(pdf_path: str) -> dict:
         mortgage_accounts: list[dict] = []
         other_accounts: list[dict] = []
         unmatched: list[str] = []
+        extra: dict = {}
 
-        if agency == "Experian":
+        if is_transunion:
+            # ----------------------------------------------------------------
+            # TransUnion "SHARE" layout -- `integrations/transunion_report.py`
+            # ----------------------------------------------------------------
+            agency = "TransUnion"
+            report_date = transunion_report.report_date(transunion_accounts, printed_report_date)
+            client_address = _extract_client_address(full_text)
+            public_info = transunion_report.public_information(full_text, public_info)
+            for parsed in transunion_accounts:
+                if parsed.get("reconciliation_only"):
+                    other_accounts.append(parsed)
+                elif parsed["type_code"] == "MG":
+                    mortgage_accounts.append(parsed)
+                else:
+                    accounts.append(parsed)
+                    if parsed["matched_creditor"] == parsed["raw_name"]:
+                        unmatched.append(parsed["raw_name"])
+            # The report's other sections, counted -- a Notice of Correction
+            # must be read by law, and a Cifas warning is a fraud marker.
+            extra = {
+                "credit_score": transunion_report.credit_score(full_text),
+                "notices_of_correction": transunion_report.record_count(full_text, "Notices of Correction"),
+                "cifas_records": transunion_report.record_count(full_text, "Cifas"),
+                "associations": transunion_report.record_count(full_text, "Aliases and Associations"),
+                "electoral_roll_records": transunion_report.record_count(full_text, "Electoral Roll"),
+                "address_links": transunion_report.record_count(full_text, "Address Links"),
+            }
+            logger.info("[EXTRACTOR] TransUnion SHARE report: %d accounts "
+                        "(%d debt, %d mortgage, %d other)", len(transunion_accounts),
+                        len(accounts), len(mortgage_accounts), len(other_accounts))
+        elif agency == "Experian":
             # ----------------------------------------------------------------
             # Experian Consumer Credit Report (CAIS format)
             # Headers: "{CREDITOR NAME} - {Category}"
@@ -2437,6 +2479,8 @@ def extract_credit_report(pdf_path: str) -> dict:
             "public_information": public_info,
             "has_ccj": public_info["has_ccj"],
             "aoe_in_place": public_info.get("aoe_in_place", False),
+            # TransUnion only: its other sections' record counts.
+            **extra,
         }
 
     except Exception as e:

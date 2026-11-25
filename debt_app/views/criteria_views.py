@@ -3344,7 +3344,10 @@ def process_credit_report_upload(aryza_reference, uploaded_file, user, extractor
         # "client has no debts". `success` stays True — extraction did
         # not raise — this only affects `extraction_status` and adds a
         # `warning` key callers can choose to act on.
-        recognised_bureau = record.agency in ("Experian", "Aryza Advize")
+        # ⚠️ TRANSUNION TOO (2026-11-25, case 438769): left out, a TransUnion
+        # report that yielded nothing was saved as a clean "extracted" -- a
+        # client with no debts -- instead of being flagged for review.
+        recognised_bureau = record.agency in ("Experian", "Aryza Advize", "TransUnion")
         found_nothing_at_all = not (
             result.get("accounts") or result.get("mortgage_accounts") or result.get("other_accounts")
         )

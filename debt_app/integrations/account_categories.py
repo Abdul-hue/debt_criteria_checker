@@ -84,6 +84,9 @@ SOURCE_ARYZA_ADVIZE_PDF = "aryza_advize_pdf"
 SOURCE_EXPERIAN_PDF = "experian_pdf"
 SOURCE_EXPERIAN_VALID8_PDF = "experian_valid8_pdf"
 SOURCE_EXPERIAN_JSON = "experian_json"
+#: A TransUnion "SHARE" report (`integrations/transunion_report.py`,
+#: 2026-11-25). Its month statuses are written as Experian's codes.
+SOURCE_TRANSUNION_PDF = "transunion_pdf"
 
 
 def _words(value) -> str:
