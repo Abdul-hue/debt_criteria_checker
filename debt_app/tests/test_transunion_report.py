@@ -23,7 +23,11 @@ Pinned:
   * printed statuses become the bureau codes CAT reads; an unknown one is
     kept as printed, never "0";
   * every printed field is kept; the account line beside a field is split;
-  * a judgment or insolvency of an unseen layout is taken as present.
+  * a judgment or insolvency of an unseen layout is taken as present;
+  * (the 2026-11-09 report) positions are the report's own, not fixed: a
+    page printed 1.27x larger still finds its headings and wrapped cells; a
+    wrapped account line is one account; run-together month names split;
+    "No data was retrieved" never joins a month.
 """
 from unittest import mock
 
@@ -50,13 +54,13 @@ MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
-def _phrase(text, x0, top):
+def _phrase(text, x0, top, scale=1.0):
     words, x = [], x0
     for token in text.split():
-        word = {"text": token, "x0": float(x), "x1": float(x + CHAR * len(token)),
+        word = {"text": token, "x0": float(x), "x1": float(x + CHAR * scale * len(token)),
                 "top": float(top), "bottom": float(top + 7)}
         words.append(word)
-        x = word["x1"] + SPACE
+        x = word["x1"] + SPACE * scale
     return words
 
 
@@ -93,10 +97,18 @@ class _Pdf:
 class _Report:
     """Lays a TransUnion report out top to bottom, page by page."""
 
-    def __init__(self, judgments="No data was retrieved for this section"):
+    INTRO = ("This section shows you the information provided to us by credit "
+             "providers and lenders on your current financial accounts.")
+
+    def __init__(self, judgments="No data was retrieved for this section", *,
+                 scale=1.0, intro=False):
+        """`scale`: the whole page printed larger (the 2026-11-09 report is
+        1.27x 438769's). `intro`: the line real reports print under the
+        SHARE heading, at the sub-section headings' margin."""
         self.pages = [[]]
         self.top = 15.0
         self.cols = COLS
+        self.scale = scale
         self.line(("Consumer Credit Report", 5))
         self.line(("Search Details", 162))
         self.line(("Provider: TransUnion", 162))
@@ -109,10 +121,18 @@ class _Report:
         self.line(("Judgments", 16), (judgments, 249) if judgments.startswith("No data")
                   else (judgments, 60))
         self.line(("Financial Account Information (SHARE)", 5))
+        if intro:
+            self.line((self.INTRO, 16))
 
     def line(self, *parts, step=8.0):
         for text, x0 in parts:
-            self.pages[-1].extend(_phrase(text, x0, self.top))
+            self.pages[-1].extend(_phrase(text, x0 * self.scale, self.top, self.scale))
+        self.top += step
+
+    def words(self, words, step=10.0):
+        """A line of hand-placed words: [(text, x0, x1)], unscaled."""
+        self.pages[-1].extend({"text": t, "x0": float(x0), "x1": float(x1),
+                               "top": self.top, "bottom": self.top + 7} for t, x0, x1 in words)
         self.top += step
 
     def new_page(self):
@@ -125,13 +145,16 @@ class _Report:
     def account(self, lender, balance="£512.00", *, account_type="Unsecured Loan",
                 status="Up to date", header="Mr Alex Test || 101 || || 1 Test Street Town AB1 2CD "
                 "|| 01/01/1980 01/06/2026 00:00:00 || ||", header_with_opening=None,
-                opening="£600.00", regular="£40.00", frequency="Monthly",
+                header_wrap=None, opening="£600.00", regular="£40.00", frequency="Monthly",
                 acc_number="ABC123 0", extra=()):
         if header_with_opening:
             # The account line running up to the right-hand field, no gap.
             self.line((f"{header} Opening Balance: {header_with_opening}", 25))
         else:
             self.line((header, 25))
+        if header_wrap:
+            # A long account line's end, wrapped onto a line of its own.
+            self.line((header_wrap, 25))
         left = [f"Lender: {lender}"]
         if balance is not None:
             left.append(f"Balance: {balance}")
@@ -407,6 +430,85 @@ class SectionTests(SimpleTestCase):
         self.assertEqual(_named(result, "Klarna Pay Later")["type_code"], "DP")
         unspecified = _named(result, "M&S Bank")
         self.assertEqual((unspecified["type_code"], unspecified["type_unmapped"]), ("OT", True))
+
+
+class SecondReportTests(SimpleTestCase):
+    """The 2026-11-09 report: the same layout printed 1.27x larger, a long
+    address wrapping the account line, run-together month names, and an empty
+    "Mortgages" heading whose "No data" line went onto the month above."""
+
+    def test_headings_are_found_on_a_report_printed_larger(self):
+        report = _Report(scale=1.27, intro=True)
+        report.section("Closed Accounts")
+        report.account("Loqbox", "£0.00", status="Settled")
+        report.section("Credit Cards")
+        report.account("Capital One", "£191.00", account_type="Credit Card")
+        result = report.extract()
+        self.assertTrue(_named(result, "Loqbox")["closed"])
+        self.assertEqual(_named(result, "Loqbox")["report_section"], "Closed Accounts")
+        self.assertFalse(_named(result, "Capital One")["closed"])
+        self.assertEqual(_named(result, "Capital One")["report_section"], "Credit Cards")
+
+    def test_a_wrapped_status_joins_its_cell_on_a_report_printed_larger(self):
+        report = _Report(scale=1.27, intro=True)
+        report.account("Newday LTD", "£0.00", account_type="Credit Card")
+        report.grid("Status", [(2026, {m: ("Dormant/inactive", "account") for m in range(1, 11)})],
+                    cols=WIDE_COLS)
+        account = _named(report.extract(), "Newday LTD")
+        self.assertEqual(_months(account), [(f"2026-{m:02d}", "D") for m in range(1, 11)])
+
+    def test_no_data_under_an_empty_heading_never_joins_a_month(self):
+        report = _Report(scale=1.27, intro=True)
+        report.section("Credit Cards")
+        report.account("Capital One", "£191.00", account_type="Credit Card")
+        report.grid("Status", [(2023, {m: "Ok" for m in range(1, 13)})])
+        report.section("Mortgages")
+        report.line(("No data was retrieved for this section", 186))
+        report.section("Other Accounts")
+        report.account("Halifax", "£541.00", account_type="Current Account")
+        result = report.extract()
+        months = _named(result, "Capital One")["status_history"]
+        self.assertEqual({e["status_printed"] for e in months}, {"Ok"})
+        self.assertEqual(_named(result, "Halifax")["report_section"], "Other Accounts")
+
+    def test_no_data_straight_after_a_grid_is_not_a_cell(self):
+        report = _Report()
+        report.account("Capital One", "£191.00", account_type="Credit Card")
+        report.grid("Status", [(2023, {m: "Ok" for m in range(1, 13)})])
+        report.line(("No data was retrieved for this section", 236))
+        months = _named(report.extract(), "Capital One")["status_history"]
+        self.assertEqual([e["status"] for e in months], ["0"] * 12)
+
+    def test_a_wrapped_account_line_is_one_account(self):
+        report = _Report(scale=1.27, intro=True)
+        report.section("Closed Accounts")
+        report.account(
+            "Loqbox", "£0.00", status="Settled",
+            header="Mr Alex Test || 643465 || || Long Gardens, 10 Long Gardens Long Road "
+                   "London Greater London AB1 2CD || 20/08/1995 13/07/2023 00:00:00 || 22/08/2023",
+            header_wrap="00:00:00 ||")
+        report.account("Starling Bank", "£0.00", account_type="Current Account")
+        result = report.extract()
+        self.assertEqual([a["raw_name"] for a in _all(result)], ["Loqbox", "Starling Bank"])
+        loqbox = _named(result, "Loqbox")
+        self.assertEqual(loqbox["account_holder"], "Mr Alex Test")
+        self.assertEqual(loqbox["date_of_birth"], "1995-08-20")
+        self.assertTrue(loqbox["address"].startswith("Long Gardens"))
+        self.assertEqual(_named(result, "Starling Bank")["account_holder"], "Mr Alex Test")
+
+    def test_month_names_printed_together_are_split(self):
+        report = _Report()
+        report.account("Frasers Group Financial Services", "£18.00", account_type="Credit Card")
+        report.line(("Status History", 26), step=12.0)
+        # As on the report: "Jan" ... "Jul" apart, then "AugSep" and
+        # "OctNovDec" printed as one word each over narrow columns.
+        report.words([(name, COLS[m] - 4, COLS[m] + 4) for m, name in enumerate(MONTHS[:7], 1)]
+                     + [("AugSep", 480, 510), ("OctNovDec", 515, 560)])
+        report.cols = {**COLS, 8: 487.5, 9: 502.5, 10: 522.5, 11: 537.5, 12: 552.5}
+        report.year_row(2026, {1: "Ok", 9: "Default", 10: "Ok", 11: "Ok"})
+        account = _named(report.extract(), "Frasers Group Financial Services")
+        self.assertEqual(_months(account),
+                         [("2026-01", "0"), ("2026-09", "8"), ("2026-10", "0"), ("2026-11", "0")])
 
 
 class PublicInformationTests(SimpleTestCase):

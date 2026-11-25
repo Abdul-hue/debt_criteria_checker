@@ -41,6 +41,17 @@ recently opened account payment delay") spreads over neighbouring columns,
 so the words of one cell are joined first and the cell placed by its centre.
 A grid can cross a page: its columns and year are carried over.
 
+⚠️ THE SAME LAYOUT COMES AT DIFFERENT SIZES (2026-11-09 report, 76 accounts,
+read 2026-11-25): everything 1.27x further right than on 438769. Positions are
+therefore the report's own (see `_HEADING_MARGIN_TOLERANCE`). That report also
+showed: month names printed with no gap ("AugSep", "OctNovDec" -- split, else
+the grid was lost: 4 of its 181), an account line wrapped by a long address
+("... || 22/08/2023" then "00:00:00 ||" -- joined, else the account's holder
+read "00:00:00"), and an empty sub-section's "No data was retrieved for this
+section" (never a cell). "Early arrears" and "Query (account under review)"
+are printed month statuses with no code here yet: kept as printed, so never
+read as paid.
+
 ⚠️ ONLY THE SHARE SECTION. MODA repeats accounts that "will also appear in
 the Financial Account Information section" -- read there too, every debt
 would be counted twice. Reading stops at the next top-level heading.
@@ -103,13 +114,26 @@ _FIELD_GAP = 12.0
 #: Words this close in height share a line. Status badges ("Up to date",
 #: "Good") sit ~1pt below their label.
 _LINE_TOLERANCE = 2.5
-#: A sub-section heading ("Closed Accounts", "Credit Cards") starts further
-#: left than anything inside an account (field labels at x0 ~21, the account
-#: line at ~25, grid titles at ~26, year labels at ~28).
-_SUBSECTION_MAX_X0 = 19.0
-#: A grid's continuation line (a wrapped status) starts right of the year
-#: labels (x1 ~40).
-_CONTINUATION_MIN_X0 = 42.0
+#: ⚠️ NO FIXED POSITIONS ACROSS THE PAGE (2026-11-25, the 2026-11-09 report).
+#: The same layout is printed at different sizes: one report has everything
+#: 1.27x further right than 438769's (sub-section headings at x0 20.1 against
+#: 15.8, field labels 26.4 against 20.7, year labels' right edge 51.5 against
+#: 40.4). A fixed "heading left of 19pt" read no heading at all on it -- no
+#: account marked closed -- so positions are taken from the report itself:
+#:   * a sub-section heading starts at the section's left margin, where the
+#:     introduction line under the SHARE heading starts (or left of the field
+#:     labels by this much, before that is known);
+#:   * a grid's continuation line (a wrapped status) starts right of the year
+#:     label above it.
+_HEADING_MARGIN_TOLERANCE = 2.0
+_HEADING_LEFT_OF_LABELS = 3.0
+#: An account line has six "||" ("Name || id || || address || dates || end ||").
+#: One with fewer that is followed by another "||" line before any field has
+#: wrapped (a long address: "... || 22/08/2023" then "00:00:00 ||").
+_ACCOUNT_LINE_BARS = 6
+#: Printed under a heading or grid that holds nothing -- never a cell. One
+#: constant for the accounts and the public information (lowercase).
+_NO_DATA = "no data was retrieved for this section"
 
 #: The report's account types (`Account Type Name`) where it words them
 #: differently from Experian -- the Experian map
@@ -187,10 +211,29 @@ def _centre(words: list[dict]) -> float:
     return (words[0]["x0"] + words[-1]["x1"]) / 2
 
 
+_RUN_TOGETHER_MONTHS_RE = re.compile(
+    r"(?:" + "|".join(m.lower() for m in _MONTHS) + r"){2,12}")
+
+
+def _split_months(word: dict) -> list[dict]:
+    """A word of month names printed with no gap ("AugSep", "JanFebMar" --
+    narrow columns over wide cells) as one word per month, each a share of
+    the width (every name is three letters); any other word unchanged."""
+    text = word["text"]
+    if not _RUN_TOGETHER_MONTHS_RE.fullmatch(text.lower()):
+        return [word]
+    count = len(text) // 3
+    width = (word["x1"] - word["x0"]) / count
+    return [{**word, "text": text[i * 3:i * 3 + 3],
+             "x0": word["x0"] + i * width, "x1": word["x0"] + (i + 1) * width}
+            for i in range(count)]
+
+
 def _month_header(words: list[dict]) -> list[tuple[int, float]] | None:
     """[(month 1-12, column centre)] for a "Jan Feb ... Dec" line -- a leading
-    year allowed -- else None."""
+    year allowed, names printed together ("OctNovDec") split -- else None."""
     names = words[1:] if words and re.fullmatch(r"\d{4}", words[0]["text"]) else words
+    names = [part for w in names for part in _split_months(w)]
     if not names or any(w["text"].lower() not in _MONTH_NUMBER for w in names):
         return None
     months = [_MONTH_NUMBER[w["text"].lower()] for w in names]
@@ -442,12 +485,30 @@ def read_accounts(pdf) -> list[dict]:
     grid: str | None = None
     columns: list[tuple[int, float]] | None = None
     year: int | None = None
+    # The right edge of the year label of the grid row being read.
+    year_x1: float | None = None
+    # Where the section's own lines start (see `_HEADING_MARGIN_TOLERANCE`).
+    margin: float | None = None
+    expect_intro = False
+    label_x0: float | None = None
 
     def finish():
-        nonlocal account, grid, columns, year
+        nonlocal account, grid, columns, year, year_x1
         if account is not None and (account["fields"] or account["header"]):
             raws.append(account)
-        account, grid, columns, year = None, None, None, None
+        account, grid, columns, year, year_x1 = None, None, None, None, None
+
+    def is_heading(first: dict, text: str) -> bool:
+        """A sub-section heading: short, no colon, at the section's margin."""
+        if ":" in text or not re.fullmatch(r"[A-Za-z&/ \-]{3,50}", text):
+            return False
+        if margin is not None:
+            return abs(first["x0"] - margin) <= _HEADING_MARGIN_TOLERANCE
+        if label_x0 is not None:
+            return first["x0"] < label_x0 - _HEADING_LEFT_OF_LABELS
+        # No introduction and no account yet: before the first account a
+        # short line of words can only be a heading.
+        return account is None
 
     for page in pdf.pages:
         for words in _lines(page):
@@ -455,6 +516,7 @@ def read_accounts(pdf) -> list[dict]:
 
             if _SHARE_HEADING_RE.match(text):
                 in_share = True
+                expect_intro = True
                 continue
             if not in_share:
                 continue
@@ -465,28 +527,49 @@ def read_accounts(pdf) -> list[dict]:
 
             first = words[0]
 
-            # The account line ("Name || id || || address || dates || ||"),
+            # The introduction under the SHARE heading ("This section shows
+            # you the information provided to us by credit providers ...")
+            # starts at the section's margin, where its headings start.
+            if expect_intro:
+                expect_intro = False
+                if "||" not in text and ":" not in text and len(text) > 50:
+                    margin = first["x0"]
+                    continue
+
+            if " ".join(text.lower().split()) == _NO_DATA:
+                # Under an empty heading or grid; never a cell of the grid above.
+                grid, columns, year, year_x1 = None, None, None, None
+                continue
+
+            # The account line ("Name || id || || address || dates || end ||"),
             # possibly sharing its line with the right-hand column's first
             # field ("Opening Balance: £14,958.00").
             if "||" in text:
-                finish()
-                account = _new_account(section)
+                # At most the one field that can share the account line
+                # ("Opening Balance: ..." beside it on 438769).
+                wrapped = (account is not None and account.get("_header_text")
+                           and len(account["fields"]) <= 1 and not account["grids"]
+                           and account["_header_text"].count("||") < _ACCOUNT_LINE_BARS)
+                if not wrapped:
+                    finish()
+                    account = _new_account(section)
                 for part in _groups(words, _FIELD_GAP):
                     part_text = _text(part)
                     if "||" in part_text:
                         # A long account line can run up to the field beside
                         # it with no gap: what follows its last "||" is a field.
                         head, _bars, tail = part_text.rpartition("||")
-                        account["header"] = _parse_header(head + "||")
+                        header_text = (f"{account['_header_text']} {head}||" if wrapped
+                                       else f"{head}||")
+                        account["_header_text"] = header_text
+                        account["header"] = _parse_header(header_text)
                         if tail.strip():
                             _put_field(account, tail.strip())
                     else:
                         _put_field(account, part_text)
                 continue
 
-            # A sub-section heading: short, no colon, left of everything else.
-            if (first["x0"] < _SUBSECTION_MAX_X0 and ":" not in text
-                    and re.fullmatch(r"[A-Za-z&/ \-]{3,50}", text)):
+            if is_heading(first, text):
                 finish()
                 section = text.strip()
                 continue
@@ -511,12 +594,13 @@ def read_accounts(pdf) -> list[dict]:
                     continue
                 if columns and re.fullmatch(r"\d{4}", first["text"]) \
                         and 1900 < int(first["text"]) < 2200 and first["x1"] < columns[0][1]:
-                    year = int(first["text"])
+                    year, year_x1 = int(first["text"]), first["x1"]
                     for cell in _groups(words[1:], _PHRASE_GAP):
                         month = _nearest_month(columns, _centre(cell))
                         account["grids"][grid][(year, month)] = _text(cell)
                     continue
-                if columns and year is not None and first["x0"] >= _CONTINUATION_MIN_X0:
+                if columns and year is not None and year_x1 is not None \
+                        and first["x0"] > year_x1 and ":" not in text:
                     # A wrapped cell's second line joins the cell above it.
                     for cell in _groups(words, _PHRASE_GAP):
                         month = _nearest_month(columns, _centre(cell))
@@ -527,6 +611,8 @@ def read_accounts(pdf) -> list[dict]:
 
             # "Label: value" fields, one or two per line.
             if ":" in text:
+                if re.match(r"[A-Za-z][A-Za-z ()/&]{0,40}:", text):
+                    label_x0 = first["x0"] if label_x0 is None else min(label_x0, first["x0"])
                 if text.startswith("Lender:") and "Lender" in account["fields"]:
                     # A second account with no account line of its own.
                     finish()
@@ -604,9 +690,6 @@ def record_count(full_text: str, heading: str) -> int | None:
         if m2:
             return int(m2.group(1))
     return None
-
-
-_NO_DATA = "no data was retrieved for this section"
 
 
 def public_information(full_text: str, base: dict) -> dict:
