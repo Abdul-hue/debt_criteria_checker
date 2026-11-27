@@ -37,4 +37,11 @@ RUN SECRET_KEY=build-placeholder-key python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
-CMD ["gunicorn", "debt_project.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-"]
+# --timeout 600 (was 120, 2026-11-27, case 438987). A credit-report upload is
+# read inside its request, and a worker past this timeout is KILLED mid-read.
+# The time grows with the page count (a 101-page TransUnion report: between
+# 60s and 120s on the shared server), so this is only a ceiling for a stuck
+# read -- a request still ends the moment its read does. CAT waits by page
+# count up to 600s (`UPLOAD_TIMEOUT_MAX_SECONDS` in its
+# `core/ingest/credit_report.py`); keep this at or above that.
+CMD ["gunicorn", "debt_project.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "600", "--access-logfile", "-", "--error-logfile", "-"]

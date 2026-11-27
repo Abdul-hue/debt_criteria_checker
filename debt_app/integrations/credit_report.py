@@ -38,6 +38,7 @@ to a logged warning instead of silent data loss.
 
 import re
 import logging
+import time
 from datetime import date, datetime
 
 import pdfplumber
@@ -2302,8 +2303,16 @@ def extract_credit_report(pdf_path: str) -> dict:
 
     Never raises. On any exception returns dict with "extraction_error" key.
     """
+    # How long the read took, logged per report (2026-11-27, case 438987) --
+    # "[CREDIT REPORT] 101 pages read in 74.2s" in the container's log: CAT
+    # waits for this read by the page count (`UPLOAD_SECONDS_PER_PAGE` in its
+    # `core/ingest/credit_report.py`), and these lines are the server's real
+    # time per page to check that against.
+    started = time.monotonic()
+    page_count = None
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            page_count = len(pdf.pages)
             page_texts = [page.extract_text() or "" for page in pdf.pages]
             full_text = "\n".join(page_texts)
             # The month-by-month record, read from word positions while the
@@ -2464,6 +2473,11 @@ def extract_credit_report(pdf_path: str) -> dict:
                     if parsed["matched_creditor"] == parsed["raw_name"]:
                         unmatched.append(parsed["raw_name"])
 
+        # WARNING, not info: the service has no LOGGING config, so only
+        # warnings reach `docker compose logs` (as `[PROPERTY ENRICH]`).
+        logger.warning("[CREDIT REPORT] %s pages read in %.1fs (agency %s, %d accounts)",
+                    page_count, time.monotonic() - started, agency,
+                    len(accounts) + len(mortgage_accounts) + len(other_accounts))
         return {
             "agency": agency,
             "client_name": client_name,
@@ -2484,7 +2498,8 @@ def extract_credit_report(pdf_path: str) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"Credit report extraction failed for {pdf_path}: {e}", exc_info=True)
+        logger.error(f"Credit report extraction failed for {pdf_path} after "
+                     f"{time.monotonic() - started:.1f}s ({page_count} pages): {e}", exc_info=True)
         return {
             "agency": "Unknown",
             "client_name": "",
